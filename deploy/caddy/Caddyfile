@@ -1,0 +1,12 @@
+{$PUBLIC_DOMAIN} {
+	encode zstd gzip
+
+	@websocket {
+		path /api/v1/ws
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
+
+	reverse_proxy @websocket signaling:8080
+	reverse_proxy signaling:8080
+}

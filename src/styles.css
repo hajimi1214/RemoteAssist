@@ -1,0 +1,164 @@
+:root {
+  color: #182026;
+  background: #f4f7f9;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.app-shell {
+  min-height: 100vh;
+  padding: 28px;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28px;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 32px;
+}
+
+p {
+  color: #5f6f7a;
+  margin-top: 6px;
+}
+
+.home-actions {
+  display: grid;
+  gap: 18px;
+  max-width: 520px;
+}
+
+.panel {
+  background: #ffffff;
+  border: 1px solid #d8e1e8;
+  border-radius: 8px;
+  padding: 22px;
+  max-width: 960px;
+}
+
+.primary-action,
+.secondary-action,
+.danger-action,
+.link-button {
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  min-height: 44px;
+  padding: 0 18px;
+}
+
+.primary-action {
+  background: #146c94;
+  color: white;
+}
+
+.secondary-action {
+  background: #2d3b45;
+  color: white;
+}
+
+.danger-action {
+  background: #b42318;
+  color: white;
+}
+
+.link-button {
+  background: transparent;
+  color: #146c94;
+  padding: 0;
+}
+
+.code-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 240px;
+  height: 80px;
+  margin: 18px 0;
+  border: 1px solid #9bb4c5;
+  border-radius: 8px;
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: 0;
+  background: #eef6fa;
+}
+
+.approval {
+  border: 2px solid #b42318;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 18px 0;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.status-grid dt {
+  color: #5f6f7a;
+}
+
+.status-grid dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.join-form {
+  display: flex;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.join-form input {
+  border: 1px solid #9bb4c5;
+  border-radius: 6px;
+  min-height: 44px;
+  padding: 0 14px;
+  width: 180px;
+}
+
+.remote-stage {
+  background: #101820;
+  border-radius: 8px;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+}
+
+.remote-stage video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  outline: none;
+}

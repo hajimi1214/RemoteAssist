@@ -1,0 +1,13 @@
+fingerprint
+lt-cred-mech
+realm=${TURN_REALM}
+user=${TURN_USERNAME}:${TURN_PASSWORD}
+external-ip=${TURN_EXTERNAL_IP}
+listening-port=3478
+tls-listening-port=5349
+min-port=${TURN_MIN_PORT}
+max-port=${TURN_MAX_PORT}
+no-cli
+no-tlsv1
+no-tlsv1_1
+log-file=stdout
