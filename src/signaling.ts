@@ -34,10 +34,132 @@ export interface IceServer {
   credential?: string;
 }
 
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+}
+
+export interface AuthResult {
+  user: User;
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: string;
+}
+
+export interface Device {
+  id: string;
+  userId: string;
+  deviceName: string;
+  deviceFingerprint: string;
+  osName: string;
+  appVersion: string;
+  note: string;
+  lastSeenAt: string;
+  online: boolean;
+  current: boolean;
+}
+
+export interface AssistRequest {
+  id: string;
+  hostDeviceId: string;
+  controllerDeviceId: string;
+  controllerDeviceName: string;
+  status: string;
+  createdAt: string;
+}
+
 const defaultBaseURL = import.meta.env.VITE_SIGNALING_URL ?? "http://localhost:8080";
 
 export class SignalingClient {
   constructor(private readonly baseURL = defaultBaseURL.replace(/\/$/, "")) {}
+
+  async register(username: string, email: string, password: string): Promise<AuthResult> {
+    return this.request<AuthResult>("/api/v1/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ username, email, password })
+    });
+  }
+
+  async login(login: string, password: string): Promise<AuthResult> {
+    return this.request<AuthResult>("/api/v1/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ login, password })
+    });
+  }
+
+  async refresh(refreshToken: string): Promise<AuthResult> {
+    return this.request<AuthResult>("/api/v1/auth/refresh", {
+      method: "POST",
+      body: JSON.stringify({ refreshToken })
+    });
+  }
+
+  async logout(refreshToken: string): Promise<void> {
+    await this.request("/api/v1/auth/logout", {
+      method: "POST",
+      body: JSON.stringify({ refreshToken })
+    });
+  }
+
+  async me(accessToken: string): Promise<User> {
+    const body = await this.request<{ user: User }>("/api/v1/auth/me", {}, accessToken);
+    return body.user;
+  }
+
+  async registerDevice(accessToken: string, device: Pick<Device, "deviceName" | "deviceFingerprint" | "osName" | "appVersion">): Promise<Device> {
+    const body = await this.request<{ device: Device }>("/api/v1/devices/register", {
+      method: "POST",
+      body: JSON.stringify(device)
+    }, accessToken);
+    return body.device;
+  }
+
+  async devices(accessToken: string, currentDeviceId: string): Promise<Device[]> {
+    const body = await this.request<{ devices: Device[] }>(`/api/v1/devices?currentDeviceId=${encodeURIComponent(currentDeviceId)}`, {}, accessToken);
+    return body.devices;
+  }
+
+  async updateDevice(accessToken: string, id: string, note: string): Promise<Device> {
+    const body = await this.request<{ device: Device }>(`/api/v1/devices/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ note })
+    }, accessToken);
+    return body.device;
+  }
+
+  async revokeDevice(accessToken: string, id: string): Promise<void> {
+    await this.request(`/api/v1/devices/${encodeURIComponent(id)}`, { method: "DELETE" }, accessToken);
+  }
+
+  async heartbeat(accessToken: string, id: string): Promise<Device> {
+    const body = await this.request<{ device: Device }>(`/api/v1/devices/${encodeURIComponent(id)}/heartbeat`, {
+      method: "POST",
+      body: JSON.stringify({})
+    }, accessToken);
+    return body.device;
+  }
+
+  async requestAssist(accessToken: string, hostDeviceId: string, controllerDeviceId: string): Promise<AssistRequest> {
+    const body = await this.request<{ request: AssistRequest }>(`/api/v1/devices/${encodeURIComponent(hostDeviceId)}/assist`, {
+      method: "POST",
+      body: JSON.stringify({ controllerDeviceId })
+    }, accessToken);
+    return body.request;
+  }
+
+  async assistRequests(accessToken: string, deviceId: string): Promise<AssistRequest[]> {
+    const body = await this.request<{ requests: AssistRequest[] }>(`/api/v1/devices/${encodeURIComponent(deviceId)}/assist-requests`, {}, accessToken);
+    return body.requests;
+  }
+
+  async resolveAssistRequest(accessToken: string, id: string, status: "ACCEPTED" | "REJECTED"): Promise<AssistRequest> {
+    const body = await this.request<{ request: AssistRequest }>(`/api/v1/assist-requests/${encodeURIComponent(id)}/resolve`, {
+      method: "POST",
+      body: JSON.stringify({ status })
+    }, accessToken);
+    return body.request;
+  }
 
   async iceServers(): Promise<IceServer[]> {
     const body = await this.request<{ iceServers: IceServer[] }>("/api/v1/ice-config");
@@ -89,11 +211,12 @@ export class SignalingClient {
     return url.toString();
   }
 
-  private async request<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
+  private async request<T = unknown>(path: string, init: RequestInit = {}, accessToken = ""): Promise<T> {
     const response = await fetch(`${this.baseURL}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         ...init.headers
       }
     });

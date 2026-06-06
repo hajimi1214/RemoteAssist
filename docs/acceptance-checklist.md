@@ -3,10 +3,18 @@
 - Desktop frontend build: PASS
 - Tauri Rust check: PASS
 - Portable Windows EXE package: PASS
-- NSIS installer package: FAIL due NSIS download timeout in this environment
+- NSIS installer package: PASS
 - Go service build: PASS
 - Go unit tests: PASS
+- Authentication API tests: PASS
+- Device API tests: PASS
+- Migration structure tests: PASS
 - Docker Compose config validation: PASS
+- Argon2id password hashing: PASS
+- Refresh token hash and revocation tests: PASS
+- Automatic current-device registration UI flow: PASS
+- Device list, note, heartbeat, and unbind APIs: PASS
+- Device selection assist request and host notification UI: PASS
 - Host explicit sharing start: PASS
 - Host screen/window picker through `getDisplayMedia`: PASS
 - 8-digit code and 5-minute expiry: PASS
@@ -16,5 +24,7 @@
 - WebRTC video path implemented: PASS
 - DataChannel input path implemented: PASS
 - P2P and TURN configuration implemented: PASS
+- Live PostgreSQL migration against temporary Docker database: PASS
+- Install on second Windows PC: NOT VERIFIED
 - LAN dual-machine test: NOT VERIFIED
 - Public server deployment test: NOT VERIFIED

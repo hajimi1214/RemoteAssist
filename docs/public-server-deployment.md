@@ -2,7 +2,7 @@
 
 ## Environment Variables
 
-Use `deploy/.env.example` as the template. Replace `PUBLIC_DOMAIN`, `PUBLIC_BASE_URL`, `TURN_REALM`, `TURN_EXTERNAL_IP`, `TURN_USERNAME`, and `TURN_PASSWORD` before deployment.
+Use `deploy/.env.example` as the template. Replace `PUBLIC_DOMAIN`, `PUBLIC_BASE_URL`, `POSTGRES_PASSWORD`, `DATABASE_URL`, `JWT_SECRET`, `REFRESH_TOKEN_SECRET`, `TURN_REALM`, `TURN_EXTERNAL_IP`, `TURN_USERNAME`, `TURN_PASSWORD`, and `TURN_SECRET` before deployment.
 
 ## Domain and TLS
 
@@ -22,6 +22,7 @@ Point the domain A/AAAA record to the server. Caddy listens on TCP `80` and `443
 Copy-Item deploy/.env.example deploy/.env
 notepad deploy/.env
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --entrypoint /signaling-migrate signaling
 ```
 
 ## Stop
@@ -56,6 +57,18 @@ curl https://remoteassist.example.com/healthz
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs -f signaling
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs -f coturn
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs -f caddy
+```
+
+## Backup
+
+```powershell
+.\scripts\backup-postgres.ps1 -Output remoteassist-backup.sql
+```
+
+## Restore
+
+```powershell
+.\scripts\restore-postgres.ps1 -Input remoteassist-backup.sql
 ```
 
 ## P2P and TURN Fallback Verification

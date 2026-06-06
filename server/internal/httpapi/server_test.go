@@ -87,6 +87,12 @@ func testServer() http.Handler {
 		CodeTTL:            5 * time.Minute,
 		MaxMessageBytes:    65536,
 		RateLimitPerMinute: 1000,
+		LoginFailLimit:     1000,
+		JWTSecret:          "01234567890123456789012345678901",
+		RefreshTokenSecret: "abcdefghijklmnopqrstuvwxyz123456",
+		AccessTokenTTL:     15 * time.Minute,
+		RefreshTokenTTL:    24 * time.Hour,
+		DeviceOfflineAfter: 2 * time.Minute,
 		ICEServers:         []config.ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}},
 	}
 	return NewServer(cfg, store, slog.Default()).Routes()

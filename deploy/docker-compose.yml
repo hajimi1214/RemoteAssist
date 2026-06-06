@@ -1,4 +1,19 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB}"
+      POSTGRES_USER: "${POSTGRES_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
   signaling:
     build:
       context: ../server
@@ -6,6 +21,9 @@ services:
     restart: unless-stopped
     environment:
       SIGNALING_ADDR: ":8080"
+      DATABASE_URL: "${DATABASE_URL}"
+      JWT_SECRET: "${JWT_SECRET}"
+      REFRESH_TOKEN_SECRET: "${REFRESH_TOKEN_SECRET}"
       PUBLIC_BASE_URL: "${PUBLIC_BASE_URL}"
       SESSION_CODE_TTL: "${SESSION_CODE_TTL:-5m}"
       WS_MAX_MESSAGE_BYTES: "${WS_MAX_MESSAGE_BYTES:-65536}"
@@ -13,7 +31,11 @@ services:
       TURN_URLS: "${TURN_URLS}"
       TURN_USERNAME: "${TURN_USERNAME}"
       TURN_PASSWORD: "${TURN_PASSWORD}"
+      TURN_SECRET: "${TURN_SECRET}"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
+    depends_on:
+      postgres:
+        condition: service_healthy
     expose:
       - "8080"
     healthcheck:
@@ -68,5 +90,6 @@ services:
       retries: 3
 
 volumes:
+  postgres_data:
   caddy_data:
   caddy_config:

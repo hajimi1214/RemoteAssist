@@ -4,6 +4,8 @@
 
 - Go standard library: BSD-3-Clause style license, used for HTTP service, JSON, crypto randomness, logging, and tests.
 - `github.com/gorilla/websocket`: BSD-2-Clause, used for signaling WebSocket transport.
+- `github.com/lib/pq`: MIT, used as the PostgreSQL database driver.
+- `golang.org/x/crypto`: BSD-3-Clause, used for Argon2id password hashing.
 - React: MIT, used for desktop UI.
 - React DOM: MIT, used to render the desktop UI.
 - Vite: MIT, used for frontend development and production build.

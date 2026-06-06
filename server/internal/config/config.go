@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"log/slog"
 	"os"
 	"strconv"
@@ -14,7 +16,14 @@ type Config struct {
 	CodeTTL            time.Duration
 	MaxMessageBytes    int64
 	RateLimitPerMinute int
+	LoginFailLimit     int
 	LogLevel           slog.Level
+	DatabaseURL        string
+	JWTSecret          string
+	RefreshTokenSecret string
+	AccessTokenTTL     time.Duration
+	RefreshTokenTTL    time.Duration
+	DeviceOfflineAfter time.Duration
 	ICEServers         []ICEServer
 }
 
@@ -31,7 +40,14 @@ func FromEnv() Config {
 		CodeTTL:            durationEnv("SESSION_CODE_TTL", 5*time.Minute),
 		MaxMessageBytes:    int64(intEnv("WS_MAX_MESSAGE_BYTES", 65536)),
 		RateLimitPerMinute: intEnv("RATE_LIMIT_PER_MINUTE", 120),
+		LoginFailLimit:     intEnv("LOGIN_FAIL_LIMIT_PER_MINUTE", 10),
 		LogLevel:           levelEnv("LOG_LEVEL", slog.LevelInfo),
+		DatabaseURL:        strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		JWTSecret:          secretEnv("JWT_SECRET"),
+		RefreshTokenSecret: secretEnv("REFRESH_TOKEN_SECRET"),
+		AccessTokenTTL:     durationEnv("ACCESS_TOKEN_TTL", 15*time.Minute),
+		RefreshTokenTTL:    durationEnv("REFRESH_TOKEN_TTL", 30*24*time.Hour),
+		DeviceOfflineAfter: durationEnv("DEVICE_OFFLINE_AFTER", 2*time.Minute),
 		ICEServers:         iceServersFromEnv(),
 	}
 }
@@ -104,4 +120,14 @@ func splitCSV(value string) []string {
 		}
 	}
 	return out
+}
+
+func secretEnv(key string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if len(value) >= 32 {
+		return value
+	}
+	buf := make([]byte, 32)
+	_, _ = rand.Read(buf)
+	return base64.RawURLEncoding.EncodeToString(buf)
 }

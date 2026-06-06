@@ -7,6 +7,7 @@
 - Go service build: PASS.
 - Tauri Rust check: PASS.
 - Portable Windows release EXE build: PASS.
+- Windows NSIS installer build: PASS.
 - Go `/healthz` runtime check: PASS.
 - Docker Compose config validation: PASS.
 
@@ -16,4 +17,4 @@
 - TURN relay latency: NOT VERIFIED.
 - CPU and memory during long sessions: NOT VERIFIED.
 - Multi-monitor DPI mapping: NOT VERIFIED.
-- NSIS installer generation: FAIL due download timeout.
+- Live PostgreSQL migration with temporary Docker container: PASS.

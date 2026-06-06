@@ -1,12 +1,14 @@
 # RemoteAssist
 
-RemoteAssist is a visible Windows remote assistance MVP. It requires the host to start sharing, choose a screen or window, share an 8-digit temporary code, and explicitly click `Allow Control` before remote input is accepted.
+RemoteAssist is a visible Windows remote assistance client. It requires sign in, automatic device registration, host-started sharing, an 8-digit temporary code, and explicit host approval before remote input is accepted.
 
 ## Local Development
 
 ```powershell
 .\scripts\dev.ps1
 ```
+
+First launch opens the login page. After registration or login, the client binds the current device and starts heartbeats.
 
 The desktop UI defaults to `http://localhost:8080` for signaling. Start the Go signaling server separately when needed:
 
@@ -33,6 +35,7 @@ cd server
 Copy-Item deploy/.env.example deploy/.env
 notepad deploy/.env
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --entrypoint /signaling-migrate signaling
 ```
 
 Do not hardcode TURN credentials in source. Put deployment secrets only in `deploy/.env` or equivalent server environment variables.

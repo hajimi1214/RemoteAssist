@@ -13,28 +13,50 @@ import (
 	"github.com/gorilla/websocket"
 
 	"remoteassist/server/internal/config"
+	"remoteassist/server/internal/identity"
 	"remoteassist/server/internal/session"
 )
 
 type Server struct {
-	cfg      config.Config
-	store    *session.Store
-	logger   *slog.Logger
-	peers    *peerHub
-	limiter  *ipLimiter
-	upgrader websocket.Upgrader
+	cfg          config.Config
+	store        *session.Store
+	logger       *slog.Logger
+	identity     *identity.Service
+	assist       *assistHub
+	peers        *peerHub
+	limiter      *ipLimiter
+	loginLimiter *ipLimiter
+	upgrader     websocket.Upgrader
 }
 
-func NewServer(cfg config.Config, store *session.Store, logger *slog.Logger) *Server {
+func NewServer(cfg config.Config, store *session.Store, logger *slog.Logger, identityServices ...*identity.Service) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	var identityService *identity.Service
+	if len(identityServices) > 0 {
+		identityService = identityServices[0]
+	}
+	if identityService == nil {
+		mem := identity.NewMemoryStore()
+		identityService, _ = identity.NewService(mem, identity.ServiceConfig{
+			AccessSecret:       cfg.JWTSecret,
+			RefreshSecret:      cfg.RefreshTokenSecret,
+			AccessTTL:          cfg.AccessTokenTTL,
+			RefreshTTL:         cfg.RefreshTokenTTL,
+			DeviceOfflineAfter: cfg.DeviceOfflineAfter,
+			Now:                time.Now,
+		})
+	}
 	return &Server{
-		cfg:     cfg,
-		store:   store,
-		logger:  logger,
-		peers:   newPeerHub(),
-		limiter: newIPLimiter(cfg.RateLimitPerMinute, time.Minute),
+		cfg:          cfg,
+		store:        store,
+		logger:       logger,
+		identity:     identityService,
+		assist:       newAssistHub(),
+		peers:        newPeerHub(),
+		limiter:      newIPLimiter(cfg.RateLimitPerMinute, time.Minute),
+		loginLimiter: newIPLimiter(cfg.LoginFailLimit, time.Minute),
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -48,6 +70,19 @@ func NewServer(cfg config.Config, store *session.Store, logger *slog.Logger) *Se
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
+	mux.HandleFunc("POST /api/v1/auth/register", s.authRegister)
+	mux.HandleFunc("POST /api/v1/auth/login", s.authLogin)
+	mux.HandleFunc("POST /api/v1/auth/refresh", s.authRefresh)
+	mux.HandleFunc("POST /api/v1/auth/logout", s.authLogout)
+	mux.HandleFunc("GET /api/v1/auth/me", s.authMe)
+	mux.HandleFunc("POST /api/v1/devices/register", s.registerDevice)
+	mux.HandleFunc("GET /api/v1/devices", s.listDevices)
+	mux.HandleFunc("PATCH /api/v1/devices/{id}", s.updateDevice)
+	mux.HandleFunc("DELETE /api/v1/devices/{id}", s.deleteDevice)
+	mux.HandleFunc("POST /api/v1/devices/{id}/heartbeat", s.heartbeatDevice)
+	mux.HandleFunc("POST /api/v1/devices/{id}/assist", s.requestDeviceAssist)
+	mux.HandleFunc("GET /api/v1/devices/{id}/assist-requests", s.listDeviceAssistRequests)
+	mux.HandleFunc("POST /api/v1/assist-requests/{id}/resolve", s.resolveDeviceAssistRequest)
 	mux.HandleFunc("GET /api/v1/ice-config", s.iceConfig)
 	mux.HandleFunc("POST /api/v1/share-sessions", s.createShareSession)
 	mux.HandleFunc("POST /api/v1/control-sessions/join", s.joinControlSession)
@@ -56,6 +91,195 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/share-sessions/{id}/disconnect", s.disconnectShareSession)
 	mux.HandleFunc("GET /api/v1/ws", s.websocket)
 	return s.securityHeaders(s.rateLimit(mux))
+}
+
+func (s *Server) authRegister(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := s.identity.Register(r.Context(), req.Username, req.Email, req.Password)
+	if err != nil {
+		writeIdentityError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
+	if !s.loginLimiter.allow(clientIP(r)) {
+		writeError(w, http.StatusTooManyRequests, "login_rate_limited")
+		return
+	}
+	var req struct {
+		Login    string `json:"login"`
+		Password string `json:"password"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := s.identity.Login(r.Context(), req.Login, req.Password)
+	if err != nil {
+		writeIdentityError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) authRefresh(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RefreshToken string `json:"refreshToken"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := s.identity.Refresh(r.Context(), req.RefreshToken)
+	if err != nil {
+		writeIdentityError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) authLogout(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RefreshToken string `json:"refreshToken"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if err := s.identity.Logout(r.Context(), req.RefreshToken); err != nil {
+		writeIdentityError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) authMe(w http.ResponseWriter, r *http.Request) {
+	user, err := s.identity.Me(r.Context(), bearerToken(r))
+	if err != nil {
+		writeIdentityError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": user})
+}
+
+func (s *Server) registerDevice(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DeviceName        string `json:"deviceName"`
+		DeviceFingerprint string `json:"deviceFingerprint"`
+		OSName            string `json:"osName"`
+		AppVersion        string `json:"appVersion"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	device, err := s.identity.RegisterDevice(r.Context(), bearerToken(r), req.DeviceName, req.DeviceFingerprint, req.OSName, req.AppVersion)
+	if err != nil {
+		writeIdentityError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"device": device})
+}
+
+func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
+	devices, err := s.identity.ListDevices(r.Context(), bearerToken(r), r.URL.Query().Get("currentDeviceId"))
+	if err != nil {
+		writeIdentityError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"devices": devices})
+}
+
+func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Note string `json:"note"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	device, err := s.identity.UpdateDevice(r.Context(), bearerToken(r), r.PathValue("id"), req.Note)
+	if err != nil {
+		writeIdentityError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"device": device})
+}
+
+func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {
+	if err := s.identity.RevokeDevice(r.Context(), bearerToken(r), r.PathValue("id")); err != nil {
+		writeIdentityError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
+}
+
+func (s *Server) heartbeatDevice(w http.ResponseWriter, r *http.Request) {
+	if !decodeEmptyOrObject(w, r) {
+		return
+	}
+	device, err := s.identity.Heartbeat(r.Context(), bearerToken(r), r.PathValue("id"))
+	if err != nil {
+		writeIdentityError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"device": device})
+}
+
+func (s *Server) requestDeviceAssist(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ControllerDeviceID string `json:"controllerDeviceId"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	devices, err := s.identity.ListDevices(r.Context(), bearerToken(r), req.ControllerDeviceID)
+	if err != nil {
+		writeIdentityError(w, err)
+		return
+	}
+	var host, controller *identity.Device
+	for i := range devices {
+		if devices[i].ID == r.PathValue("id") {
+			host = &devices[i]
+		}
+		if devices[i].ID == req.ControllerDeviceID {
+			controller = &devices[i]
+		}
+	}
+	if host == nil || controller == nil || !host.Online {
+		writeError(w, http.StatusConflict, "device_not_available")
+		return
+	}
+	request := s.assist.create(host.ID, controller.ID, controller.DeviceName)
+	writeJSON(w, http.StatusCreated, map[string]any{"request": request})
+}
+
+func (s *Server) listDeviceAssistRequests(w http.ResponseWriter, r *http.Request) {
+	if _, err := s.identity.Heartbeat(r.Context(), bearerToken(r), r.PathValue("id")); err != nil {
+		writeIdentityError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"requests": s.assist.pendingForHost(r.PathValue("id"))})
+}
+
+func (s *Server) resolveDeviceAssistRequest(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Status string `json:"status"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	request, ok := s.assist.resolve(r.PathValue("id"), req.Status)
+	if !ok {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"request": request})
 }
 
 func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
@@ -319,6 +543,29 @@ func writeStoreError(w http.ResponseWriter, err error) {
 	}
 }
 
+func writeIdentityError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, identity.ErrInvalidInput):
+		writeError(w, http.StatusBadRequest, "invalid_input")
+	case errors.Is(err, identity.ErrConflict):
+		writeError(w, http.StatusConflict, "conflict")
+	case errors.Is(err, identity.ErrInvalidCredentials), errors.Is(err, identity.ErrUnauthorized), errors.Is(err, identity.ErrRevoked):
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+	case errors.Is(err, identity.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found")
+	default:
+		writeError(w, http.StatusInternalServerError, "server_error")
+	}
+}
+
+func bearerToken(r *http.Request) string {
+	value := strings.TrimSpace(r.Header.Get("Authorization"))
+	if !strings.HasPrefix(strings.ToLower(value), "bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(value[7:])
+}
+
 func writeError(w http.ResponseWriter, status int, code string) {
 	writeJSONStatus(w, status, map[string]string{"error": code})
 }
@@ -420,6 +667,66 @@ type ipLimiter struct {
 	limit    int
 	window   time.Duration
 	requests map[string][]time.Time
+}
+
+type assistRequest struct {
+	ID                   string    `json:"id"`
+	HostDeviceID         string    `json:"hostDeviceId"`
+	ControllerDeviceID   string    `json:"controllerDeviceId"`
+	ControllerDeviceName string    `json:"controllerDeviceName"`
+	Status               string    `json:"status"`
+	CreatedAt            time.Time `json:"createdAt"`
+}
+
+type assistHub struct {
+	mu       sync.Mutex
+	requests map[string]assistRequest
+}
+
+func newAssistHub() *assistHub {
+	return &assistHub{requests: map[string]assistRequest{}}
+}
+
+func (h *assistHub) create(hostDeviceID, controllerDeviceID, controllerName string) assistRequest {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	request := assistRequest{
+		ID:                   "asr_" + time.Now().UTC().Format("20060102150405.000000000"),
+		HostDeviceID:         hostDeviceID,
+		ControllerDeviceID:   controllerDeviceID,
+		ControllerDeviceName: controllerName,
+		Status:               "WAITING_FOR_HOST",
+		CreatedAt:            time.Now().UTC(),
+	}
+	h.requests[request.ID] = request
+	return request
+}
+
+func (h *assistHub) pendingForHost(hostDeviceID string) []assistRequest {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var out []assistRequest
+	for _, request := range h.requests {
+		if request.HostDeviceID == hostDeviceID && request.Status == "WAITING_FOR_HOST" {
+			out = append(out, request)
+		}
+	}
+	return out
+}
+
+func (h *assistHub) resolve(id, status string) (assistRequest, bool) {
+	if status != "ACCEPTED" && status != "REJECTED" {
+		status = "REJECTED"
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	request, ok := h.requests[id]
+	if !ok {
+		return assistRequest{}, false
+	}
+	request.Status = status
+	h.requests[id] = request
+	return request, true
 }
 
 func newIPLimiter(limit int, window time.Duration) *ipLimiter {
