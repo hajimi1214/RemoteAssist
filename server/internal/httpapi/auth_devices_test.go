@@ -2,9 +2,12 @@ package httpapi
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"remoteassist/server/internal/session"
 )
 
 func TestAuthAndDeviceEndpoints(t *testing.T) {
@@ -119,6 +122,32 @@ func TestDeviceAssistRequestEndpoint(t *testing.T) {
 	}
 	if result := resolve(); result.Code != http.StatusConflict {
 		t.Fatalf("repeat assist resolve status=%d body=%s", result.Code, result.Body.String())
+	}
+}
+
+func TestDeviceAssistRequestLimitReturnsTooManyRequests(t *testing.T) {
+	cfg := testConfig()
+	store := session.NewStore(session.StoreConfig{})
+	defer store.Stop()
+	server := NewServer(cfg, store, slog.Default())
+	server.assist = newAssistHub(assistHubConfig{GlobalLimit: 1})
+	app := server.Routes()
+	auth := registerTestUser(t, app)
+	host := registerTestDevice(t, app, auth.AccessToken, "Host", "host")
+	first := registerTestDevice(t, app, auth.AccessToken, "Controller A", "controller-a")
+	second := registerTestDevice(t, app, auth.AccessToken, "Controller B", "controller-b")
+	for i, controller := range []string{first, second} {
+		request := jsonReq(http.MethodPost, "/api/v1/devices/"+host+"/assist", map[string]string{"controllerDeviceId": controller})
+		request.Header.Set("Authorization", "Bearer "+auth.AccessToken)
+		response := httptest.NewRecorder()
+		app.ServeHTTP(response, request)
+		want := http.StatusCreated
+		if i == 1 {
+			want = http.StatusTooManyRequests
+		}
+		if response.Code != want {
+			t.Fatalf("request %d status=%d want=%d body=%s", i, response.Code, want, response.Body.String())
+		}
 	}
 }
 

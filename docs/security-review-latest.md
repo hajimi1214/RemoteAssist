@@ -1,59 +1,25 @@
-# Security Review Latest
+# Security review — 0.4.0-alpha
 
-## Scope Reviewed
+Date: 2026-11-20. Source review and local tests, not a production penetration test.
 
-- 0.3 alpha security and UI modernization changes.
+## Gates and evidence
 
-- Go signaling service in `server`.
-- Authentication, device management, refresh token, and migration code.
-- Tauri/React desktop client in `src` and `src-tauri`.
-- Deployment files in `deploy`.
-- Scripts and documentation.
+- PASS — No hidden operation, silent installation, autostart, unattended access, remote shell, credential capture, keyboard logging, or screen recording added. Tauri window remains visible.
+- PASS — Explicit native approval remains mandatory. Authorization has a deadline and renewable heartbeat lease; stale/invalid input fails closed. src-tauri/src/lib.rs and native tests.
+- PASS — Held remote inputs are tracked only in memory and released on revocation. Key/button release bypasses action-rate limits after authentication; movement remains bounded. Source/state tests pass; actual OS injection is NOT VERIFIED.
+- PASS — Signaling revalidates state, blocks negotiation before approval, rejects duplicate roles, and closes both peers for terminal sessions. Actual WebSocket tests in server/internal/httpapi/websocket_lifecycle_test.go.
+- PASS — Client-generated WebSocket URLs and forwarded frames omit session credentials. First-frame authentication has 2 KiB/five-second limits and 64 pending slots. New code does not log tokens.
+- PASS — Session/request stores have capacities, TTLs and reclamation. Assist IDs are cryptographically random; ownership checks remain.
+- PASS — Origin allowlists, message limits, trusted-proxy/IP limiting, password hashing, atomic refresh-token consumption remain. Deployment secrets stay outside tracked source; test credentials are synthetic.
+- PASS — Migration execution uses a transaction/advisory lock. SQL test-driver regressions cover skip/retry/rollback/concurrent runners.
+- PASS — Frontend build, Go/native tests, and real browser video/DataChannel loopback pass. Historical manual checks are not carried forward as current results.
 
-## Gate Results
+## Remaining validation and risks
 
-- Hidden windows, hidden tray icons, or process disguise: PASS. Tauri main window is configured visible; no tray or process disguise code was found.
-- Silent installation: PASS. Installer is user-launched and no silent install behavior is implemented.
-- Default autostart: PASS. No startup registry, scheduled task, service install, or autostart code was found.
-- Unattended access: PASS. Account login does not grant control; host must click `Start Sharing`, choose a screen/window, and click `Allow Control`.
-- Unauthorized input injection: PASS. Host-side input requires authorization state and session token validation before `SendInput`.
-- Remote CMD, PowerShell, Shell, scripts, or arbitrary command execution: PASS. No product feature exposes command execution. PowerShell occurrences are development/deployment scripts and documentation.
-- Hardcoded passwords, tokens, certificates, TURN keys, or other secrets: PASS. Deployment values are environment variables and `.env.example` placeholders.
-- Password storage: PASS. Passwords are hashed with Argon2id.
-- Refresh token storage: PASS. Refresh tokens are stored as HMAC-SHA256 hashes, not complete tokens.
-- WebSocket message-size limits: PASS. Server uses `SetReadLimit` and `MaxBytesReader`; client input messages are capped.
-- Expired or disconnected sessions still accepting input: PASS. Session store transitions expired/disconnected states and desktop clears authorization on disconnect.
-- Logs exposing sensitive data: PASS. Structured server logs include session id and role, not passwords, full tokens, screen content, keyboard content, or TURN secrets.
-- CORS and WebSocket origin allowlist: PASS. Exact configured origins are required; wildcard origins are not accepted.
-- TURN credential exposure: PASS. ICE configuration requires an access token and returns short-lived HMAC credentials; static TURN usernames/passwords are no longer used.
-- Remembered sign-in storage: PASS. Tokens use Windows Credential Manager; WebView localStorage is only used for non-secret device identity data.
-- Fabricated, stale, or unverifiable test results: PASS. Results are recorded as `PASS`, `FAIL`, or `NOT VERIFIED`.
-
-## Evidence
-
-- `server/internal/httpapi/server.go`: auth/device routes, WebSocket limits, JSON validation, rate limiting, token validation, and token-free logs.
-- `server/internal/httpapi/auth_devices_test.go`: authentication, device, and assist request endpoint coverage.
-- `server/internal/identity`: Argon2id password hashing, short-lived access tokens, refresh token hashing/revocation, and device ownership checks.
-- `server/internal/session/session.go`: 8-digit code generation, 5-minute TTL support, state machine, token checks, expiration, and disconnect handling.
-- `server/migrations/001_init.sql`: PostgreSQL tables for users, devices, refresh token hashes, remote sessions, and audit logs.
-- `src/App.tsx`: login, registration, device list, explicit host sharing, authorization prompt, disconnect controls, and WebRTC flow.
-- `src/inputEvents.ts`: input type, session token, message size, timestamp, payload, and frequency checks.
-- `src-tauri/src/lib.rs`: Rust-side authorization gate and Windows `SendInput` adapter.
-- `deploy/.env.example`: PostgreSQL, JWT, refresh token, TURN, and deployment values are placeholders and environment-driven.
-
-## Required Fixes
-
-- None for the reviewed automated security gates.
-- None for database migration verification.
-
-## Test Results
-
-- `scripts/test.ps1`: PASS
-- `scripts/verify-deploy-config.ps1`: PASS
-- `scripts/package-windows.ps1`: PASS
-- Portable Windows EXE startup check: PASS
-- `npm run tauri:build` NSIS installer bundle: PASS
-- Temporary PostgreSQL Docker migration test: PASS
-- Dual-machine Windows LAN test: NOT VERIFIED
-- Install on second Windows PC: NOT VERIFIED
-- Public server deployment and TURN fallback test: NOT VERIFIED
+- NOT VERIFIED — Actual Windows capture/input, second-machine consent/credential persistence, network-loss/CPU stress, external TURN.
+- NOT VERIFIED — Live PostgreSQL contention/rollback and Docker container restrictions; daemon unavailable.
+- NOT VERIFIED — Local Go race execution (no CGO/compiler); Linux CI configured.
+- Host must select and confirm primary full display. Window/tab capture rejected; automatic primary-display identification and secondary-display transforms remain unimplemented.
+- Active sessions remain in process memory; multiple replicas unsupported.
+- TURN shared secret remains provisioned through Compose environment/config; operator Docker metadata is sensitive. Secret-file deployment is future work.
+- Existing backup/restore scripts need operational restore drills; disaster recovery is not validated here.

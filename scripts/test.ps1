@@ -8,15 +8,29 @@ if (!(Test-Path $cargo)) { throw "Cargo not found at $cargo" }
 
 Push-Location $root
 try {
+  npm test
+  if ($LASTEXITCODE -ne 0) { throw "Frontend tests failed (exit $LASTEXITCODE)." }
   npm run build
+  if ($LASTEXITCODE -ne 0) { throw "Frontend build failed (exit $LASTEXITCODE)." }
   Push-Location (Join-Path $root "server")
-  & $go test ./...
-  & $go build ./cmd/signaling
-  Remove-Item -LiteralPath (Join-Path (Get-Location) "signaling.exe") -ErrorAction SilentlyContinue
-  Pop-Location
+  try {
+    & $go test ./...
+    if ($LASTEXITCODE -ne 0) { throw "Go tests failed (exit $LASTEXITCODE)." }
+    & $go build ./cmd/signaling
+    if ($LASTEXITCODE -ne 0) { throw "Go build failed (exit $LASTEXITCODE)." }
+  } finally {
+    Remove-Item -LiteralPath (Join-Path (Get-Location) "signaling.exe") -ErrorAction SilentlyContinue
+    Pop-Location
+  }
   Push-Location (Join-Path $root "src-tauri")
-  & $cargo check
-  Pop-Location
+  try {
+    & $cargo check --locked
+    if ($LASTEXITCODE -ne 0) { throw "Rust check failed (exit $LASTEXITCODE)." }
+    & $cargo test --locked
+    if ($LASTEXITCODE -ne 0) { throw "Rust tests failed (exit $LASTEXITCODE)." }
+  } finally {
+    Pop-Location
+  }
 } finally {
   Pop-Location
 }

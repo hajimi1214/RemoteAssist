@@ -23,6 +23,7 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
 	store := session.NewStore(session.StoreConfig{
 		CodeTTL:         cfg.CodeTTL,
+		ActiveTTL:       cfg.ActiveSessionTTL,
 		CleanupInterval: 30 * time.Second,
 		Now:             time.Now,
 	})

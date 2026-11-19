@@ -104,7 +104,10 @@ func TestWebSocketCheckOriginUsesExactAllowlist(t *testing.T) {
 
 func TestAssistRequestCanBeResolvedOnlyOnceConcurrently(t *testing.T) {
 	hub := newAssistHub()
-	request := hub.create("host-device", "controller-device", "Controller")
+	request, err := hub.create("host-device", "controller-device", "Controller")
+	if err != nil {
+		t.Fatal(err)
+	}
 	start := make(chan struct{})
 	results := make(chan bool, 2)
 	var wg sync.WaitGroup

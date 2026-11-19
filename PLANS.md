@@ -16,11 +16,13 @@
 - M4: Deployment package, scripts, security review, and readiness checks. PASS
 - M5: Authentication, device management, PostgreSQL migrations, modern desktop UI, and Windows installer. PASS
 - M6: Security modernization, dependency refresh, deployment hardening, and VelaMost-inspired responsive UI. PASS
+- M7: 0.4 adaptive encoding, separate pointer/control channels, native input cleanup, bounded session lifecycle, safe migrations, and deployment checks. PASS (local verification; see STATUS.md).
+- M8: Actual cloud/two-machine acceptance, weak-network benchmarks, native display calibration, durable audit metadata. NOT VERIFIED
 
 ## Remaining Manual Verification
 
 - Dual-machine Windows LAN sharing and control: NOT VERIFIED
 - Install on a second Windows 10/11 PC: NOT VERIFIED
 - Public server DNS, TLS, firewall/security-group, P2P, and TURN fallback: NOT VERIFIED
-- Live PostgreSQL migration with Docker: PASS
-- UI browser preview at the local Vite page: PASS
+- New 0.4 runner against live PostgreSQL: NOT VERIFIED (transactional test-driver regressions PASS)
+- Real browser WebRTC loopback: PASS (generated video and simulated native sink)

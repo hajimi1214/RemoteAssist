@@ -33,7 +33,7 @@ foreach ($name in $required) {
   }
 }
 foreach ($name in @("JWT_SECRET", "REFRESH_TOKEN_SECRET", "TURN_SECRET")) {
-  if ([string]$values[$name].Length -lt 32) {
+  if (([string]$values[$name]).Length -lt 32) {
     throw "$name must contain at least 32 characters."
   }
 }
@@ -53,4 +53,5 @@ if ([string]$values["APP_ORIGINS"] -match '\*') {
 }
 
 docker compose --env-file $EnvFile -f $composeFile config --quiet
+if ($LASTEXITCODE -ne 0) { throw "Docker Compose validation failed (exit $LASTEXITCODE)." }
 Write-Host "Deployment configuration is valid: $EnvFile"

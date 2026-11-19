@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RemoteAssist WebRTC verification</title>
+<style>body{font:16px system-ui;max-width:900px;margin:40px auto;padding:20px;background:#f4f8ff;color:#0a1733}button{padding:12px 20px;background:#1b62f0;color:white;border:0;border-radius:8px}pre{white-space:pre-wrap;padding:20px;background:white}video{width:480px;max-width:100%;border:1px solid #aaa}</style>
+<h1>Local WebRTC verification</h1>
+<p>Uses a generated canvas and simulated input delivery. No screen capture or OS input is performed.</p>
+<button id="run">Run loopback checks</button>
+<pre id="result" role="status">Ready</pre>
+<video id="video" muted autoplay playsinline></video>
+<script type="module" src="./webrtc-loopback.ts"></script>
+</html>

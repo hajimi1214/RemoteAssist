@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { mapVideoPoint } from "./pointerMapping";
+import { PointerOrder } from "./inputSequence";
 
 export type InputEventType =
   | "mouse_move"
@@ -7,6 +9,7 @@ export type InputEventType =
   | "mouse_wheel"
   | "key_down"
   | "key_up"
+  | "release_all"
   | "ping"
   | "pong"
   | "disconnect";
@@ -15,6 +18,7 @@ export interface RemoteInputEvent {
   type: InputEventType;
   sessionToken: string;
   ts: number;
+  sequence?: number;
   payload?: Record<string, unknown>;
 }
 
@@ -23,28 +27,38 @@ const maxClockSkewMs = 30_000;
 
 export class InputEventGate {
   private hits: number[] = [];
+  private readonly pointerOrder = new PointerOrder();
 
   constructor(
     private readonly expectedSessionToken: string,
     private readonly isAuthorized: () => boolean,
-    private readonly maxPerSecond = 120
+    private readonly maxPerSecond = 120,
+    private readonly deliver: (command: string, args?: Record<string, unknown>) => Promise<unknown> = invoke
   ) {}
 
   async accept(raw: unknown): Promise<void> {
     const event = this.parse(raw);
-    if (event.type === "ping" || event.type === "pong") {
+    if (event.type === "ping") {
+      await this.deliver("renew_input_lease", { sessionToken: event.sessionToken });
+      return;
+    }
+    if (event.type === "pong") {
       return;
     }
     if (event.type === "disconnect") {
-      await invoke("clear_input_authorization");
+      await this.deliver("clear_input_authorization");
       return;
     }
-    await invoke("send_input_event", { event });
+    if (event.type === "release_all") {
+      await this.deliver("release_remote_inputs", { sessionToken: event.sessionToken });
+      return;
+    }
+    await this.deliver("send_input_event", { event });
   }
 
   private parse(raw: unknown): RemoteInputEvent {
     const encoded = JSON.stringify(raw);
-    if (encoded.length > maxInputMessageBytes) {
+    if (!encoded || new TextEncoder().encode(encoded).byteLength > maxInputMessageBytes) {
       throw new Error("input_message_too_large");
     }
     if (!this.isAuthorized()) {
@@ -60,8 +74,9 @@ export class InputEventGate {
     if (!Number.isFinite(event.ts) || Math.abs(Date.now() - event.ts) > maxClockSkewMs) {
       throw new Error("invalid_input_timestamp");
     }
-    this.checkRate();
     validatePayload(event);
+    if (!["key_up", "mouse_up", "release_all", "ping", "pong"].includes(event.type)) this.checkRate();
+    if (!this.pointerOrder.accept(event.type, event.sequence)) throw new Error("stale_pointer_event");
     return event;
   }
 
@@ -78,17 +93,19 @@ export class InputEventGate {
 export function inputFromPointer(
   type: "mouse_move" | "mouse_down" | "mouse_up",
   sessionToken: string,
-  element: HTMLElement,
+  element: HTMLVideoElement,
   ev: React.PointerEvent
-): RemoteInputEvent {
+): RemoteInputEvent | null {
   const rect = element.getBoundingClientRect();
+  const point = mapVideoPoint(rect, element.videoWidth, element.videoHeight, ev.clientX, ev.clientY);
+  if (!point) return null;
   return {
     type,
     sessionToken,
     ts: Date.now(),
     payload: {
-      x: clamp01((ev.clientX - rect.left) / rect.width),
-      y: clamp01((ev.clientY - rect.top) / rect.height),
+      x: point.x,
+      y: point.y,
       button: ev.button
     }
   };
@@ -127,6 +144,7 @@ function validType(value: string): value is InputEventType {
     "mouse_wheel",
     "key_down",
     "key_up",
+    "release_all",
     "ping",
     "pong",
     "disconnect"
@@ -149,9 +167,4 @@ function validatePayload(event: RemoteInputEvent): void {
   if (event.type.startsWith("key_") && (typeof payload.key !== "string" || typeof payload.code !== "string")) {
     throw new Error("invalid_key_payload");
   }
-}
-
-function clamp01(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(1, value));
 }

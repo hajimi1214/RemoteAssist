@@ -32,6 +32,7 @@ type Server struct {
 	limiter      *ipLimiter
 	loginLimiter *ipLimiter
 	upgrader     websocket.Upgrader
+	wsAuthSlots  chan struct{}
 }
 
 func NewServer(cfg config.Config, store *session.Store, logger *slog.Logger, identityServices ...*identity.Service) *Server {
@@ -62,6 +63,7 @@ func NewServer(cfg config.Config, store *session.Store, logger *slog.Logger, ide
 		peers:        newPeerHub(),
 		limiter:      newIPLimiter(cfg.RateLimitPerMinute, time.Minute),
 		loginLimiter: newIPLimiter(cfg.LoginFailLimit, time.Minute),
+		wsAuthSlots:  make(chan struct{}, 64),
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -261,7 +263,15 @@ func (s *Server) requestDeviceAssist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "device_not_available")
 		return
 	}
-	request := s.assist.create(host.ID, controller.ID, controller.DeviceName)
+	request, err := s.assist.create(host.ID, controller.ID, controller.DeviceName)
+	if errors.Is(err, ErrAssistRequestLimit) {
+		writeError(w, http.StatusTooManyRequests, "assist_request_limit")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "assist_request_failed")
+		return
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{"request": request})
 }
 
@@ -356,7 +366,7 @@ func (s *Server) createShareSession(w http.ResponseWriter, r *http.Request) {
 	}
 	created, hostToken, err := s.store.CreateShareSession()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "create_failed")
+		writeStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -408,6 +418,7 @@ func (s *Server) approveShareSession(w http.ResponseWriter, r *http.Request) {
 		"id":              updated.ID,
 		"state":           updated.State,
 		"controllerToken": updated.ControllerToken,
+		"expiresAt":       updated.ExpiresAt,
 	})
 }
 
@@ -421,7 +432,7 @@ func (s *Server) rejectShareSession(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	s.peers.broadcastSystem(updated.ID, "rejected")
+	s.peers.closeSession(updated.ID)
 	writeJSON(w, http.StatusOK, map[string]any{"id": updated.ID, "state": updated.State})
 }
 
@@ -435,51 +446,113 @@ func (s *Server) disconnectShareSession(w http.ResponseWriter, r *http.Request) 
 		writeStoreError(w, err)
 		return
 	}
-	s.peers.broadcastSystem(updated.ID, "disconnect")
+	s.peers.closeSession(updated.ID)
 	writeJSON(w, http.StatusOK, map[string]any{"id": updated.ID, "state": updated.State})
 }
 
 func (s *Server) websocket(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.URL.Query().Get("sessionId")
-	token := r.URL.Query().Get("token")
 	role := r.URL.Query().Get("role")
-	if sessionID == "" || token == "" || (role != "host" && role != "controller") {
+	if sessionID == "" || r.URL.Query().Has("token") || (role != "host" && role != "controller") {
 		writeError(w, http.StatusBadRequest, "invalid_ws_params")
 		return
 	}
-	current, actualRole, err := s.store.ValidateToken(sessionID, token)
-	if err != nil || actualRole != role {
+	_, err := s.store.Get(sessionID)
+	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
+	if s.peers.hasRole(sessionID, role) {
+		writeError(w, http.StatusConflict, "role_already_connected")
+		return
+	}
+	select {
+	case s.wsAuthSlots <- struct{}{}:
+	default:
+		writeError(w, http.StatusServiceUnavailable, "authentication_capacity_reached")
+		return
+	}
+	authPending := true
+	defer func() {
+		if authPending {
+			<-s.wsAuthSlots
+		}
+	}()
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		s.logger.Warn("websocket upgrade failed", "sessionId", sessionID, "error", err)
 		return
 	}
+	// Authenticate in a bounded first frame, so session credentials never enter URL logs.
+	conn.SetReadLimit(2048)
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var authentication struct {
+		Type  string `json:"type"`
+		Token string `json:"token"`
+	}
+	if err := conn.ReadJSON(&authentication); err != nil || authentication.Type != "authenticate" {
+		_ = conn.Close()
+		return
+	}
+	token := authentication.Token
+	current, actualRole, err := s.store.ValidateToken(sessionID, token)
+	if err != nil || actualRole != role {
+		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "invalid_authentication"), time.Now().Add(time.Second))
+		_ = conn.Close()
+		return
+	}
+	<-s.wsAuthSlots
+	authPending = false
 	conn.SetReadLimit(s.cfg.MaxMessageBytes)
 	peer := &peer{sessionID: current.ID, role: role, conn: conn, send: make(chan []byte, 16)}
-	s.peers.add(peer)
+	if !s.peers.add(peer) {
+		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "role_already_connected"), time.Now().Add(5*time.Second))
+		_ = conn.Close()
+		return
+	}
+	if _, _, err := s.store.ValidateToken(sessionID, token); err != nil {
+		s.peers.closeSession(sessionID)
+		return
+	}
+	_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if err := conn.WriteJSON(map[string]any{"type": "ready", "sessionId": sessionID, "ts": time.Now().UnixMilli()}); err != nil {
+		s.peers.closeSession(sessionID)
+		return
+	}
 	s.logger.Info("websocket connected", "sessionId", current.ID, "role", role)
 	go s.writePump(peer)
+	if state, err := s.store.Get(sessionID); err == nil && role == "host" && state.State == session.StateWaitingForHostApproval {
+		notice, _ := json.Marshal(map[string]any{"type": "ping", "sessionId": sessionID, "ts": time.Now().UnixMilli()})
+		s.peers.send(peer, notice)
+	}
 	s.readPump(peer, token)
 }
 
 func (s *Server) readPump(p *peer, token string) {
 	defer func() {
-		_, _ = s.store.Disconnect(p.sessionID, token)
-		s.peers.remove(p)
+		s.peers.closeSessionIfCurrent(p, func() {
+			_, _ = s.store.Disconnect(p.sessionID, token)
+		})
 		_ = p.conn.Close()
-		s.peers.broadcastSystem(p.sessionID, "disconnect")
 		s.logger.Info("websocket disconnected", "sessionId", p.sessionID, "role", p.role)
 	}()
 	p.conn.SetPongHandler(func(string) error {
 		return p.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	})
+	var windowStart = time.Now()
+	frames := 0
 	for {
 		_ = p.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		msgType, payload, err := p.conn.ReadMessage()
 		if err != nil {
+			return
+		}
+		if time.Since(windowStart) >= time.Second {
+			windowStart = time.Now()
+			frames = 0
+		}
+		frames++
+		if frames > 120 {
 			return
 		}
 		if msgType != websocket.TextMessage {
@@ -490,30 +563,64 @@ func (s *Server) readPump(p *peer, token string) {
 			s.writePeerError(p, "invalid_message")
 			continue
 		}
-		if msg.Type == "disconnect" {
-			_, _ = s.store.Disconnect(p.sessionID, token)
-			s.peers.broadcastSystem(p.sessionID, "disconnect")
+		current, role, err := s.store.ValidateToken(p.sessionID, token)
+		if err != nil || role != p.role {
 			return
 		}
-		s.peers.forward(p, payload)
+		if msg.Type == "disconnect" {
+			_, _ = s.store.Disconnect(p.sessionID, token)
+			s.peers.closeSession(p.sessionID)
+			return
+		}
+		if current.State != session.StateAuthorizedActive {
+			if current.State != session.StateWaitingForHostApproval || p.role != "controller" || msg.Type != "ping" {
+				s.writePeerError(p, "host_approval_required")
+				continue
+			}
+		}
+		if (msg.Type == "offer" && p.role != "host") || (msg.Type == "answer" && p.role != "controller") {
+			s.writePeerError(p, "invalid_signal_role")
+			continue
+		}
+		// Authentication belongs to this socket and must never be exposed to its peer.
+		msg.SessionToken = ""
+		forwarded, err := json.Marshal(msg)
+		if err != nil {
+			return
+		}
+		s.peers.forward(p, forwarded)
 	}
 }
 
 func (s *Server) writePump(p *peer) {
 	ticker := time.NewTicker(25 * time.Second)
+	stateTicker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	defer stateTicker.Stop()
+	defer p.conn.Close()
+	write := func(messageType int, payload []byte) error {
+		if err := p.conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			return err
+		}
+		return p.conn.WriteMessage(messageType, payload)
+	}
 	for {
 		select {
 		case payload, ok := <-p.send:
 			if !ok {
-				_ = p.conn.WriteMessage(websocket.CloseMessage, nil)
 				return
 			}
-			if err := p.conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+			if err := write(websocket.TextMessage, payload); err != nil {
 				return
 			}
 		case <-ticker.C:
-			if err := p.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			if err := write(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		case <-stateTicker.C:
+			current, err := s.store.Get(p.sessionID)
+			if err != nil || current.State == session.StateDisconnected || current.State == session.StateRejected || current.State == session.StateExpired {
+				s.peers.closeSession(p.sessionID)
 				return
 			}
 		}
@@ -522,10 +629,7 @@ func (s *Server) writePump(p *peer) {
 
 func (s *Server) writePeerError(p *peer, code string) {
 	body, _ := json.Marshal(map[string]any{"type": "error", "code": code, "ts": time.Now().UnixMilli()})
-	select {
-	case p.send <- body:
-	default:
-	}
+	s.peers.send(p, body)
 }
 
 func validWSMessage(msg wsMessage, sessionID, token string) bool {
@@ -543,6 +647,8 @@ func validWSMessage(msg wsMessage, sessionID, token string) bool {
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -623,7 +729,7 @@ type tokenRequest struct {
 type wsMessage struct {
 	Type         string          `json:"type"`
 	SessionID    string          `json:"sessionId"`
-	SessionToken string          `json:"sessionToken"`
+	SessionToken string          `json:"sessionToken,omitempty"`
 	Timestamp    int64           `json:"ts"`
 	Payload      json.RawMessage `json:"payload,omitempty"`
 }
@@ -649,6 +755,8 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 
 func writeStoreError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, session.ErrCapacity):
+		writeError(w, http.StatusServiceUnavailable, "session_capacity_reached")
 	case errors.Is(err, session.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found")
 	case errors.Is(err, session.ErrExpired):
@@ -760,27 +868,94 @@ func newPeerHub() *peerHub {
 	return &peerHub{peers: map[string]map[string]*peer{}}
 }
 
-func (h *peerHub) add(p *peer) {
+func (h *peerHub) hasRole(sessionID, role string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.peers[sessionID][role] != nil
+}
+
+func (h *peerHub) add(p *peer) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.peers[p.sessionID] == nil {
 		h.peers[p.sessionID] = map[string]*peer{}
 	}
-	if old := h.peers[p.sessionID][p.role]; old != nil {
-		close(old.send)
+	if h.peers[p.sessionID][p.role] != nil {
+		return false
 	}
 	h.peers[p.sessionID][p.role] = p
+	return true
 }
 
-func (h *peerHub) remove(p *peer) {
+func (h *peerHub) remove(p *peer) bool {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if byRole := h.peers[p.sessionID]; byRole != nil && byRole[p.role] == p {
 		delete(byRole, p.role)
 		close(p.send)
 		if len(byRole) == 0 {
 			delete(h.peers, p.sessionID)
 		}
+		h.mu.Unlock()
+		if p.conn != nil {
+			_ = p.conn.Close()
+		}
+		return true
+	}
+	h.mu.Unlock()
+	return false
+
+}
+
+func (h *peerHub) closeSession(sessionID string) {
+	h.mu.Lock()
+	peers := h.takeSessionLocked(sessionID)
+	h.mu.Unlock()
+	closePeerConnections(peers)
+}
+
+// The ownership check and state transition run before releasing the peer slot.
+// A stale read pump therefore cannot disconnect a later connection for the role.
+func (h *peerHub) closeSessionIfCurrent(p *peer, beforeClose func()) bool {
+	h.mu.Lock()
+	if h.peers[p.sessionID][p.role] != p {
+		h.mu.Unlock()
+		return false
+	}
+	beforeClose()
+	peers := h.takeSessionLocked(p.sessionID)
+	h.mu.Unlock()
+	closePeerConnections(peers)
+	return true
+}
+
+func (h *peerHub) takeSessionLocked(sessionID string) []*peer {
+	byRole := h.peers[sessionID]
+	delete(h.peers, sessionID)
+	peers := make([]*peer, 0, len(byRole))
+	for _, p := range byRole {
+		close(p.send)
+		peers = append(peers, p)
+	}
+	return peers
+}
+
+func closePeerConnections(peers []*peer) {
+	for _, p := range peers {
+		if p.conn != nil {
+			_ = p.conn.Close()
+		}
+	}
+}
+
+func (h *peerHub) send(p *peer, payload []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.peers[p.sessionID][p.role] != p {
+		return
+	}
+	select {
+	case p.send <- payload:
+	default:
 	}
 }
 
@@ -790,8 +965,11 @@ func (h *peerHub) forward(from *peer, payload []byte) {
 		targetRole = "host"
 	}
 	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.peers[from.sessionID][from.role] != from {
+		return
+	}
 	target := h.peers[from.sessionID][targetRole]
-	h.mu.RUnlock()
 	if target == nil {
 		return
 	}
@@ -820,76 +998,6 @@ type ipLimiter struct {
 	maxKeys   int
 	lastSweep time.Time
 	requests  map[string][]time.Time
-}
-
-type assistRequest struct {
-	ID                   string    `json:"id"`
-	HostDeviceID         string    `json:"hostDeviceId"`
-	ControllerDeviceID   string    `json:"controllerDeviceId"`
-	ControllerDeviceName string    `json:"controllerDeviceName"`
-	Status               string    `json:"status"`
-	CreatedAt            time.Time `json:"createdAt"`
-}
-
-type assistHub struct {
-	mu       sync.Mutex
-	requests map[string]assistRequest
-}
-
-func newAssistHub() *assistHub {
-	return &assistHub{requests: map[string]assistRequest{}}
-}
-
-func (h *assistHub) create(hostDeviceID, controllerDeviceID, controllerName string) assistRequest {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	request := assistRequest{
-		ID:                   "asr_" + time.Now().UTC().Format("20060102150405.000000000"),
-		HostDeviceID:         hostDeviceID,
-		ControllerDeviceID:   controllerDeviceID,
-		ControllerDeviceName: controllerName,
-		Status:               "WAITING_FOR_HOST",
-		CreatedAt:            time.Now().UTC(),
-	}
-	h.requests[request.ID] = request
-	return request
-}
-
-func (h *assistHub) pendingForHost(hostDeviceID string) []assistRequest {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	var out []assistRequest
-	for _, request := range h.requests {
-		if request.HostDeviceID == hostDeviceID && request.Status == "WAITING_FOR_HOST" {
-			out = append(out, request)
-		}
-	}
-	return out
-}
-
-func (h *assistHub) lookup(id string) (assistRequest, bool) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	request, ok := h.requests[id]
-	return request, ok
-}
-
-func (h *assistHub) resolve(id, hostDeviceID, status string) (assistRequest, bool) {
-	if status != "ACCEPTED" && status != "REJECTED" {
-		return assistRequest{}, false
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	request, ok := h.requests[id]
-	if !ok {
-		return assistRequest{}, false
-	}
-	if request.HostDeviceID != hostDeviceID || request.Status != "WAITING_FOR_HOST" {
-		return assistRequest{}, false
-	}
-	request.Status = status
-	h.requests[id] = request
-	return request, true
 }
 
 func newIPLimiter(limit int, window time.Duration) *ipLimiter {

@@ -26,6 +26,7 @@ export interface ApproveSession {
   id: string;
   state: SessionState;
   controllerToken: string;
+  expiresAt: string;
 }
 
 export interface IceServer {
@@ -79,6 +80,7 @@ export interface AssistRequest {
 const defaultBaseURL = import.meta.env.VITE_SIGNALING_URL ?? (import.meta.env.DEV ? "http://localhost:8080" : "");
 
 export class SignalingClient {
+  private refreshFlight?: { token: string; result: Promise<AuthResult> };
   constructor(private readonly baseURL = defaultBaseURL.replace(/\/$/, "")) {}
 
   async register(username: string, email: string, password: string): Promise<AuthResult> {
@@ -96,10 +98,15 @@ export class SignalingClient {
   }
 
   async refresh(refreshToken: string): Promise<AuthResult> {
-    return this.request<AuthResult>("/api/v1/auth/refresh", {
+    if (this.refreshFlight?.token === refreshToken) return this.refreshFlight.result;
+    const result = this.request<AuthResult>("/api/v1/auth/refresh", {
       method: "POST",
       body: JSON.stringify({ refreshToken })
+    }).finally(() => {
+      if (this.refreshFlight?.token === refreshToken) this.refreshFlight = undefined;
     });
+    this.refreshFlight = { token: refreshToken, result };
+    return result;
   }
 
   async logout(refreshToken: string): Promise<void> {
@@ -208,7 +215,7 @@ export class SignalingClient {
     });
   }
 
-  wsURL(sessionId: string, token: string, role: "host" | "controller"): string {
+  wsURL(sessionId: string, role: "host" | "controller"): string {
     const url = new URL(this.getBaseURL());
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     if (import.meta.env.PROD && url.protocol !== "wss:") {
@@ -216,7 +223,6 @@ export class SignalingClient {
     }
     url.pathname = "/api/v1/ws";
     url.searchParams.set("sessionId", sessionId);
-    url.searchParams.set("token", token);
     url.searchParams.set("role", role);
     return url.toString();
   }
@@ -224,6 +230,9 @@ export class SignalingClient {
   private async request<T = unknown>(path: string, init: RequestInit = {}, accessToken = ""): Promise<T> {
     const response = await fetch(`${this.getBaseURL()}${path}`, {
       ...init,
+      signal: init.signal ?? AbortSignal.timeout(15_000),
+      cache: "no-store",
+      credentials: "omit",
       headers: {
         "Content-Type": "application/json",
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),

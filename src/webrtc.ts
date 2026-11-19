@@ -1,12 +1,13 @@
 import { InputEventGate, RemoteInputEvent } from "./inputEvents";
 import { IceServer } from "./signaling";
+import { AdaptiveVideoPolicy, connectionRoute, connectionSample, VideoQuality, videoProfiles } from "./connectionQuality";
 
-export type SignalType = "offer" | "answer" | "ice" | "ping" | "pong" | "disconnect";
+export type SignalType = "offer" | "answer" | "ice" | "ping" | "pong" | "disconnect" | "rejected" | "expired" | "ready";
 
 export interface SignalMessage {
   type: SignalType;
   sessionId: string;
-  sessionToken: string;
+  sessionToken?: string;
   ts: number;
   payload?: unknown;
 }
@@ -16,6 +17,7 @@ export interface PeerCallbacks {
   onConnectionStatus?: (status: string) => void;
   onRelayStatus?: (status: "P2P" | "TURN Relay" | "Unknown") => void;
   onLatency?: (ms: number) => void;
+  onQuality?: (quality: VideoQuality | "Browser managed") => void;
 }
 
 const maxDataChannelMessageBytes = 16 * 1024;
@@ -46,6 +48,7 @@ class RemoteIceQueue {
 
   async addOrQueue(pc: RTCPeerConnection | undefined, candidate: RTCIceCandidateInit): Promise<void> {
     if (!pc?.remoteDescription) {
+      if (this.pending.length >= 128) throw new Error("too_many_ice_candidates");
       this.pending.push(candidate);
       return;
     }
@@ -59,13 +62,20 @@ class RemoteIceQueue {
       await pc.addIceCandidate(candidate);
     }
   }
+
+  clear(): void { this.pending = []; }
 }
 
 export class HostPeer {
   private pc?: RTCPeerConnection;
   private inputChannel?: RTCDataChannel;
+  private pointerChannel?: RTCDataChannel;
   private signalQueue: Promise<void> = Promise.resolve();
   private readonly remoteIce = new RemoteIceQueue();
+  private closed = false;
+  private qualityTimer?: number;
+  private videoSender?: RTCRtpSender;
+  private readonly qualityPolicy = new AdaptiveVideoPolicy();
 
   constructor(
     private readonly sessionId: string,
@@ -76,9 +86,23 @@ export class HostPeer {
   ) {}
 
   async start(stream: MediaStream, inputGate: InputEventGate): Promise<void> {
+    if (this.closed) return;
     this.pc = new RTCPeerConnection({ iceServers: this.iceServers });
-    stream.getTracks().forEach((track) => this.pc?.addTrack(track, stream));
+    stream.getTracks().forEach((track) => {
+      if (track.kind === "video") track.contentHint = "text";
+      const sender = this.pc!.addTrack(track, stream);
+      if (track.kind === "video") this.videoSender = sender;
+    });
     this.inputChannel = this.pc.createDataChannel("input", { ordered: true });
+    const failInput = () => { if (!this.closed) { this.close(); this.callbacks.onConnectionStatus?.("failed"); } };
+    this.inputChannel.onclose = failInput;
+    this.inputChannel.onerror = failInput;
+    this.pointerChannel = this.pc.createDataChannel("pointer", { ordered: false, maxRetransmits: 0 });
+    this.pointerChannel.onmessage = (ev) => {
+      const parsed = parseDataChannelMessage(ev.data);
+      if (!parsed.ok || !parsed.value || typeof parsed.value !== "object" || (parsed.value as Record<string, unknown>).type !== "mouse_move") return;
+      void inputGate.accept(parsed.value).catch(() => undefined);
+    };
     const channel = this.inputChannel;
     this.inputChannel.onmessage = (ev) => {
       const parsed = parseDataChannelMessage(ev.data);
@@ -93,6 +117,7 @@ export class HostPeer {
     const offer = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);
     this.send("offer", offer);
+    this.startQualityMonitor();
   }
 
   async handleSignal(msg: SignalMessage): Promise<void> {
@@ -103,6 +128,7 @@ export class HostPeer {
   }
 
   private async processSignal(msg: SignalMessage): Promise<void> {
+    if (this.closed) return;
     if (msg.type === "answer") {
       if (!this.pc) return;
       await this.pc.setRemoteDescription(msg.payload as RTCSessionDescriptionInit);
@@ -114,6 +140,13 @@ export class HostPeer {
   }
 
   close(): void {
+    this.closed = true;
+    if (this.qualityTimer != null) window.clearTimeout(this.qualityTimer);
+    this.remoteIce.clear();
+    if (this.pc) { this.pc.onconnectionstatechange = null; this.pc.onicecandidate = null; }
+    if (this.inputChannel) { this.inputChannel.onmessage = null; this.inputChannel.onclose = null; this.inputChannel.onerror = null; }
+    if (this.pointerChannel) this.pointerChannel.onmessage = null;
+    this.pointerChannel?.close();
     this.inputChannel?.close();
     this.pc?.close();
   }
@@ -125,26 +158,49 @@ export class HostPeer {
     };
     this.pc.onconnectionstatechange = () => {
       this.callbacks.onConnectionStatus?.(this.pc?.connectionState ?? "unknown");
-      void this.updateRelayStatus();
+      void this.updateRelayStatus().catch(() => undefined);
     };
   }
 
   private async updateRelayStatus(): Promise<void> {
     const stats = await this.pc?.getStats();
     if (!stats) return;
-    stats.forEach((report) => {
-      if (report.type === "candidate-pair" && report.state === "succeeded" && report.remoteCandidateId) {
-        const remote = stats.get(report.remoteCandidateId);
-        if (remote?.candidateType === "relay" || report.localCandidateType === "relay") {
-          this.callbacks.onRelayStatus?.("TURN Relay");
-        } else {
-          this.callbacks.onRelayStatus?.("P2P");
+    this.callbacks.onRelayStatus?.(connectionRoute(stats));
+  }
+
+  private startQualityMonitor(): void {
+    let applied: VideoQuality | undefined;
+    const sample = async () => {
+      if (this.closed || !this.pc || !this.videoSender) return;
+      try {
+        if (this.pc.connectionState === "connected") {
+          const stats = await this.pc.getStats();
+          if (this.closed) return;
+          const desired = this.qualityPolicy.observe(connectionSample(stats));
+          if (desired !== applied) {
+            const parameters = this.videoSender.getParameters();
+            if (parameters.encodings?.length) {
+              Object.assign(parameters.encodings[0], videoProfiles[desired]);
+              parameters.degradationPreference = "maintain-resolution";
+              await this.videoSender.setParameters(parameters);
+              if (this.closed) return;
+              applied = desired;
+              this.callbacks.onQuality?.(desired);
+            }
+          }
+          this.callbacks.onRelayStatus?.(connectionRoute(stats));
         }
+      } catch {
+        if (!this.closed) this.callbacks.onQuality?.("Browser managed");
+      } finally {
+        if (!this.closed) this.qualityTimer = window.setTimeout(() => { void sample(); }, 3_000);
       }
-    });
+    };
+    void sample();
   }
 
   private send(type: SignalType, payload?: unknown): void {
+    if (this.closed || this.ws.readyState !== WebSocket.OPEN) return;
     this.ws.send(JSON.stringify({ type, sessionId: this.sessionId, sessionToken: this.hostToken, ts: Date.now(), payload }));
   }
 }
@@ -152,10 +208,14 @@ export class HostPeer {
 export class ControllerPeer {
   private pc?: RTCPeerConnection;
   private inputChannel?: RTCDataChannel;
+  private pointerChannel?: RTCDataChannel;
+  private inputSequence = 0;
   private pingTimer?: number;
   private lastPing = 0;
+  private lastPointerMove = 0;
   private signalQueue: Promise<void> = Promise.resolve();
   private readonly remoteIce = new RemoteIceQueue();
+  private closed = false;
 
   constructor(
     private readonly sessionId: string,
@@ -173,12 +233,19 @@ export class ControllerPeer {
   }
 
   private async processSignal(msg: SignalMessage): Promise<void> {
+    if (this.closed) return;
     if (msg.type === "offer") {
+      if (this.pc) return; // This protocol permits one host-approved negotiation per session.
       this.pc = new RTCPeerConnection({ iceServers: this.iceServers });
       this.installPeerHandlers();
       this.pc.ontrack = (ev) => this.callbacks.onRemoteStream?.(ev.streams[0]);
       this.pc.ondatachannel = (ev) => {
+        if (ev.channel.label === "pointer" && !this.pointerChannel) { this.pointerChannel = ev.channel; return; }
+        if (ev.channel.label !== "input" || this.inputChannel) { ev.channel.close(); return; }
         this.inputChannel = ev.channel;
+        const failInput = () => { if (!this.closed) { this.close(); this.callbacks.onConnectionStatus?.("failed"); } };
+        this.inputChannel.onclose = failInput;
+        this.inputChannel.onerror = failInput;
         this.startLatencyProbe();
       };
       await this.pc.setRemoteDescription(msg.payload as RTCSessionDescriptionInit);
@@ -194,14 +261,29 @@ export class ControllerPeer {
   }
 
   sendInput(event: RemoteInputEvent): void {
-    if (this.inputChannel?.readyState !== "open") {
-      throw new Error("input_channel_not_open");
+    if (this.closed || this.inputChannel?.readyState !== "open") return;
+    if (event.type === "mouse_move") {
+      const now = Date.now();
+      if (now - this.lastPointerMove < 20) return;
+      this.lastPointerMove = now;
     }
-    this.inputChannel.send(JSON.stringify(event));
+    const channel = event.type === "mouse_move" && this.pointerChannel?.readyState === "open" ? this.pointerChannel : this.inputChannel;
+    if (channel.bufferedAmount > (event.type === "mouse_move" ? 8 * 1024 : 64 * 1024)) {
+      if (event.type === "mouse_move") return;
+      this.close();
+      this.callbacks.onConnectionStatus?.("failed");
+      return;
+    }
+    channel.send(JSON.stringify({ ...event, sequence: ++this.inputSequence }));
   }
 
   close(): void {
+    this.closed = true;
     if (this.pingTimer) window.clearInterval(this.pingTimer);
+    this.remoteIce.clear();
+    if (this.pc) { this.pc.onconnectionstatechange = null; this.pc.onicecandidate = null; this.pc.ontrack = null; this.pc.ondatachannel = null; }
+    if (this.inputChannel) { this.inputChannel.onmessage = null; this.inputChannel.onclose = null; this.inputChannel.onerror = null; }
+    this.pointerChannel?.close();
     this.inputChannel?.close();
     this.pc?.close();
   }
@@ -213,11 +295,12 @@ export class ControllerPeer {
     };
     this.pc.onconnectionstatechange = () => {
       this.callbacks.onConnectionStatus?.(this.pc?.connectionState ?? "unknown");
-      void this.updateRelayStatus();
+      void this.updateRelayStatus().catch(() => undefined);
     };
   }
 
   private startLatencyProbe(): void {
+    if (this.pingTimer) window.clearInterval(this.pingTimer);
     this.pingTimer = window.setInterval(() => {
       if (this.inputChannel?.readyState !== "open") return;
       this.lastPing = Date.now();
@@ -237,19 +320,11 @@ export class ControllerPeer {
   private async updateRelayStatus(): Promise<void> {
     const stats = await this.pc?.getStats();
     if (!stats) return;
-    stats.forEach((report) => {
-      if (report.type === "candidate-pair" && report.state === "succeeded" && report.remoteCandidateId) {
-        const remote = stats.get(report.remoteCandidateId);
-        if (remote?.candidateType === "relay" || report.localCandidateType === "relay") {
-          this.callbacks.onRelayStatus?.("TURN Relay");
-        } else {
-          this.callbacks.onRelayStatus?.("P2P");
-        }
-      }
-    });
+    this.callbacks.onRelayStatus?.(connectionRoute(stats));
   }
 
   private send(type: SignalType, payload?: unknown): void {
+    if (this.closed || this.ws.readyState !== WebSocket.OPEN) return;
     this.ws.send(
       JSON.stringify({ type, sessionId: this.sessionId, sessionToken: this.controllerToken, ts: Date.now(), payload })
     );

@@ -1,43 +1,42 @@
 # Status
 
-## Current Milestone
+## Current milestone
 
-- M6: Security modernization, dependency refresh, and VelaMost-inspired desktop UI update.
+M7 — 0.4.0-alpha: adaptive WebRTC quality, input safety, bounded session lifecycle, and deployment reliability. Reviewed 2026-11-20.
 
 ## Completed
 
-- Backend assist-request resolution now requires an authenticated owner and permits one pending-state transition.
-- Refresh tokens are atomically consumed during rotation; concurrent reuse can issue at most one replacement.
-- IP limiting trusts forwarded addresses only through configured trusted proxy CIDRs and bounds limiter memory.
-- CORS and WebSocket origins use an exact allowlist. Persistent TURN credentials were replaced with authenticated, short-lived REST credentials.
-- Production database deployments fail startup validation when signing secrets are weak or missing; TURN secrets are also validated.
-- Tauri now uses a restrictive CSP, native Windows consent before input authorization, and Windows Credential Manager for optional remembered sign-in.
-- Frontend now has guarded HTTPS/WSS configuration, automatic refresh of expired access tokens, bounded/validated DataChannel input, ICE candidate queuing, and working ping/pong latency.
-- Vite 8, React 19.3, TypeScript 7, and Tauri 2.12 dependencies are in place. npm audit reports zero vulnerabilities.
-- Desktop UI refreshed using the supplied VelaMost design reference: light blue canvas, white navigation and cards, navy/blue visual hierarchy, responsive layouts, and clearer session consent states.
-- Sessions and Settings now have honest status/metadata views rather than pretending to show unavailable session history.
-- Deployment validation refuses template values and suppresses resolved secrets from Compose output. CI and Renovate configuration were added.
+- Adaptive encoding uses selected-route WebRTC statistics, CPU/bandwidth limitation signals, conservative hysteresis, and text-oriented capture hints. Missing estimates preserve the current profile.
+- Absolute pointer motion uses an unordered channel with no retransmission. Buttons, keys, and releases remain reliable/ordered. Sequence checks reject stale motion; clicks carry coordinates.
+- Pointer mapping excludes video black bars. Windows tracks held remote keys/buttons in memory and releases them on blur, disconnect, expiry, native window close, or heartbeat loss. Signed wheel delta handling is fixed.
+- Capture is restricted to full-display sharing with explicit primary-display confirmation. Window/tab control is rejected because native capture-origin mapping is not implemented.
+- Active sessions default to 30 minutes from creation; terminal tokens are cleared, records reclaimed, and session/request stores have capacity limits.
+- WebSocket credentials use a five-second/2 KiB first frame, are rejected in URL parameters, and stripped before forwarding. Duplicate roles cannot replace peers; closed-channel races have regression tests.
+- Reject/disconnect/expiry closes both peers. Native input has its own expiry and eight-second renewable heartbeat lease after a 30-second negotiation allowance.
+- Auth refresh is deduplicated/proactive; remembered-sign-in preference is retained. HTTP requests have timeouts.
+- PostgreSQL migrations acquire a transactional advisory lock, skip recorded versions, and roll back on failure.
+- Signaling container privileges/filesystem/resources are restricted. Scripts fail on native-command errors. CI includes frontend tests, Linux Go race tests, Windows Rust tests, and Compose validation.
+- Sources and decisions are in docs/research-and-decisions-0.4.md.
 
-## Validation
+## Verification
 
-- `scripts/test.ps1`: PASS (frontend build, Go tests/build, Rust check).
-- `npm audit --audit-level=high`: PASS, 0 vulnerabilities.
-- `cargo fmt -- --check`: PASS.
-- `scripts/package-windows.ps1 -SignalingUrl https://remoteassist.example.com`: PASS; portable EXE and `RemoteAssist_0.3.0-alpha_x64-setup.exe` built.
-- `GET /healthz` on the local signaling service: PASS.
-- Docker Compose template syntax check: PASS.
-- Deployment validation rejects `.env.example` placeholders: PASS.
-- Browser preview of the sign-in UI: PASS.
-- Go module upgrades beyond the locked versions: NOT VERIFIED; checksum-database access timed out, so the update was not forced.
+- scripts/test.ps1: PASS — 10 TypeScript tests, frontend build, Go tests/build, Rust check and 5 native tests.
+- go vet ./...: PASS.
+- Real browser WebRTC loopback: PASS — generated video, RTT, encoder parameters, dual input channels, invalid/revoked input rejection, releases under rate saturation, shutdown. Native input is simulated.
+- npm audit --audit-level=high: PASS, zero reported vulnerabilities.
+- Compose syntax: PASS. Template rejection and PowerShell native-error handling: PASS.
+- Windows portable EXE and NSIS installer: PASS, 0.4.0-alpha. Example-domain builds validate packaging only; rebuild for the actual server domain.
 
-## Still Not Verified
+## Not verified / remaining limits
 
-- Install and operate the package on a second Windows 10/11 machine.
-- Two-machine LAN assistance and public-server P2P/TURN fallback.
-- Public DNS, firewall/security group, and production certificate deployment.
-- Real TURN connectivity with external network paths; TURN-over-TLS is intentionally not advertised/configured until certificates are wired.
-- Multi-monitor and DPI coordinate mapping, extended IME/scan-code keyboard behavior, and long-session resource use.
+- Actual Windows capture/input, two-machine LAN, native consent runtime, public DNS/TLS/firewall, external TURN/P2P.
+- Primary-display identity is host-confirmed; secondary displays, DPI/IME calibration, and window control remain unsupported/unverified.
+- Degraded-network benchmarks; no performance improvement percentage is claimed.
+- Live PostgreSQL migration/restore and hardened container runtime; Docker daemon unavailable locally.
+- Local Go race detector needs CGO and a C compiler, unavailable here. Linux CI is configured but has not run remotely.
+- Active sessions remain single-process and end on server restart; multiple replicas unsupported.
+- Installer is unsigned and uses an example server until rebuilt with the actual domain.
 
-## Next Milestone
+## Next milestone
 
-- M7: Second-machine acceptance, external TURN verification, and persistent multi-instance session state.
+M8 — cloud deployment and two-machine acceptance, network benchmarks, calibrated native display capture, and persistent audit metadata. Upgrade server and both clients together; the 0.4 signaling protocol changed.

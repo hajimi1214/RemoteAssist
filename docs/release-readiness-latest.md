@@ -1,40 +1,29 @@
-# Release Readiness Latest
+# Release readiness — 0.4.0-alpha
 
-## Checks
+Date: 2026-11-20. Supersedes historical 0.2/0.3 validation claims.
 
-- 0.3 alpha UI refresh: PASS
-- Vite/React/Tauri dependency refresh: PASS
-- npm high-severity audit: PASS (0 vulnerabilities)
-- Tauri restrictive CSP and native host consent prompt: PASS
-- Atomic refresh-token rotation and assist-request authorization tests: PASS
-- Exact CORS/WebSocket origin allowlist tests: PASS
-- Short-lived authenticated TURN REST credential tests: PASS
-- Deployment placeholder rejection: PASS
+## PASS
 
-- Desktop frontend build: PASS
-- Tauri Rust check: PASS
-- Portable Windows EXE build: PASS
-- Windows NSIS installer build: PASS
-- Portable EXE startup: PASS
-- Go service build: PASS
-- Go unit tests: PASS
-- Authentication endpoint tests: PASS
-- Device endpoint tests: PASS
-- Device assist request endpoint tests: PASS
-- Migration structure tests: PASS
-- Live PostgreSQL migration in temporary Docker container: PASS
-- Docker Compose config: PASS
-- `.env.example` completeness: PASS
-- No hardcoded production secrets: PASS
-- TURN through environment variables: PASS
-- PostgreSQL service in Docker Compose: PASS
-- Health checks: PASS
-- Port documentation: PASS
-- Manual test steps: PASS
-- Copy-paste deployment commands: PASS
+- Frontend policy/coordinate/order tests (10), TypeScript check and Vite production build.
+- Go tests and service build, including actual local WebSocket authentication/approval/closure tests; go vet.
+- Rust check and 5 native authorization/input-state tests.
+- Real browser WebRTC loopback: generated video, RTT, encoder parameters, separate pointer/input channels, input rejection, releases, shutdown.
+- npm audit: zero reported vulnerabilities.
+- Compose syntax, template-value rejection, corrected PowerShell native-exit handling.
 
-## Not Verified or Failed
+## Packaging
 
-- Second Windows PC installation: NOT VERIFIED.
-- LAN dual-machine remote assistance: NOT VERIFIED.
-- Public server deployment, DNS, TLS, firewall/security-group, P2P, and TURN fallback: NOT VERIFIED.
+- PASS — 0.4 portable Windows EXE and NSIS installer built using scripts/package-windows.ps1; installer RemoteAssist_0.4.0-alpha_x64-setup.exe (approximately 1.89 MiB).
+- Packaging uses https://remoteassist.example.com only to validate the build. Rebuild with the actual signaling domain before operational installation.
+
+## NOT VERIFIED
+
+- Installer startup on a second machine; native consent and Credential Manager runtime in this version.
+- Windows capture/input, primary-screen identification, DPI/layouts/IME, two-machine LAN, restrictive NAT and public TURN.
+- Live PostgreSQL migration/backup/restore and container hardening under Docker; no daemon is running locally.
+- Local Go race detector (CGO/compiler unavailable), GitHub CI execution.
+- Performance benchmarks; no quantitative improvement is claimed.
+
+## Compatibility
+
+Upgrade server and both clients together. Version 0.4 requires first-frame WebSocket authentication and sequenced pointer messages. Use one signaling instance. Sessions end on restart, expiry, or control-heartbeat loss; renewed sessions require consent.

@@ -28,22 +28,27 @@ var (
 	ErrExpired      = errors.New("session expired")
 	ErrInvalidToken = errors.New("invalid token")
 	ErrInvalidState = errors.New("invalid session state")
+	ErrCapacity     = errors.New("session capacity reached")
 )
 
 type StoreConfig struct {
 	CodeTTL         time.Duration
+	ActiveTTL       time.Duration
 	CleanupInterval time.Duration
 	Now             func() time.Time
+	MaxSessions     int
 }
 
 type Store struct {
-	mu       sync.RWMutex
-	byID     map[string]*Session
-	byCode   map[string]string
-	codeTTL  time.Duration
-	now      func() time.Time
-	stop     chan struct{}
-	stopOnce sync.Once
+	mu          sync.RWMutex
+	byID        map[string]*Session
+	byCode      map[string]string
+	codeTTL     time.Duration
+	activeTTL   time.Duration
+	maxSessions int
+	now         func() time.Time
+	stop        chan struct{}
+	stopOnce    sync.Once
 }
 
 type Session struct {
@@ -61,18 +66,26 @@ func NewStore(cfg StoreConfig) *Store {
 	if cfg.CodeTTL <= 0 {
 		cfg.CodeTTL = 5 * time.Minute
 	}
+	if cfg.ActiveTTL <= 0 {
+		cfg.ActiveTTL = 30 * time.Minute
+	}
 	if cfg.CleanupInterval <= 0 {
 		cfg.CleanupInterval = 30 * time.Second
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+	if cfg.MaxSessions <= 0 {
+		cfg.MaxSessions = 4096
+	}
 	s := &Store{
-		byID:    map[string]*Session{},
-		byCode:  map[string]string{},
-		codeTTL: cfg.CodeTTL,
-		now:     cfg.Now,
-		stop:    make(chan struct{}),
+		byID:        map[string]*Session{},
+		byCode:      map[string]string{},
+		codeTTL:     cfg.CodeTTL,
+		activeTTL:   cfg.ActiveTTL,
+		maxSessions: cfg.MaxSessions,
+		now:         cfg.Now,
+		stop:        make(chan struct{}),
 	}
 	go s.cleanupLoop(cfg.CleanupInterval)
 	return s
@@ -85,6 +98,12 @@ func (s *Store) Stop() {
 func (s *Store) CreateShareSession() (*Session, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if len(s.byID) >= s.maxSessions {
+		s.cleanupLocked()
+		if len(s.byID) >= s.maxSessions {
+			return nil, "", ErrCapacity
+		}
+	}
 
 	now := s.now()
 	id, err := randomToken(18)
@@ -160,6 +179,7 @@ func (s *Store) Disconnect(id, token string) (*Session, error) {
 	}
 	current.State = StateDisconnected
 	current.UpdatedAt = s.now()
+	s.clearSessionTokensLocked(current)
 	delete(s.byCode, current.Code)
 	return clone(current), nil
 }
@@ -209,9 +229,20 @@ func (s *Store) transitionWithHostToken(id, hostToken string, from, to State) (*
 	if current.State != from {
 		return nil, ErrInvalidState
 	}
+	if to == StateAuthorizedActive && !s.now().Before(current.CreatedAt.Add(s.activeTTL)) {
+		current.State = StateExpired
+		current.UpdatedAt = s.now()
+		s.clearSessionTokensLocked(current)
+		delete(s.byCode, current.Code)
+		return nil, ErrExpired
+	}
 	current.State = to
 	current.UpdatedAt = s.now()
-	if to == StateRejected {
+	if to == StateAuthorizedActive {
+		current.ExpiresAt = current.CreatedAt.Add(s.activeTTL)
+	}
+	if isTerminalState(to) {
+		s.clearSessionTokensLocked(current)
 		delete(s.byCode, current.Code)
 	}
 	return clone(current), nil
@@ -229,15 +260,30 @@ func (s *Store) getActiveLocked(id string) (*Session, error) {
 }
 
 func (s *Store) expireIfNeededLocked(current *Session) bool {
-	if current.State == StateWaitingForController || current.State == StateWaitingForHostApproval || current.State == StateCreated {
-		if !s.now().Before(current.ExpiresAt) {
+	now := s.now()
+	deadline := current.ExpiresAt
+	if current.State == StateAuthorizedActive {
+		deadline = current.CreatedAt.Add(s.activeTTL)
+	}
+	if current.State == StateWaitingForController || current.State == StateWaitingForHostApproval || current.State == StateCreated || current.State == StateAuthorizedActive {
+		if !now.Before(deadline) {
 			current.State = StateExpired
-			current.UpdatedAt = s.now()
+			current.UpdatedAt = now
+			s.clearSessionTokensLocked(current)
 			delete(s.byCode, current.Code)
 			return true
 		}
 	}
 	return current.State == StateExpired
+}
+
+func (s *Store) clearSessionTokensLocked(current *Session) {
+	current.HostToken = ""
+	current.ControllerToken = ""
+}
+
+func isTerminalState(state State) bool {
+	return state == StateDisconnected || state == StateExpired || state == StateRejected
 }
 
 func (s *Store) cleanupLoop(interval time.Duration) {
@@ -256,8 +302,18 @@ func (s *Store) cleanupLoop(interval time.Duration) {
 func (s *Store) cleanup() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, current := range s.byID {
+	s.cleanupLocked()
+}
+
+func (s *Store) cleanupLocked() {
+	for id, current := range s.byID {
 		s.expireIfNeededLocked(current)
+		if isTerminalState(current.State) {
+			if s.byCode[current.Code] == id {
+				delete(s.byCode, current.Code)
+			}
+			delete(s.byID, id)
+		}
 	}
 }
 

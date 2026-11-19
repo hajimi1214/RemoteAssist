@@ -19,6 +19,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm audit --audit-level=high
+      - run: npm test
       - run: npm run build
 
   server:
@@ -32,6 +33,30 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache: true
-      - run: go test ./...
+      - run: go test -race ./...
       - run: go vet ./...
+
+  desktop-windows:
+    runs-on: windows-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: rustup update stable --no-self-update
+      - run: cargo +stable check --locked
+        working-directory: src-tauri
+      - run: cargo +stable test --locked
+        working-directory: src-tauri
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config --quiet
 

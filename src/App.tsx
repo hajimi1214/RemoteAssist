@@ -1,14 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { inputFromPointer, InputEventGate, keyInput, wheelInput } from "./inputEvents";
-import { AssistRequest, AuthResult, Device, SignalingClient, SignalingHttpError, User } from "./signaling";
+import { AssistRequest, AuthResult, Device, IceServer, SignalingClient, SignalingHttpError, User } from "./signaling";
 import { ControllerPeer, HostPeer, SignalMessage } from "./webrtc";
 
 type View = "Dashboard" | "My Devices" | "Remote Assist" | "Sessions" | "Settings";
 type AuthMode = "signin" | "register";
 
 const signaling = new SignalingClient();
-const appVersion = "0.3.0-alpha";
+const appVersion = "0.4.0-alpha";
 
 export function App() {
   const [auth, setAuth, authLoaded] = useStoredAuth();
@@ -20,6 +20,33 @@ export function App() {
   const [serviceStatus, setServiceStatus] = useState("Disconnected");
   const [assistRequests, setAssistRequests] = useState<AssistRequest[]>([]);
   const [error, setError] = useState("");
+  const authRef = useRef(auth);
+  authRef.current = auth;
+
+  useEffect(() => {
+    if (!auth) return;
+    let cancelled = false;
+    const expected = auth;
+    let timer: number;
+    const refresh = async () => {
+      try {
+        const next = await signaling.refresh(expected.refreshToken);
+        if (!cancelled && authRef.current === expected) await setAuth(next);
+      } catch (err) {
+        if (cancelled || authRef.current !== expected) return;
+        if (err instanceof SignalingHttpError && err.status === 401) {
+          await setAuth(null);
+          setUser(null);
+        } else {
+          setServiceStatus("Disconnected");
+          timer = window.setTimeout(() => { void refresh(); }, 15_000);
+        }
+      }
+    };
+    const expires = Date.parse(auth.expiresAt);
+    timer = window.setTimeout(() => { void refresh(); }, Number.isFinite(expires) ? Math.max(0, expires - Date.now() - 60_000) : 0);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [auth]);
 
   useEffect(() => {
     if (!authLoaded || !auth) return;
@@ -31,13 +58,15 @@ export function App() {
         try {
           me = await signaling.me(activeAuth.accessToken);
         } catch (err) {
+          if (cancelled) return;
           if (!(err instanceof SignalingHttpError) || err.status !== 401) throw err;
           try {
             activeAuth = await signaling.refresh(activeAuth.refreshToken);
-            await setAuth(activeAuth);
+            if (!cancelled && authRef.current === auth) await setAuth(activeAuth);
             return;
           } catch (refreshError) {
             if (refreshError instanceof SignalingHttpError && refreshError.status === 401) {
+              if (cancelled || authRef.current !== auth) return;
               await setAuth(null);
               setUser(null);
               return;
@@ -339,69 +368,129 @@ function ShareComputer({ auth }: { auth: AuthResult }) {
   const streamRef = useRef<MediaStream | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const hostPeerRef = useRef<HostPeer | null>(null);
+  const iceServersRef = useRef<IceServer[]>([]);
+  const sessionRef = useRef<{ id: string; hostToken: string } | null>(null);
+  const sharingRef = useRef(false);
+  const generationRef = useRef(0);
+  const authorizingRef = useRef(false);
+  const expiryTimer = useRef<number | undefined>(undefined);
+  const [quality, setQuality] = useState("Balanced");
 
   async function startSharing() {
-    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-    streamRef.current = stream;
-    const created = await signaling.createShareSession();
-    setSession({ id: created.id, hostToken: created.hostToken });
-    setCode(created.code);
-    setPermission("Sharing selected screen/window, waiting for controller");
-    setStatus(`Code expires at ${new Date(created.expiresAt).toLocaleTimeString()}`);
-    const ws = new WebSocket(signaling.wsURL(created.id, created.hostToken, "host"));
-    wsRef.current = ws;
-    ws.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data) as SignalMessage;
-      if (msg.type === "ping") {
-        setPendingApproval(true);
-        setStatus("Controller is waiting for authorization");
-      } else {
-        void hostPeerRef.current?.handleSignal(msg);
+    if (sharingRef.current) return;
+    sharingRef.current = true;
+    const generation = ++generationRef.current;
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: "monitor", frameRate: { ideal: 20, max: 30 } }, audio: false });
+      if (!sharingRef.current || generationRef.current !== generation) { stream.getTracks().forEach((track) => track.stop()); return; }
+      streamRef.current = stream;
+      stream.getTracks().forEach((track) => {
+        track.onended = () => { if (generationRef.current === generation) void stopSharing("Capture stopped"); };
+      });
+      const capture = stream.getVideoTracks()[0];
+      if (!capture || capture.readyState !== "live" || capture.getSettings().displaySurface !== "monitor") {
+        throw new Error("Choose your primary full display. Window and tab control are not supported yet.");
       }
-    };
-    ws.onclose = () => stopSharing("Disconnected");
-    stream.getTracks().forEach((track) => {
-      track.onended = () => stopSharing("Capture stopped");
-    });
+      const iceServers = await signaling.iceServers(auth.accessToken);
+      if (!sharingRef.current || generationRef.current !== generation) return;
+      const created = await signaling.createShareSession();
+      if (!sharingRef.current || generationRef.current !== generation) { await signaling.disconnect(created.id, created.hostToken).catch(() => undefined); return; }
+      sessionRef.current = created;
+      setSession({ id: created.id, hostToken: created.hostToken });
+      setPermission("Sharing selected screen/window, waiting for controller");
+      setStatus(`Code expires at ${new Date(created.expiresAt).toLocaleTimeString()}`);
+      const ws = new WebSocket(signaling.wsURL(created.id, "host"));
+      ws.onopen = () => ws.send(JSON.stringify({ type: "authenticate", token: created.hostToken }));
+      // Fetch ICE before opening the socket, so no signaling handlers are installed late.
+      iceServersRef.current = iceServers;
+      wsRef.current = ws;
+      ws.onmessage = (ev) => {
+        let msg: SignalMessage;
+        try { msg = JSON.parse(ev.data) as SignalMessage; } catch { void stopSharing("Invalid signaling message"); return; }
+        if (msg.sessionId !== created.id) return;
+        if (msg.type === "ready") { setCode(created.code); return; }
+        if (["disconnect", "rejected", "expired"].includes(msg.type)) { void stopSharing("Session ended"); return; }
+        if (msg.type === "ping") {
+          setPendingApproval(true);
+          setStatus("Controller is waiting for authorization");
+        } else {
+          void hostPeerRef.current?.handleSignal(msg);
+        }
+      };
+      ws.onclose = () => { void stopSharing("Disconnected"); };
+      ws.onerror = () => { void stopSharing("Connection failed"); };
+      expiryTimer.current = window.setTimeout(() => { void stopSharing("Connection code expired"); }, Math.max(0, Date.parse(created.expiresAt) - Date.now()));
+    } catch (err) {
+      if (generationRef.current === generation) await stopSharing(err instanceof Error ? err.message : "Sharing could not start");
+    }
   }
 
   async function allowControl() {
-    if (!session || !streamRef.current || !wsRef.current) return;
-    const consent = await invoke<boolean>("request_input_authorization");
-    if (!consent) {
-      setPermission("Remote input not authorized");
-      return;
-    }
-    const approved = await signaling.approve(session.id, session.hostToken);
-    await invoke("set_input_authorized", { sessionToken: approved.controllerToken });
-    setSession({ ...session, controllerToken: approved.controllerToken });
-    setPendingApproval(false);
-    setPermission("Remote input authorized");
-    const gate = new InputEventGate(approved.controllerToken, () => true);
-    const peer = new HostPeer(session.id, session.hostToken, wsRef.current, await signaling.iceServers(auth.accessToken), { onConnectionStatus: setStatus });
-    hostPeerRef.current = peer;
-    await peer.start(streamRef.current, gate);
+    const current = sessionRef.current;
+    if (!current || !sharingRef.current || !streamRef.current || !wsRef.current || authorizingRef.current) return;
+    if (!streamRef.current.getVideoTracks().some((track) => track.readyState === "live")) { await stopSharing("Capture stopped"); return; }
+    authorizingRef.current = true;
+    const generation = generationRef.current;
+    try {
+      const consent = await invoke<boolean>("request_input_authorization");
+      if (!sharingRef.current || sessionRef.current !== current) { await invoke("clear_input_authorization"); return; }
+      if (!consent) {
+        setPermission("Remote input not authorized");
+        return;
+      }
+      const approved = await signaling.approve(current.id, current.hostToken);
+      if (!sharingRef.current || sessionRef.current !== current) return;
+      await invoke("set_input_authorized", { sessionToken: approved.controllerToken, expiresAtMs: Date.parse(approved.expiresAt) });
+      if (!sharingRef.current || sessionRef.current !== current) { await invoke("clear_input_authorization"); return; }
+      if (expiryTimer.current != null) window.clearTimeout(expiryTimer.current);
+      expiryTimer.current = window.setTimeout(() => { void stopSharing("Session expired"); }, Math.max(0, Date.parse(approved.expiresAt) - Date.now()));
+      setSession({ ...current, controllerToken: approved.controllerToken });
+      setPendingApproval(false);
+      setPermission("Remote input authorized");
+      const gate = new InputEventGate(approved.controllerToken, () => sharingRef.current);
+      const peer = new HostPeer(current.id, current.hostToken, wsRef.current!, iceServersRef.current, {
+        onConnectionStatus: (status) => { setStatus(status); if (status === "failed" || status === "disconnected") void stopSharing("Connection lost"); },
+        onQuality: setQuality
+      });
+      hostPeerRef.current = peer;
+      await peer.start(streamRef.current!, gate);
+    } catch (err) {
+      await stopSharing(err instanceof Error ? err.message : "Authorization failed");
+    } finally { if (generationRef.current === generation) authorizingRef.current = false; }
   }
 
   async function stopSharing(reason = "Disconnected") {
+    sharingRef.current = false;
+    generationRef.current++;
+    authorizingRef.current = false;
+    const current = sessionRef.current;
+    sessionRef.current = null;
+    if (expiryTimer.current != null) window.clearTimeout(expiryTimer.current);
+    expiryTimer.current = undefined;
+    const ws = wsRef.current;
+    wsRef.current = null;
+    if (ws) { ws.onclose = null; ws.onmessage = null; ws.onerror = null; }
     hostPeerRef.current?.close();
-    wsRef.current?.close();
+    hostPeerRef.current = null;
+    ws?.close();
     streamRef.current?.getTracks().forEach((track) => track.stop());
-    await invoke("clear_input_authorization").catch(() => undefined);
-    if (session) await signaling.disconnect(session.id, session.hostToken).catch(() => undefined);
+    streamRef.current = null;
     setStatus(reason);
     setPermission("Not sharing");
     setCode("");
     setPendingApproval(false);
     setSession(null);
+    setQuality("Balanced");
+    await invoke("clear_input_authorization").catch(() => undefined);
+    if (current) await signaling.disconnect(current.id, current.hostToken).catch(() => undefined);
   }
 
   useEffect(() => () => { void stopSharing("Closed"); }, []);
 
   return (
     <section className="panel share-panel">
-      <div className="panel-heading"><div><span className="eyebrow">HOST WORKFLOW</span><h2>Share this computer</h2><p>Choose a screen or window. Control remains disabled until you approve the request.</p></div><span className={`presence ${code ? "online" : "offline"}`}><i />{code ? "Sharing is visible" : "Not sharing"}</span></div>
-      {!code && <div className="share-start"><span className="large-monitor"><Icon name="monitor" /></span><div><strong>Start a visible support session</strong><p>RemoteAssist will ask you to select the screen or window you want to share.</p><button className="primary-action" onClick={() => void startSharing()}><Icon name="monitor" /> Choose screen & start</button></div></div>}
+      <div className="panel-heading"><div><span className="eyebrow">HOST WORKFLOW</span><h2>Share this computer</h2><p>Choose your primary full display. Remote input requires your approval; window and secondary-display control are not supported yet.</p></div><span className={`presence ${code ? "online" : "offline"}`}><i />{code ? "Sharing is visible" : "Not sharing"}</span></div>
+      {!code && <div className="share-start"><span className="large-monitor"><Icon name="monitor" /></span><div><strong>Start a visible support session</strong><p>Select your primary monitor in the system picker. You can stop sharing at any time.</p><button className="primary-action" onClick={() => void startSharing()}><Icon name="monitor" /> Choose primary display</button></div></div>}
       {code && <div className="share-active"><span className="eyebrow">TEMPORARY CONNECTION CODE</span><div className="code-box">{code}</div><p>Share this code with the person you trust. It expires at {status.startsWith("Code expires at ") ? status.replace("Code expires at ", "") : "the displayed time"}.</p></div>}
       {pendingApproval && (
         <div className="approval">
@@ -412,7 +501,7 @@ function ShareComputer({ auth }: { auth: AuthResult }) {
           </div>
         </div>
       )}
-      <dl className="status-grid"><dt>Connection</dt><dd>{status}</dd><dt>Permission</dt><dd>{permission}</dd></dl>
+      <dl className="status-grid"><dt>Connection</dt><dd>{status}</dd><dt>Permission</dt><dd>{permission}</dd>{session?.controllerToken && <><dt>Adaptive quality</dt><dd>{quality}</dd></>}</dl>
       {code && <button className="danger-action" onClick={() => void stopSharing("Stopped by host")}>Stop sharing</button>}
     </section>
   );
@@ -427,43 +516,111 @@ function ControlComputer({ auth }: { auth: AuthResult }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const peerRef = useRef<ControllerPeer | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const sessionRef = useRef<{ id: string; controllerToken: string } | null>(null);
+  const connectingRef = useRef(false);
+  const generationRef = useRef(0);
 
   async function connect() {
-    const joined = await signaling.join(code);
-    setSession({ id: joined.id, controllerToken: joined.controllerToken });
-    setStatus("Waiting for host authorization");
-    const ws = new WebSocket(signaling.wsURL(joined.id, joined.controllerToken, "controller"));
-    wsRef.current = ws;
-    const peer = new ControllerPeer(joined.id, joined.controllerToken, ws, await signaling.iceServers(auth.accessToken), {
-      onRemoteStream: (stream) => { if (videoRef.current) videoRef.current.srcObject = stream; },
-      onConnectionStatus: setStatus,
-      onRelayStatus: setRelay,
-      onLatency: setLatency
-    });
-    peerRef.current = peer;
-    ws.onopen = () => ws.send(JSON.stringify({ type: "ping", sessionId: joined.id, sessionToken: joined.controllerToken, ts: Date.now() }));
-    ws.onmessage = (ev) => void peer.handleSignal(JSON.parse(ev.data) as SignalMessage);
-    ws.onclose = () => disconnect("Disconnected");
+    if (connectingRef.current) return;
+    connectingRef.current = true;
+    const generation = ++generationRef.current;
+    try {
+      const iceServers = await signaling.iceServers(auth.accessToken);
+      if (!connectingRef.current || generationRef.current !== generation) return;
+      const joined = await signaling.join(code);
+      if (!connectingRef.current || generationRef.current !== generation) { await signaling.disconnect(joined.id, joined.controllerToken).catch(() => undefined); return; }
+      sessionRef.current = joined;
+      setSession({ id: joined.id, controllerToken: joined.controllerToken });
+      setStatus("Waiting for host authorization");
+      const ws = new WebSocket(signaling.wsURL(joined.id, "controller"));
+      wsRef.current = ws;
+      const peer = new ControllerPeer(joined.id, joined.controllerToken, ws, iceServers, {
+        onRemoteStream: (stream) => { if (videoRef.current) videoRef.current.srcObject = stream; },
+        onConnectionStatus: (status) => { setStatus(status); if (status === "failed" || status === "disconnected") disconnect("Connection lost"); },
+        onRelayStatus: setRelay,
+        onLatency: setLatency
+      });
+      peerRef.current = peer;
+      ws.onopen = () => ws.send(JSON.stringify({ type: "authenticate", token: joined.controllerToken }));
+      ws.onmessage = (ev) => {
+        let msg: SignalMessage;
+        try { msg = JSON.parse(ev.data) as SignalMessage; } catch { disconnect("Invalid signaling message"); return; }
+        if (msg.sessionId !== joined.id) return;
+        if (msg.type === "ready") {
+          ws.send(JSON.stringify({ type: "ping", sessionId: joined.id, sessionToken: joined.controllerToken, ts: Date.now() }));
+          return;
+        }
+        if (["disconnect", "rejected", "expired"].includes(msg.type)) { disconnect("Session ended"); return; }
+        void peer.handleSignal(msg);
+      };
+      ws.onclose = () => disconnect("Disconnected");
+      ws.onerror = () => disconnect("Connection failed");
+    } catch (err) { if (generationRef.current === generation) disconnect(err instanceof Error ? err.message : "Connection failed"); }
   }
 
   function sendPointer(type: "mouse_move" | "mouse_down" | "mouse_up", ev: React.PointerEvent<HTMLVideoElement>) {
     if (!session || !videoRef.current) return;
-    peerRef.current?.sendInput(inputFromPointer(type, session.controllerToken, videoRef.current, ev));
+    const input = inputFromPointer(type, session.controllerToken, videoRef.current, ev);
+    if (input) {
+      ev.preventDefault();
+      if (type === "mouse_down") { ev.currentTarget.focus(); ev.currentTarget.setPointerCapture(ev.pointerId); }
+      peerRef.current?.sendInput(input);
+    } else if (type === "mouse_up") {
+      releaseInputs();
+    }
+    if (type === "mouse_up" && ev.currentTarget.hasPointerCapture(ev.pointerId)) ev.currentTarget.releasePointerCapture(ev.pointerId);
+  }
+
+  function releaseInputs() {
+    const current = sessionRef.current;
+    if (current) peerRef.current?.sendInput({ type: "release_all", sessionToken: current.controllerToken, ts: Date.now() });
+  }
+
+  function sendKey(type: "key_down" | "key_up", ev: React.KeyboardEvent<HTMLVideoElement>) {
+    if (!sessionRef.current) return;
+    ev.preventDefault();
+    peerRef.current?.sendInput(keyInput(type, sessionRef.current.controllerToken, ev));
+  }
+
+  function sendWheel(ev: React.WheelEvent<HTMLVideoElement>) {
+    if (!sessionRef.current) return;
+    ev.preventDefault();
+    peerRef.current?.sendInput(wheelInput(sessionRef.current.controllerToken, ev));
   }
 
   function disconnect(reason = "Disconnected") {
-    if (session) signaling.disconnect(session.id, session.controllerToken).catch(() => undefined);
+    connectingRef.current = false;
+    generationRef.current++;
+    const current = sessionRef.current;
+    sessionRef.current = null;
+    if (current) void signaling.disconnect(current.id, current.controllerToken).catch(() => undefined);
+    const ws = wsRef.current;
+    wsRef.current = null;
+    if (ws) { ws.onclose = null; ws.onmessage = null; ws.onerror = null; }
     peerRef.current?.close();
-    wsRef.current?.close();
+    peerRef.current = null;
+    ws?.close();
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setLatency(null);
+    setRelay("Unknown");
     setStatus(reason);
     setSession(null);
   }
+
+  useEffect(() => () => { disconnect("Closed"); }, []);
+
+  useEffect(() => {
+    const onVisibility = () => { if (document.hidden) releaseInputs(); };
+    window.addEventListener("blur", releaseInputs);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => { window.removeEventListener("blur", releaseInputs); document.removeEventListener("visibilitychange", onVisibility); };
+  }, []);
 
   return (
     <section className="panel control-panel">
       <div className="panel-heading"><div><span className="eyebrow">CONTROLLER WORKFLOW</span><h2>Connect to a computer</h2><p>Enter a temporary code. The host chooses what to share and must approve control.</p></div><span className="presence offline"><i />{status}</span></div>
       {!session && <form className="join-form" onSubmit={(ev) => { ev.preventDefault(); void connect(); }}><label htmlFor="session-code">8-digit session code</label><div><input id="session-code" value={code} onChange={(ev) => setCode(ev.target.value.replace(/\D/g, "").slice(0, 8))} placeholder="00000000" inputMode="numeric" /><button className="primary-action" disabled={code.length !== 8}>Connect</button></div></form>}
-      <div className="remote-stage"><video ref={videoRef} autoPlay playsInline tabIndex={0} onPointerMove={(ev) => sendPointer("mouse_move", ev)} onPointerDown={(ev) => sendPointer("mouse_down", ev)} onPointerUp={(ev) => sendPointer("mouse_up", ev)} onWheel={(ev) => session && peerRef.current?.sendInput(wheelInput(session.controllerToken, ev))} onKeyDown={(ev) => session && peerRef.current?.sendInput(keyInput("key_down", session.controllerToken, ev))} onKeyUp={(ev) => session && peerRef.current?.sendInput(keyInput("key_up", session.controllerToken, ev))} /></div>
+      <div className="remote-stage"><video ref={videoRef} autoPlay playsInline tabIndex={0} onPointerMove={(ev) => sendPointer("mouse_move", ev)} onPointerDown={(ev) => sendPointer("mouse_down", ev)} onPointerUp={(ev) => sendPointer("mouse_up", ev)} onPointerCancel={releaseInputs} onBlur={releaseInputs} onContextMenu={(ev) => ev.preventDefault()} onWheel={sendWheel} onKeyDown={(ev) => sendKey("key_down", ev)} onKeyUp={(ev) => sendKey("key_up", ev)} /></div>
       {!session && <div className="stage-placeholder"><span className="empty-icon"><Icon name="monitor" /></span><strong>Remote screen will appear here</strong><span>Connect with a temporary code to begin.</span></div>}
       <dl className="status-grid"><dt>Connection</dt><dd>{status}</dd><dt>Route</dt><dd>{relay}</dd><dt>Latency</dt><dd>{latency == null ? "Waiting for connection" : `${latency} ms`}</dd></dl>
       {session && <button className="danger-action" onClick={() => disconnect("Stopped by controller")}>Disconnect</button>}
@@ -480,6 +637,7 @@ type StoredAuth = AuthResult;
 function useStoredAuth(): [StoredAuth | null, (auth: StoredAuth | null, remember?: boolean) => Promise<void>, boolean] {
   const [auth, setAuthState] = useState<StoredAuth | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const rememberRef = useRef(true);
   useEffect(() => {
     void invoke<string | null>("read_stored_auth")
       .then(async (raw) => {
@@ -496,10 +654,11 @@ function useStoredAuth(): [StoredAuth | null, (auth: StoredAuth | null, remember
       .catch(() => undefined)
       .finally(() => setLoaded(true));
   }, []);
-  async function setAuth(next: StoredAuth | null, remember = true) {
+  async function setAuth(next: StoredAuth | null, remember?: boolean) {
+    if (remember != null) rememberRef.current = remember;
     setAuthState(next);
     try {
-      if (next && remember) await invoke("write_stored_auth", { authState: JSON.stringify(next) });
+      if (next && rememberRef.current) await invoke("write_stored_auth", { authState: JSON.stringify(next) });
       else await invoke("delete_stored_auth");
     } catch {
       // Authentication remains in memory when the platform credential store is unavailable.

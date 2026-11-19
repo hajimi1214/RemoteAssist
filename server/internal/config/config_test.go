@@ -9,6 +9,17 @@ import (
 	"remoteassist/server/internal/identity"
 )
 
+func TestResourceLimitsRejectExtremeEnvironmentValues(t *testing.T) {
+	t.Setenv("WS_MAX_MESSAGE_BYTES", "2147483647")
+	t.Setenv("RATE_LIMIT_PER_MINUTE", "2147483647")
+	t.Setenv("LOGIN_FAIL_LIMIT_PER_MINUTE", "2147483647")
+	t.Setenv("SESSION_ACTIVE_TTL", "900h")
+	cfg := FromEnv()
+	if cfg.MaxMessageBytes != 65536 || cfg.RateLimitPerMinute != 120 || cfg.LoginFailLimit != 10 || cfg.ActiveSessionTTL != 30*time.Minute {
+		t.Fatal("unsafe resource limit was accepted")
+	}
+}
+
 func TestFromEnvReadsTURNRESTSettings(t *testing.T) {
 	t.Setenv("TURN_URLS", " turn:turn.example.test:3478?transport=udp, turns:turn.example.test:5349 ")
 	t.Setenv("TURN_SECRET", "rest-shared-secret-long-enough-32")

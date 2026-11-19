@@ -19,6 +19,15 @@ services:
       context: ../server
     image: remoteassist-signaling:${REMOTEASSIST_VERSION:-local}
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
     environment:
       SIGNALING_ADDR: ":8080"
       DATABASE_URL: "${DATABASE_URL}"
@@ -26,8 +35,10 @@ services:
       REFRESH_TOKEN_SECRET: "${REFRESH_TOKEN_SECRET}"
       PUBLIC_BASE_URL: "${PUBLIC_BASE_URL}"
       SESSION_CODE_TTL: "${SESSION_CODE_TTL:-5m}"
+      SESSION_ACTIVE_TTL: "${SESSION_ACTIVE_TTL:-30m}"
       WS_MAX_MESSAGE_BYTES: "${WS_MAX_MESSAGE_BYTES:-65536}"
       RATE_LIMIT_PER_MINUTE: "${RATE_LIMIT_PER_MINUTE:-120}"
+      LOGIN_FAIL_LIMIT_PER_MINUTE: "${LOGIN_FAIL_LIMIT_PER_MINUTE:-10}"
       TRUSTED_PROXY_CIDRS: "${TRUSTED_PROXY_CIDRS:-172.16.0.0/12}"
       APP_ORIGINS: "${APP_ORIGINS:-http://tauri.localhost,https://tauri.localhost,tauri://localhost}"
       TURN_URLS: "${TURN_URLS}"

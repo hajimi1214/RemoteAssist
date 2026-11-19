@@ -16,6 +16,7 @@ type Config struct {
 	Addr               string
 	PublicBaseURL      string
 	CodeTTL            time.Duration
+	ActiveSessionTTL   time.Duration
 	MaxMessageBytes    int64
 	RateLimitPerMinute int
 	LoginFailLimit     int
@@ -47,9 +48,10 @@ func FromEnv() Config {
 		Addr:               env("SIGNALING_ADDR", ":8080"),
 		PublicBaseURL:      env("PUBLIC_BASE_URL", "http://localhost:8080"),
 		CodeTTL:            durationEnv("SESSION_CODE_TTL", 5*time.Minute),
-		MaxMessageBytes:    int64(intEnv("WS_MAX_MESSAGE_BYTES", 65536)),
-		RateLimitPerMinute: intEnv("RATE_LIMIT_PER_MINUTE", 120),
-		LoginFailLimit:     intEnv("LOGIN_FAIL_LIMIT_PER_MINUTE", 10),
+		ActiveSessionTTL:   boundedDurationEnv("SESSION_ACTIVE_TTL", 30*time.Minute, time.Minute, 8*time.Hour),
+		MaxMessageBytes:    int64(boundedIntEnv("WS_MAX_MESSAGE_BYTES", 65536, 1024, 262144)),
+		RateLimitPerMinute: boundedIntEnv("RATE_LIMIT_PER_MINUTE", 120, 1, 10000),
+		LoginFailLimit:     boundedIntEnv("LOGIN_FAIL_LIMIT_PER_MINUTE", 10, 1, 100),
 		LogLevel:           levelEnv("LOG_LEVEL", slog.LevelInfo),
 		DatabaseURL:        databaseURL,
 		JWTSecret:          secretEnv("JWT_SECRET", allowEphemeralSecrets),
@@ -80,6 +82,14 @@ func intEnv(key string, fallback int) int {
 	}
 	value, err := strconv.Atoi(raw)
 	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func boundedIntEnv(key string, fallback, minimum, maximum int) int {
+	value := intEnv(key, fallback)
+	if value < minimum || value > maximum {
 		return fallback
 	}
 	return value
