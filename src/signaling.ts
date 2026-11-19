@@ -47,6 +47,13 @@ export interface AuthResult {
   expiresAt: string;
 }
 
+export class SignalingHttpError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+    this.name = "SignalingHttpError";
+  }
+}
+
 export interface Device {
   id: string;
   userId: string;
@@ -69,7 +76,7 @@ export interface AssistRequest {
   createdAt: string;
 }
 
-const defaultBaseURL = import.meta.env.VITE_SIGNALING_URL ?? "http://localhost:8080";
+const defaultBaseURL = import.meta.env.VITE_SIGNALING_URL ?? (import.meta.env.DEV ? "http://localhost:8080" : "");
 
 export class SignalingClient {
   constructor(private readonly baseURL = defaultBaseURL.replace(/\/$/, "")) {}
@@ -161,8 +168,8 @@ export class SignalingClient {
     return body.request;
   }
 
-  async iceServers(): Promise<IceServer[]> {
-    const body = await this.request<{ iceServers: IceServer[] }>("/api/v1/ice-config");
+  async iceServers(accessToken: string): Promise<IceServer[]> {
+    const body = await this.request<{ iceServers: IceServer[] }>("/api/v1/ice-config", {}, accessToken);
     return body.iceServers;
   }
 
@@ -202,8 +209,11 @@ export class SignalingClient {
   }
 
   wsURL(sessionId: string, token: string, role: "host" | "controller"): string {
-    const url = new URL(this.baseURL);
+    const url = new URL(this.getBaseURL());
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    if (import.meta.env.PROD && url.protocol !== "wss:") {
+      throw new Error("production_signaling_requires_tls");
+    }
     url.pathname = "/api/v1/ws";
     url.searchParams.set("sessionId", sessionId);
     url.searchParams.set("token", token);
@@ -212,7 +222,7 @@ export class SignalingClient {
   }
 
   private async request<T = unknown>(path: string, init: RequestInit = {}, accessToken = ""): Promise<T> {
-    const response = await fetch(`${this.baseURL}${path}`, {
+    const response = await fetch(`${this.getBaseURL()}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
@@ -222,8 +232,25 @@ export class SignalingClient {
     });
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`Request failed: ${response.status} ${error}`);
+      throw new SignalingHttpError(response.status, `Request failed: ${response.status} ${error}`);
     }
     return (await response.json()) as T;
+  }
+
+  private getBaseURL(): string {
+    if (!this.baseURL) throw new Error("signaling_service_not_configured");
+    let url: URL;
+    try {
+      url = new URL(this.baseURL);
+    } catch {
+      throw new Error("invalid_signaling_service_url");
+    }
+    if (!(url.protocol === "https:" || (import.meta.env.DEV && url.protocol === "http:"))) {
+      throw new Error("signaling_service_requires_tls");
+    }
+    if (url.username || url.password || url.search || url.hash) {
+      throw new Error("invalid_signaling_service_url");
+    }
+    return url.toString().replace(/\/$/, "");
   }
 }

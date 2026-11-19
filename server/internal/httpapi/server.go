@@ -1,11 +1,16 @@
 package httpapi
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha1"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -61,7 +66,8 @@ func NewServer(cfg config.Config, store *session.Store, logger *slog.Logger, ide
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
 			CheckOrigin: func(r *http.Request) bool {
-				return true
+				origin := r.Header.Get("Origin")
+				return origin == "" || config.IsAllowedAppOrigin(origin, cfg.AppOrigins)
 			},
 		},
 	}
@@ -90,7 +96,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/share-sessions/{id}/reject", s.rejectShareSession)
 	mux.HandleFunc("POST /api/v1/share-sessions/{id}/disconnect", s.disconnectShareSession)
 	mux.HandleFunc("GET /api/v1/ws", s.websocket)
-	return s.securityHeaders(s.rateLimit(mux))
+	return s.securityHeaders(s.cors(s.rateLimit(mux)))
 }
 
 func (s *Server) authRegister(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +117,7 @@ func (s *Server) authRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
-	if !s.loginLimiter.allow(clientIP(r)) {
+	if !s.loginLimiter.allow(clientIP(r, s.cfg.TrustedProxyCIDRs...)) {
 		writeError(w, http.StatusTooManyRequests, "login_rate_limited")
 		return
 	}
@@ -274,9 +280,34 @@ func (s *Server) resolveDeviceAssistRequest(w http.ResponseWriter, r *http.Reque
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	request, ok := s.assist.resolve(r.PathValue("id"), req.Status)
+	if req.Status != "ACCEPTED" && req.Status != "REJECTED" {
+		writeError(w, http.StatusBadRequest, "invalid_status")
+		return
+	}
+	devices, err := s.identity.ListDevices(r.Context(), bearerToken(r), "")
+	if err != nil {
+		writeIdentityError(w, err)
+		return
+	}
+	request, ok := s.assist.lookup(r.PathValue("id"))
 	if !ok {
 		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	hostOwned := false
+	for _, device := range devices {
+		if device.ID == request.HostDeviceID {
+			hostOwned = true
+			break
+		}
+	}
+	if !hostOwned {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	request, ok = s.assist.resolve(r.PathValue("id"), request.HostDeviceID, req.Status)
+	if !ok {
+		writeError(w, http.StatusConflict, "invalid_state")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"request": request})
@@ -286,8 +317,37 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *Server) iceConfig(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"iceServers": s.cfg.ICEServers})
+func (s *Server) iceConfig(w http.ResponseWriter, r *http.Request) {
+	if _, err := s.identity.Me(r.Context(), bearerToken(r)); err != nil {
+		writeIdentityError(w, err)
+		return
+	}
+	iceServers := append([]config.ICEServer(nil), s.cfg.ICEServers...)
+	if len(s.cfg.TURNURLs) > 0 {
+		if len(s.cfg.TURNSecret) < 32 {
+			writeError(w, http.StatusServiceUnavailable, "turn_unavailable")
+			return
+		}
+		ttl := s.cfg.TURNCredentialTTL
+		if ttl < time.Minute || ttl > 24*time.Hour {
+			ttl = 10 * time.Minute
+		}
+		randomPart := make([]byte, 16)
+		if _, err := rand.Read(randomPart); err != nil {
+			writeError(w, http.StatusInternalServerError, "credential_generation_failed")
+			return
+		}
+		username := strconv.FormatInt(time.Now().Add(ttl).Unix(), 10) + ":" + base64.RawURLEncoding.EncodeToString(randomPart)
+		mac := hmac.New(sha1.New, []byte(s.cfg.TURNSecret))
+		_, _ = mac.Write([]byte(username))
+		credential := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+		iceServers = append(iceServers, config.ICEServer{
+			URLs:       append([]string(nil), s.cfg.TURNURLs...),
+			Username:   username,
+			Credential: credential,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"iceServers": iceServers})
 }
 
 func (s *Server) createShareSession(w http.ResponseWriter, r *http.Request) {
@@ -487,9 +547,68 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		canonicalOrigin, validOrigin := config.NormalizeAppOrigin(origin)
+		if origin == "" || !validOrigin || !config.IsAllowedAppOrigin(canonicalOrigin, s.cfg.AppOrigins) {
+			if r.Method == http.MethodOptions || origin != "" {
+				writeError(w, http.StatusForbidden, "origin_not_allowed")
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		w.Header().Add("Vary", "Origin")
+		w.Header().Set("Access-Control-Allow-Origin", canonicalOrigin)
+		if r.Method == http.MethodOptions {
+			w.Header().Add("Vary", "Access-Control-Request-Method")
+			w.Header().Add("Vary", "Access-Control-Request-Headers")
+			method := strings.ToUpper(strings.TrimSpace(r.Header.Get("Access-Control-Request-Method")))
+			if !allowedCORSMethod(method) {
+				writeError(w, http.StatusForbidden, "method_not_allowed")
+				return
+			}
+			if !allowedCORSHeaders(r.Header.Get("Access-Control-Request-Headers")) {
+				writeError(w, http.StatusForbidden, "headers_not_allowed")
+				return
+			}
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.Header().Set("Access-Control-Max-Age", "600")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func allowedCORSMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+func allowedCORSHeaders(header string) bool {
+	for _, value := range strings.Split(header, ",") {
+		name := strings.ToLower(strings.TrimSpace(value))
+		if name == "" {
+			continue
+		}
+		if name != "authorization" && name != "content-type" {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Server) rateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !s.limiter.allow(clientIP(r)) {
+		if !s.limiter.allow(clientIP(r, s.cfg.TrustedProxyCIDRs...)) {
 			writeError(w, http.StatusTooManyRequests, "rate_limited")
 			return
 		}
@@ -580,17 +699,49 @@ func writeJSONStatus(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-func clientIP(r *http.Request) string {
-	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
-		if first := strings.TrimSpace(strings.Split(forwarded, ",")[0]); first != "" {
-			return first
-		}
+func clientIP(r *http.Request, trustedProxies ...*net.IPNet) string {
+	remoteHost := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		remoteHost = host
+	} else {
+		remoteHost = strings.TrimPrefix(strings.TrimSuffix(remoteHost, "]"), "[")
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
+	remoteIP := net.ParseIP(remoteHost)
+	if remoteIP == nil {
 		return r.RemoteAddr
 	}
-	return host
+	if !isTrustedProxy(remoteIP, trustedProxies) {
+		return remoteIP.String()
+	}
+	forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For"))
+	if forwarded == "" {
+		return remoteIP.String()
+	}
+	chain := strings.Split(forwarded, ",")
+	forwardedIPs := make([]net.IP, 0, len(chain))
+	for _, value := range chain {
+		ip := net.ParseIP(strings.TrimSpace(value))
+		if ip == nil {
+			return remoteIP.String()
+		}
+		forwardedIPs = append(forwardedIPs, ip)
+	}
+	forwardedIPs = append(forwardedIPs, remoteIP)
+	for i := len(forwardedIPs) - 1; i >= 0; i-- {
+		if !isTrustedProxy(forwardedIPs[i], trustedProxies) {
+			return forwardedIPs[i].String()
+		}
+	}
+	return remoteIP.String()
+}
+
+func isTrustedProxy(ip net.IP, trustedProxies []*net.IPNet) bool {
+	for _, network := range trustedProxies {
+		if network != nil && network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 type peer struct {
@@ -663,10 +814,12 @@ func (h *peerHub) broadcastSystem(sessionID, typ string) {
 }
 
 type ipLimiter struct {
-	mu       sync.Mutex
-	limit    int
-	window   time.Duration
-	requests map[string][]time.Time
+	mu        sync.Mutex
+	limit     int
+	window    time.Duration
+	maxKeys   int
+	lastSweep time.Time
+	requests  map[string][]time.Time
 }
 
 type assistRequest struct {
@@ -714,14 +867,24 @@ func (h *assistHub) pendingForHost(hostDeviceID string) []assistRequest {
 	return out
 }
 
-func (h *assistHub) resolve(id, status string) (assistRequest, bool) {
+func (h *assistHub) lookup(id string) (assistRequest, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	request, ok := h.requests[id]
+	return request, ok
+}
+
+func (h *assistHub) resolve(id, hostDeviceID, status string) (assistRequest, bool) {
 	if status != "ACCEPTED" && status != "REJECTED" {
-		status = "REJECTED"
+		return assistRequest{}, false
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	request, ok := h.requests[id]
 	if !ok {
+		return assistRequest{}, false
+	}
+	if request.HostDeviceID != hostDeviceID || request.Status != "WAITING_FOR_HOST" {
 		return assistRequest{}, false
 	}
 	request.Status = status
@@ -733,7 +896,10 @@ func newIPLimiter(limit int, window time.Duration) *ipLimiter {
 	if limit <= 0 {
 		limit = 120
 	}
-	return &ipLimiter{limit: limit, window: window, requests: map[string][]time.Time{}}
+	if window <= 0 {
+		window = time.Minute
+	}
+	return &ipLimiter{limit: limit, window: window, maxKeys: 4096, requests: map[string][]time.Time{}}
 }
 
 func (l *ipLimiter) allow(ip string) bool {
@@ -741,6 +907,25 @@ func (l *ipLimiter) allow(ip string) bool {
 	defer l.mu.Unlock()
 	now := time.Now()
 	cutoff := now.Add(-l.window)
+	if l.lastSweep.IsZero() || now.Sub(l.lastSweep) >= l.window {
+		for key, seen := range l.requests {
+			kept := seen[:0]
+			for _, timestamp := range seen {
+				if timestamp.After(cutoff) {
+					kept = append(kept, timestamp)
+				}
+			}
+			if len(kept) == 0 {
+				delete(l.requests, key)
+			} else {
+				l.requests[key] = kept
+			}
+		}
+		l.lastSweep = now
+	}
+	if _, exists := l.requests[ip]; !exists && len(l.requests) >= l.maxKeys {
+		return false
+	}
 	kept := l.requests[ip][:0]
 	for _, seen := range l.requests[ip] {
 		if seen.After(cutoff) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base32"
+	"errors"
 	"net/mail"
 	"regexp"
 	"strings"
@@ -88,16 +89,16 @@ func (s *Service) Login(ctx context.Context, login, password string) (AuthResult
 
 func (s *Service) Refresh(ctx context.Context, refreshToken string) (AuthResult, error) {
 	hash := HashRefreshToken(refreshToken, s.cfg.RefreshSecret)
-	stored, err := s.store.GetRefreshTokenByHash(ctx, hash)
-	if err != nil || stored.RevokedAt != nil || !s.cfg.Now().Before(stored.ExpiresAt) {
+	stored, err := s.store.ConsumeRefreshToken(ctx, hash, s.cfg.Now())
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrRevoked) {
 		return AuthResult{}, ErrUnauthorized
+	}
+	if err != nil {
+		return AuthResult{}, err
 	}
 	user, err := s.store.GetUserByID(ctx, stored.UserID)
 	if err != nil || user.DisabledAt != nil {
 		return AuthResult{}, ErrUnauthorized
-	}
-	if err := s.store.RevokeRefreshToken(ctx, hash, s.cfg.Now()); err != nil {
-		return AuthResult{}, err
 	}
 	return s.issueTokens(ctx, user)
 }

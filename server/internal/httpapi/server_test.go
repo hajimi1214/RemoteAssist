@@ -2,10 +2,15 @@ package httpapi
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,21 +73,85 @@ func TestApproveRequiresHostToken(t *testing.T) {
 	}
 }
 
-func TestICEConfigDoesNotRequireHardcodedTURN(t *testing.T) {
-	app := testServer()
-	resp := httptest.NewRecorder()
-	app.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/ice-config", nil))
-	if resp.Code != http.StatusOK {
-		t.Fatalf("ice config status = %d", resp.Code)
+func TestICEConfigRequiresAuthAndReturnsEphemeralTURNCredentials(t *testing.T) {
+	cfg := testConfig()
+	cfg.TURNURLs = []string{"turn:turn.example.test:3478?transport=udp", "turns:turn.example.test:5349"}
+	cfg.TURNSecret = "turn-rest-shared-secret-long-enough-32"
+	cfg.TURNCredentialTTL = 5 * time.Minute
+	app := NewServer(cfg, session.NewStore(session.StoreConfig{CodeTTL: cfg.CodeTTL}), slog.Default()).Routes()
+	auth := registerTestUser(t, app)
+
+	unauthorized := httptest.NewRecorder()
+	app.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/api/v1/ice-config", nil))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized ICE config status=%d body=%s", unauthorized.Code, unauthorized.Body.String())
 	}
-	if bytes.Contains(resp.Body.Bytes(), []byte("secret")) {
-		t.Fatalf("ice config leaked secret-like value: %s", resp.Body.String())
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/ice-config", nil)
+	request.Header.Set("Authorization", "Bearer "+auth.AccessToken)
+	resp := httptest.NewRecorder()
+	app.ServeHTTP(resp, request)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("ice config status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	var body struct {
+		ICEServers []config.ICEServer `json:"iceServers"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.ICEServers) != 2 {
+		t.Fatalf("ICE server count=%d, want STUN plus TURN", len(body.ICEServers))
+	}
+	if len(body.ICEServers[0].URLs) != 1 || body.ICEServers[0].URLs[0] != "stun:stun.l.google.com:19302" {
+		t.Fatalf("default STUN server missing: %#v", body.ICEServers[0])
+	}
+	turn := body.ICEServers[1]
+	if len(turn.URLs) != 2 || turn.URLs[0] != cfg.TURNURLs[0] || turn.URLs[1] != cfg.TURNURLs[1] {
+		t.Fatalf("TURN URLs mismatch: %#v", turn.URLs)
+	}
+	parts := strings.SplitN(turn.Username, ":", 2)
+	if len(parts) != 2 || parts[1] == "" {
+		t.Fatalf("TURN username must be expiry:opaque, got %q", turn.Username)
+	}
+	expiresAt, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		t.Fatalf("invalid TURN username expiry: %v", err)
+	}
+	if remaining := time.Until(time.Unix(expiresAt, 0)); remaining < 4*time.Minute || remaining > 6*time.Minute {
+		t.Fatalf("TURN credential remaining TTL=%s, want about 5 minutes", remaining)
+	}
+	mac := hmac.New(sha1.New, []byte(cfg.TURNSecret))
+	_, _ = mac.Write([]byte(turn.Username))
+	wantCredential := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	if turn.Credential != wantCredential {
+		t.Fatalf("TURN credential does not match REST HMAC for username")
+	}
+}
+
+func TestICEConfigFailsClosedForWeakTURNSecret(t *testing.T) {
+	cfg := testConfig()
+	cfg.TURNURLs = []string{"turn:turn.example.test:3478"}
+	cfg.TURNSecret = "too-short"
+	app := NewServer(cfg, session.NewStore(session.StoreConfig{CodeTTL: cfg.CodeTTL}), slog.Default()).Routes()
+	auth := registerTestUser(t, app)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/ice-config", nil)
+	request.Header.Set("Authorization", "Bearer "+auth.AccessToken)
+	resp := httptest.NewRecorder()
+	app.ServeHTTP(resp, request)
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("weak TURN secret status=%d body=%s, want service unavailable", resp.Code, resp.Body.String())
 	}
 }
 
 func testServer() http.Handler {
-	store := session.NewStore(session.StoreConfig{CodeTTL: 5 * time.Minute})
-	cfg := config.Config{
+	cfg := testConfig()
+	store := session.NewStore(session.StoreConfig{CodeTTL: cfg.CodeTTL})
+	return NewServer(cfg, store, slog.Default()).Routes()
+}
+
+func testConfig() config.Config {
+	return config.Config{
 		Addr:               ":0",
 		CodeTTL:            5 * time.Minute,
 		MaxMessageBytes:    65536,
@@ -95,7 +164,6 @@ func testServer() http.Handler {
 		DeviceOfflineAfter: 2 * time.Minute,
 		ICEServers:         []config.ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}},
 	}
-	return NewServer(cfg, store, slog.Default()).Routes()
 }
 
 func jsonReq(method, path string, body any) *http.Request {

@@ -7,6 +7,7 @@ Copy-Item deploy/.env.example deploy/.env
 notepad deploy/.env
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --entrypoint /signaling-migrate signaling
+./scripts/verify-deploy-config.ps1
 ```
 
 ## Stop
@@ -41,4 +42,4 @@ Get-Content remoteassist-backup.sql | docker compose --env-file deploy/.env -f d
 curl https://remoteassist.example.com/healthz
 ```
 
-Open TCP `80`, `443`, `3478`, `5349` and UDP `3478`, `49152-49200` on the server firewall and cloud security group.
+Open TCP `80`, `443`, and `3478`, plus UDP `3478` and `49152-49200` on the server firewall and cloud security group.

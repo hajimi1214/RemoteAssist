@@ -18,9 +18,54 @@ export interface PeerCallbacks {
   onLatency?: (ms: number) => void;
 }
 
+const maxDataChannelMessageBytes = 16 * 1024;
+const utf8Encoder = new TextEncoder();
+
+type ParsedDataChannelMessage =
+  | { ok: true; value: unknown }
+  | { ok: false };
+
+function parseDataChannelMessage(data: unknown): ParsedDataChannelMessage {
+  if (typeof data !== "string" || data.length > maxDataChannelMessageBytes) return { ok: false };
+  if (utf8Encoder.encode(data).byteLength > maxDataChannelMessageBytes) return { ok: false };
+  try {
+    return { ok: true, value: JSON.parse(data) as unknown };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function isPingMessage(value: unknown): value is { type: "ping"; sessionToken: string; ts: number } {
+  if (!value || typeof value !== "object") return false;
+  const message = value as Record<string, unknown>;
+  return message.type === "ping" && typeof message.sessionToken === "string" && Number.isFinite(message.ts);
+}
+
+class RemoteIceQueue {
+  private pending: RTCIceCandidateInit[] = [];
+
+  async addOrQueue(pc: RTCPeerConnection | undefined, candidate: RTCIceCandidateInit): Promise<void> {
+    if (!pc?.remoteDescription) {
+      this.pending.push(candidate);
+      return;
+    }
+    await pc.addIceCandidate(candidate);
+  }
+
+  async flush(pc: RTCPeerConnection): Promise<void> {
+    const pending = this.pending;
+    this.pending = [];
+    for (const candidate of pending) {
+      await pc.addIceCandidate(candidate);
+    }
+  }
+}
+
 export class HostPeer {
   private pc?: RTCPeerConnection;
   private inputChannel?: RTCDataChannel;
+  private signalQueue: Promise<void> = Promise.resolve();
+  private readonly remoteIce = new RemoteIceQueue();
 
   constructor(
     private readonly sessionId: string,
@@ -34,8 +79,15 @@ export class HostPeer {
     this.pc = new RTCPeerConnection({ iceServers: this.iceServers });
     stream.getTracks().forEach((track) => this.pc?.addTrack(track, stream));
     this.inputChannel = this.pc.createDataChannel("input", { ordered: true });
+    const channel = this.inputChannel;
     this.inputChannel.onmessage = (ev) => {
-      inputGate.accept(JSON.parse(ev.data)).catch(() => undefined);
+      const parsed = parseDataChannelMessage(ev.data);
+      if (!parsed.ok) return;
+      void inputGate.accept(parsed.value).then(() => {
+        if (isPingMessage(parsed.value) && channel.readyState === "open") {
+          channel.send(JSON.stringify({ type: "pong", sessionToken: parsed.value.sessionToken, ts: parsed.value.ts }));
+        }
+      }).catch(() => undefined);
     };
     this.installPeerHandlers();
     const offer = await this.pc.createOffer();
@@ -44,12 +96,20 @@ export class HostPeer {
   }
 
   async handleSignal(msg: SignalMessage): Promise<void> {
-    if (!this.pc) return;
+    this.signalQueue = this.signalQueue.then(() => this.processSignal(msg)).catch(() => {
+      this.callbacks.onConnectionStatus?.("signaling error");
+    });
+    return this.signalQueue;
+  }
+
+  private async processSignal(msg: SignalMessage): Promise<void> {
     if (msg.type === "answer") {
+      if (!this.pc) return;
       await this.pc.setRemoteDescription(msg.payload as RTCSessionDescriptionInit);
+      await this.remoteIce.flush(this.pc);
     }
     if (msg.type === "ice" && msg.payload) {
-      await this.pc.addIceCandidate(msg.payload as RTCIceCandidateInit);
+      await this.remoteIce.addOrQueue(this.pc, msg.payload as RTCIceCandidateInit);
     }
   }
 
@@ -94,6 +154,8 @@ export class ControllerPeer {
   private inputChannel?: RTCDataChannel;
   private pingTimer?: number;
   private lastPing = 0;
+  private signalQueue: Promise<void> = Promise.resolve();
+  private readonly remoteIce = new RemoteIceQueue();
 
   constructor(
     private readonly sessionId: string,
@@ -104,6 +166,13 @@ export class ControllerPeer {
   ) {}
 
   async handleSignal(msg: SignalMessage): Promise<void> {
+    this.signalQueue = this.signalQueue.then(() => this.processSignal(msg)).catch(() => {
+      this.callbacks.onConnectionStatus?.("signaling error");
+    });
+    return this.signalQueue;
+  }
+
+  private async processSignal(msg: SignalMessage): Promise<void> {
     if (msg.type === "offer") {
       this.pc = new RTCPeerConnection({ iceServers: this.iceServers });
       this.installPeerHandlers();
@@ -113,13 +182,14 @@ export class ControllerPeer {
         this.startLatencyProbe();
       };
       await this.pc.setRemoteDescription(msg.payload as RTCSessionDescriptionInit);
+      await this.remoteIce.flush(this.pc);
       const answer = await this.pc.createAnswer();
       await this.pc.setLocalDescription(answer);
       this.send("answer", answer);
       return;
     }
-    if (msg.type === "ice" && msg.payload && this.pc) {
-      await this.pc.addIceCandidate(msg.payload as RTCIceCandidateInit);
+    if (msg.type === "ice" && msg.payload) {
+      await this.remoteIce.addOrQueue(this.pc, msg.payload as RTCIceCandidateInit);
     }
   }
 
@@ -154,9 +224,12 @@ export class ControllerPeer {
       this.inputChannel.send(JSON.stringify({ type: "ping", sessionToken: this.controllerToken, ts: this.lastPing }));
     }, 2000);
     this.inputChannel!.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data);
-      if (msg.type === "pong" && this.lastPing > 0) {
+      const parsed = parseDataChannelMessage(ev.data);
+      if (!parsed.ok || !parsed.value || typeof parsed.value !== "object") return;
+      const msg = parsed.value as Record<string, unknown>;
+      if (msg.type === "pong" && msg.sessionToken === this.controllerToken && msg.ts === this.lastPing && this.lastPing > 0) {
         this.callbacks.onLatency?.(Date.now() - this.lastPing);
+        this.lastPing = 0;
       }
     };
   }

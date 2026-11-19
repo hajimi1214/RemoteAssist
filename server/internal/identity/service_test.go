@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
@@ -76,6 +77,46 @@ func TestRegisterLoginRefreshAndDeviceFlow(t *testing.T) {
 	}
 	if _, err := service.Heartbeat(context.Background(), refreshed.AccessToken, device.ID); err != ErrNotFound {
 		t.Fatalf("expected revoked device heartbeat rejection, got %v", err)
+	}
+}
+
+func TestRefreshTokenCanBeConsumedOnlyOnceConcurrently(t *testing.T) {
+	service, err := NewService(NewMemoryStore(), ServiceConfig{
+		AccessSecret:       "01234567890123456789012345678901",
+		RefreshSecret:      "abcdefghijklmnopqrstuvwxyz123456",
+		AccessTTL:          time.Minute,
+		RefreshTTL:         time.Hour,
+		DeviceOfflineAfter: time.Minute,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registered, err := service.Register(context.Background(), "concurrent", "concurrent@example.com", "correct horse battery")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	results := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := service.Refresh(context.Background(), registered.RefreshToken)
+			results <- err
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	successes := 0
+	for err := range results {
+		if err == nil {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("expected exactly one refresh success, got %d", successes)
 	}
 }
 

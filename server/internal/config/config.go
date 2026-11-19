@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"log/slog"
+	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -25,6 +27,11 @@ type Config struct {
 	RefreshTokenTTL    time.Duration
 	DeviceOfflineAfter time.Duration
 	ICEServers         []ICEServer
+	TURNURLs           []string
+	TURNSecret         string
+	TURNCredentialTTL  time.Duration
+	TrustedProxyCIDRs  []*net.IPNet
+	AppOrigins         []string
 }
 
 type ICEServer struct {
@@ -34,6 +41,8 @@ type ICEServer struct {
 }
 
 func FromEnv() Config {
+	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	allowEphemeralSecrets := databaseURL == ""
 	return Config{
 		Addr:               env("SIGNALING_ADDR", ":8080"),
 		PublicBaseURL:      env("PUBLIC_BASE_URL", "http://localhost:8080"),
@@ -42,28 +51,19 @@ func FromEnv() Config {
 		RateLimitPerMinute: intEnv("RATE_LIMIT_PER_MINUTE", 120),
 		LoginFailLimit:     intEnv("LOGIN_FAIL_LIMIT_PER_MINUTE", 10),
 		LogLevel:           levelEnv("LOG_LEVEL", slog.LevelInfo),
-		DatabaseURL:        strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		JWTSecret:          secretEnv("JWT_SECRET"),
-		RefreshTokenSecret: secretEnv("REFRESH_TOKEN_SECRET"),
+		DatabaseURL:        databaseURL,
+		JWTSecret:          secretEnv("JWT_SECRET", allowEphemeralSecrets),
+		RefreshTokenSecret: secretEnv("REFRESH_TOKEN_SECRET", allowEphemeralSecrets),
 		AccessTokenTTL:     durationEnv("ACCESS_TOKEN_TTL", 15*time.Minute),
 		RefreshTokenTTL:    durationEnv("REFRESH_TOKEN_TTL", 30*24*time.Hour),
 		DeviceOfflineAfter: durationEnv("DEVICE_OFFLINE_AFTER", 2*time.Minute),
-		ICEServers:         iceServersFromEnv(),
+		ICEServers:         []ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}},
+		TURNURLs:           splitCSV(os.Getenv("TURN_URLS")),
+		TURNSecret:         strings.TrimSpace(os.Getenv("TURN_SECRET")),
+		TURNCredentialTTL:  boundedDurationEnv("TURN_CREDENTIAL_TTL", 10*time.Minute, time.Minute, 24*time.Hour),
+		TrustedProxyCIDRs:  cidrsEnv("TRUSTED_PROXY_CIDRS"),
+		AppOrigins:         appOriginsEnv(),
 	}
-}
-
-func iceServersFromEnv() []ICEServer {
-	servers := []ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}}
-	turnURLs := splitCSV(os.Getenv("TURN_URLS"))
-	if len(turnURLs) == 0 {
-		return servers
-	}
-	servers = append(servers, ICEServer{
-		URLs:       turnURLs,
-		Username:   os.Getenv("TURN_USERNAME"),
-		Credential: os.Getenv("TURN_PASSWORD"),
-	})
-	return servers
 }
 
 func env(key, fallback string) string {
@@ -97,6 +97,14 @@ func durationEnv(key string, fallback time.Duration) time.Duration {
 	return value
 }
 
+func boundedDurationEnv(key string, fallback, minimum, maximum time.Duration) time.Duration {
+	value := durationEnv(key, fallback)
+	if value < minimum || value > maximum {
+		return fallback
+	}
+	return value
+}
+
 func levelEnv(key string, fallback slog.Level) slog.Level {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
 	case "debug":
@@ -122,12 +130,100 @@ func splitCSV(value string) []string {
 	return out
 }
 
-func secretEnv(key string) string {
+func cidrsEnv(key string) []*net.IPNet {
+	var out []*net.IPNet
+	for _, value := range splitCSV(os.Getenv(key)) {
+		_, network, err := net.ParseCIDR(value)
+		if err == nil {
+			out = append(out, network)
+		}
+	}
+	return out
+}
+
+func DefaultAppOrigins() []string {
+	return []string{
+		"http://tauri.localhost",
+		"https://tauri.localhost",
+		"tauri://localhost",
+		"http://localhost:1420",
+		"http://127.0.0.1:1420",
+	}
+}
+
+func appOriginsEnv() []string {
+	raw, configured := os.LookupEnv("APP_ORIGINS")
+	if !configured {
+		return DefaultAppOrigins()
+	}
+	var out []string
+	seen := make(map[string]struct{})
+	for _, value := range splitCSV(raw) {
+		origin, ok := NormalizeAppOrigin(value)
+		if !ok {
+			continue
+		}
+		if _, exists := seen[origin]; exists {
+			continue
+		}
+		seen[origin] = struct{}{}
+		out = append(out, origin)
+	}
+	return out
+}
+
+func NormalizeAppOrigin(value string) (string, bool) {
+	u, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || u.Scheme == "" || u.Host == "" || u.User != nil || u.Opaque != "" || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		return "", false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" && scheme != "tauri" {
+		return "", false
+	}
+	hostname := strings.ToLower(u.Hostname())
+	if hostname == "" {
+		return "", false
+	}
+	port := u.Port()
+	if (scheme == "http" && port == "80") || (scheme == "https" && port == "443") {
+		port = ""
+	}
+	host := hostname
+	if strings.Contains(hostname, ":") {
+		host = "[" + hostname + "]"
+	}
+	if port != "" {
+		host = net.JoinHostPort(hostname, port)
+	}
+	return scheme + "://" + host, true
+}
+
+func IsAllowedAppOrigin(value string, allowed []string) bool {
+	origin, ok := NormalizeAppOrigin(value)
+	if !ok {
+		return false
+	}
+	for _, candidate := range allowed {
+		normalized, valid := NormalizeAppOrigin(candidate)
+		if valid && origin == normalized {
+			return true
+		}
+	}
+	return false
+}
+
+func secretEnv(key string, allowEphemeral bool) string {
 	value := strings.TrimSpace(os.Getenv(key))
 	if len(value) >= 32 {
 		return value
 	}
+	if !allowEphemeral {
+		return value
+	}
 	buf := make([]byte, 32)
-	_, _ = rand.Read(buf)
+	if _, err := rand.Read(buf); err != nil {
+		return ""
+	}
 	return base64.RawURLEncoding.EncodeToString(buf)
 }

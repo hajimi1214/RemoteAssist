@@ -13,10 +13,13 @@
 - Passwords are hashed with Argon2id.
 - Access tokens are short-lived HMAC JWTs.
 - Refresh tokens are random, revocable, and stored only as HMAC-SHA256 hashes.
+- Refresh-token rotation atomically consumes the previous token, so concurrent replay can produce at most one replacement.
+- Remembered sign-ins use the Windows Credential Manager. Tokens are kept in memory when the user leaves Remember sign in unchecked.
 - Login failures are IP rate-limited.
+- Proxy forwarding headers affect rate limits only when the proxy address is in `TRUSTED_PROXY_CIDRS`.
 - Logs do not record passwords or full tokens.
 - Production deployment must use HTTPS through Caddy.
 
 ## Client Flow
 
-The first screen is the login page. After registration or login, the client registers the current device, stores the local device fingerprint and device id, and starts heartbeats.
+The first screen is the login page. After registration or login, the client registers the current device, stores the local device fingerprint and device id, and starts heartbeats. The optional Remember sign in setting stores tokens in the Windows Credential Manager rather than WebView storage.

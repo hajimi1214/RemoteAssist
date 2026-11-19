@@ -2,6 +2,15 @@
 
 ## Checks
 
+- 0.3 alpha UI refresh: PASS
+- Vite/React/Tauri dependency refresh: PASS
+- npm high-severity audit: PASS (0 vulnerabilities)
+- Tauri restrictive CSP and native host consent prompt: PASS
+- Atomic refresh-token rotation and assist-request authorization tests: PASS
+- Exact CORS/WebSocket origin allowlist tests: PASS
+- Short-lived authenticated TURN REST credential tests: PASS
+- Deployment placeholder rejection: PASS
+
 - Desktop frontend build: PASS
 - Tauri Rust check: PASS
 - Portable Windows EXE build: PASS

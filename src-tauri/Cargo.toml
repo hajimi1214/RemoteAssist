@@ -1,6 +1,6 @@
 [package]
 name = "remoteassist"
-version = "0.2.0"
+version = "0.3.0-alpha"
 description = "Visible Windows remote assistance client"
 edition = "2021"
 
@@ -9,13 +9,13 @@ name = "remoteassist_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.5.3", features = [] }
+tauri-build = { version = "2.7.6", features = [] }
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tauri = { version = "2.9.5", features = [] }
+tauri = { version = "2.12.7", features = [] }
 thiserror = "2.0"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62.2", features = ["Win32_UI_Input_KeyboardAndMouse"] }
+windows = { version = "0.62.2", features = ["Win32_Security_Credentials", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }

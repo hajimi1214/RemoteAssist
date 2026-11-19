@@ -5,6 +5,7 @@
 - Productize the Windows 10/11 remote assistance MVP.
 - Add account authentication, device binding, device list, and deployment database support.
 - Keep host-visible, explicitly authorized operation mandatory.
+- Refresh the security boundary, runtime dependencies, deployment defaults, and desktop UI for the 0.3 alpha.
 
 ## Milestones
 
@@ -14,6 +15,7 @@
 - M3: Tauri/React desktop MVP with visible sharing, host approval, WebRTC, DataChannel, and Windows input adapter. PASS
 - M4: Deployment package, scripts, security review, and readiness checks. PASS
 - M5: Authentication, device management, PostgreSQL migrations, modern desktop UI, and Windows installer. PASS
+- M6: Security modernization, dependency refresh, deployment hardening, and VelaMost-inspired responsive UI. PASS
 
 ## Remaining Manual Verification
 
@@ -21,3 +23,4 @@
 - Install on a second Windows 10/11 PC: NOT VERIFIED
 - Public server DNS, TLS, firewall/security-group, P2P, and TURN fallback: NOT VERIFIED
 - Live PostgreSQL migration with Docker: PASS
+- UI browser preview at the local Vite page: PASS

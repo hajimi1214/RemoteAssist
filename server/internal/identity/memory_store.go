@@ -84,6 +84,18 @@ func (s *MemoryStore) GetRefreshTokenByHash(_ context.Context, tokenHash string)
 	return token, nil
 }
 
+func (s *MemoryStore) ConsumeRefreshToken(_ context.Context, tokenHash string, when time.Time) (RefreshToken, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	token, ok := s.refreshTokens[tokenHash]
+	if !ok || token.RevokedAt != nil || !when.Before(token.ExpiresAt) {
+		return RefreshToken{}, ErrNotFound
+	}
+	token.RevokedAt = &when
+	s.refreshTokens[tokenHash] = token
+	return token, nil
+}
+
 func (s *MemoryStore) RevokeRefreshToken(_ context.Context, tokenHash string, when time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

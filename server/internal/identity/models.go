@@ -64,6 +64,7 @@ type Store interface {
 	GetUserByID(ctx context.Context, id string) (User, error)
 	CreateRefreshToken(ctx context.Context, token RefreshToken) error
 	GetRefreshTokenByHash(ctx context.Context, tokenHash string) (RefreshToken, error)
+	ConsumeRefreshToken(ctx context.Context, tokenHash string, when time.Time) (RefreshToken, error)
 	RevokeRefreshToken(ctx context.Context, tokenHash string, when time.Time) error
 	RevokeRefreshTokensForDevice(ctx context.Context, userID, deviceID string, when time.Time) error
 	UpsertDevice(ctx context.Context, device Device) (Device, error)

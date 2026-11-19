@@ -2,6 +2,8 @@
 
 ## Scope Reviewed
 
+- 0.3 alpha security and UI modernization changes.
+
 - Go signaling service in `server`.
 - Authentication, device management, refresh token, and migration code.
 - Tauri/React desktop client in `src` and `src-tauri`.
@@ -22,6 +24,9 @@
 - WebSocket message-size limits: PASS. Server uses `SetReadLimit` and `MaxBytesReader`; client input messages are capped.
 - Expired or disconnected sessions still accepting input: PASS. Session store transitions expired/disconnected states and desktop clears authorization on disconnect.
 - Logs exposing sensitive data: PASS. Structured server logs include session id and role, not passwords, full tokens, screen content, keyboard content, or TURN secrets.
+- CORS and WebSocket origin allowlist: PASS. Exact configured origins are required; wildcard origins are not accepted.
+- TURN credential exposure: PASS. ICE configuration requires an access token and returns short-lived HMAC credentials; static TURN usernames/passwords are no longer used.
+- Remembered sign-in storage: PASS. Tokens use Windows Credential Manager; WebView localStorage is only used for non-secret device identity data.
 - Fabricated, stale, or unverifiable test results: PASS. Results are recorded as `PASS`, `FAIL`, or `NOT VERIFIED`.
 
 ## Evidence

@@ -2,46 +2,42 @@
 
 ## Current Milestone
 
-- M5: Productized Windows client with authentication, device management, PostgreSQL deployment, and installer packaging.
+- M6: Security modernization, dependency refresh, and VelaMost-inspired desktop UI update.
 
-## Progress
+## Completed
 
-- Project-level rules: PASS
-- Repository Skills: PASS
-- Go signaling service REST/session/WebSocket implementation: PASS
-- Registration, login, logout, refresh token service: PASS
-- Argon2id password hashing: PASS
-- Device registration, list, note, heartbeat, revoke service: PASS
-- Device-to-device assist request service and host notification UI: PASS
-- PostgreSQL migration files and migration command: PASS
-- Tauri/React desktop client with login, registration, dashboard, devices, and remote assist pages: PASS
-- Windows `SendInput` adapter and host-side input authorization gate: PASS
-- Docker Compose deployment package with signaling, postgres, coturn, and caddy: PASS
-- Security review latest document: PASS
-- Release readiness latest document: PASS
+- Backend assist-request resolution now requires an authenticated owner and permits one pending-state transition.
+- Refresh tokens are atomically consumed during rotation; concurrent reuse can issue at most one replacement.
+- IP limiting trusts forwarded addresses only through configured trusted proxy CIDRs and bounds limiter memory.
+- CORS and WebSocket origins use an exact allowlist. Persistent TURN credentials were replaced with authenticated, short-lived REST credentials.
+- Production database deployments fail startup validation when signing secrets are weak or missing; TURN secrets are also validated.
+- Tauri now uses a restrictive CSP, native Windows consent before input authorization, and Windows Credential Manager for optional remembered sign-in.
+- Frontend now has guarded HTTPS/WSS configuration, automatic refresh of expired access tokens, bounded/validated DataChannel input, ICE candidate queuing, and working ping/pong latency.
+- Vite 8, React 19.3, TypeScript 7, and Tauri 2.12 dependencies are in place. npm audit reports zero vulnerabilities.
+- Desktop UI refreshed using the supplied VelaMost design reference: light blue canvas, white navigation and cards, navy/blue visual hierarchy, responsive layouts, and clearer session consent states.
+- Sessions and Settings now have honest status/metadata views rather than pretending to show unavailable session history.
+- Deployment validation refuses template values and suppresses resolved secrets from Compose output. CI and Renovate configuration were added.
 
-## Test Results
+## Validation
 
-- `npm run build`: PASS
-- `scripts/test.ps1`: PASS
-- `scripts/package-windows.ps1`: PASS
-- `npm run tauri:build`: PASS
-- Portable release EXE startup check: PASS
-- Go service `/healthz` runtime check: PASS
-- `scripts/verify-deploy-config.ps1`: PASS
-- Go authentication/device/migration unit tests: PASS
-- Device assist request API test: PASS
-- Temporary PostgreSQL Docker migration test: PASS
-- Windows dual-machine LAN test: NOT VERIFIED
-- Install on second Windows PC: NOT VERIFIED
-- Public server deployment and TURN fallback test: NOT VERIFIED
+- `scripts/test.ps1`: PASS (frontend build, Go tests/build, Rust check).
+- `npm audit --audit-level=high`: PASS, 0 vulnerabilities.
+- `cargo fmt -- --check`: PASS.
+- `scripts/package-windows.ps1 -SignalingUrl https://remoteassist.example.com`: PASS; portable EXE and `RemoteAssist_0.3.0-alpha_x64-setup.exe` built.
+- `GET /healthz` on the local signaling service: PASS.
+- Docker Compose template syntax check: PASS.
+- Deployment validation rejects `.env.example` placeholders: PASS.
+- Browser preview of the sign-in UI: PASS.
+- Go module upgrades beyond the locked versions: NOT VERIFIED; checksum-database access timed out, so the update was not forced.
 
-## Known Limits
+## Still Not Verified
 
-- Portable Windows EXE is produced at `src-tauri\target\release\remoteassist.exe`.
-- Windows installer is produced at `src-tauri\target\release\bundle\nsis\RemoteAssist_0.2.0_x64-setup.exe`.
-- Installing the NSIS package on another Windows 10/11 PC requires manual validation.
-- Dual-machine Windows LAN operation requires manual validation.
-- Public DNS, TLS, firewall/security-group, and TURN relay validation require real infrastructure.
-- Keyboard mapping covers common keys and single-character keys; extended IME and scan-code behavior need more manual hardening.
-- Multi-monitor and DPI coordinate mapping need manual validation.
+- Install and operate the package on a second Windows 10/11 machine.
+- Two-machine LAN assistance and public-server P2P/TURN fallback.
+- Public DNS, firewall/security group, and production certificate deployment.
+- Real TURN connectivity with external network paths; TURN-over-TLS is intentionally not advertised/configured until certificates are wired.
+- Multi-monitor and DPI coordinate mapping, extended IME/scan-code keyboard behavior, and long-session resource use.
+
+## Next Milestone
+
+- M7: Second-machine acceptance, external TURN verification, and persistent multi-instance session state.

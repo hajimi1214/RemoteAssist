@@ -64,6 +64,19 @@ func (s *PostgresStore) GetRefreshTokenByHash(ctx context.Context, tokenHash str
 	return token, nil
 }
 
+func (s *PostgresStore) ConsumeRefreshToken(ctx context.Context, tokenHash string, when time.Time) (RefreshToken, error) {
+	row := s.db.QueryRowContext(ctx, `
+UPDATE refresh_tokens
+SET revoked_at=$2
+WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at > $2
+RETURNING id, user_id, token_hash, expires_at, revoked_at, created_at`, tokenHash, when)
+	var token RefreshToken
+	if err := row.Scan(&token.ID, &token.UserID, &token.TokenHash, &token.ExpiresAt, &token.RevokedAt, &token.CreatedAt); err != nil {
+		return RefreshToken{}, mapSQLError(err)
+	}
+	return token, nil
+}
+
 func (s *PostgresStore) RevokeRefreshToken(ctx context.Context, tokenHash string, when time.Time) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE refresh_tokens SET revoked_at=$1 WHERE token_hash=$2 AND revoked_at IS NULL`, when, tokenHash)
 	return mapSQLError(err)
