@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AuthResult, Device, SignalingClient, User } from "./signaling";
 import { BrandMark, ConfirmDialog, Icon, StatusMessage } from "./ui";
-import type { usePreferences } from "./ui";
+import type { usePreferences } from "./preferences";
 import { friendlyError } from "./ux";
 
 export function AuthShell({ mode, error, onError, onMode, onAuth, signaling }: {

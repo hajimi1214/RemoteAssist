@@ -7,6 +7,7 @@ M8 — 0.5.0-alpha responsive UI and user experience. Reviewed 2026-11-20. Build
 ## Completed
 
 - Chinese login, dashboard, device management, settings and assistance pages, with a consolidated stylesheet and reusable components.
+- Preferences are isolated from component exports to preserve Vite Fast Refresh boundaries; test preview roots clean up before hot replacement.
 - Responsive navigation keeps logout available at narrow widths. Long labels/device names wrap; device cards use a container query.
 - System/light/dark appearance and larger-text preferences; improved text contrast, focus rings and reduced-motion support.
 - Semantic login/registration forms, Enter submission, autocomplete, show-password, native validation, safe localized error messages.

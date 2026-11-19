@@ -5,7 +5,8 @@ import { AssistRequest, AuthResult, Device, IceServer, SignalingClient, Signalin
 import { ControllerPeer, HostPeer, SignalMessage } from "./webrtc";
 
 import { AuthShell, Dashboard, MyDevices, SessionsPage, SettingsPage } from "./pages";
-import { BrandMark, ConfirmDialog, Icon, RemoteScreen, StatusMessage, usePreferences } from "./ui";
+import { BrandMark, ConfirmDialog, Icon, RemoteScreen, StatusMessage } from "./ui";
+import { usePreferences } from "./preferences";
 import { pages, friendlyError, connectionLabel, normalizeConnectionCode, remainingTime } from "./ux";
 import type { View, AssistMode } from "./ux";
 type AuthMode = "signin" | "register";

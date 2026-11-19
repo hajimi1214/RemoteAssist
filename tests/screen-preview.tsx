@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { ConfirmDialog, RemoteScreen, usePreferences } from "../src/ui";
+import { ConfirmDialog, RemoteScreen } from "../src/ui";
+import { usePreferences } from "../src/preferences";
 import "../src/styles.css";
 
 function Preview() {
@@ -20,4 +21,6 @@ function Preview() {
   },[dimensions]);
   return <main className="workspace"><h1>画面适配验证</h1><p>使用生成的测试图，不采集屏幕、不发送任何系统输入。</p><div className="row"><button className="secondary-action" onClick={()=>setDimensions({width:1080,height:1920})}>载入竖屏</button><button className="secondary-action" onClick={()=>setDimensions({width:3840,height:1080})}>载入超宽屏</button><button className="secondary-action" onClick={()=>setConfirm(true)}>测试离开确认</button></div><output id="telemetry">已释放 {releases} 次，已接收 {keys} 次测试按键</output><RemoteScreen videoRef={videoRef} connected={connected} status="测试连接" onRelease={()=>setReleases(n=>n+1)} onKey={()=>setKeys(n=>n+1)} onPointer={()=>{}} onWheel={()=>{}} onDisconnect={()=>setConnected(false)} />{confirm&&<ConfirmDialog title="结束当前测试？" description="这里只验证对话框与焦点恢复，不会操作真实会话。" confirmLabel="结束测试" onCancel={()=>setConfirm(false)} onConfirm={()=>{setConfirm(false);setConnected(false);}}/>}</main>;
 }
-createRoot(document.getElementById("root")!).render(<Preview />);
+const root=createRoot(document.getElementById("root")!);
+root.render(<Preview />);
+import.meta.hot?.dispose(()=>root.unmount());
