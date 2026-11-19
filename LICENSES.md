@@ -2,6 +2,8 @@
 
 ## Runtime and Build Dependencies
 
+The 0.5 UX update adds no runtime dependencies. CSS/SVG assets and UI components are original. WCAG, WAI-ARIA, W3C Screen Capture and Microsoft DPI documentation are referenced for engineering decisions; no third-party UI implementation was copied. See docs/research-and-decisions-0.5.md.
+
 - Go standard library: BSD-3-Clause style license, used for HTTP service, JSON, crypto randomness, logging, and tests.
 - `github.com/gorilla/websocket`: BSD-2-Clause, used for signaling WebSocket transport.
 - `github.com/lib/pq`: MIT, used as the PostgreSQL database driver.

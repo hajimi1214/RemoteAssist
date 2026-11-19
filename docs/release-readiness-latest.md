@@ -1,29 +1,28 @@
-# Release readiness — 0.4.0-alpha
+# Release readiness — 0.5.0-alpha
 
-Date: 2026-11-20. Supersedes historical 0.2/0.3 validation claims.
+Reviewed 2026-11-20.
 
-## PASS
+## Verified UI behavior
 
-- Frontend policy/coordinate/order tests (10), TypeScript check and Vite production build.
-- Go tests and service build, including actual local WebSocket authentication/approval/closure tests; go vet.
-- Rust check and 5 native authorization/input-state tests.
-- Real browser WebRTC loopback: generated video, RTT, encoder parameters, separate pointer/input channels, input rejection, releases, shutdown.
-- npm audit: zero reported vulnerabilities.
-- Compose syntax, template-value rejection, corrected PowerShell native-exit handling.
+PASS — login Enter submission, registration semantics, correct control shortcut, device-note saving and confirmation flows, safe error display, service retry controls, keyboard tabs, theme/large-text selection.
 
-## Packaging
+PASS — checked layout at 320/768/1100/1920 CSS px, including 200% root-text scaling on the actual App. No horizontal page overflow in checked pages. Remote video at 100/150% scrolls inside its own viewport.
 
-- PASS — 0.4 portable Windows EXE and NSIS installer built using scripts/package-windows.ps1; installer RemoteAssist_0.4.0-alpha_x64-setup.exe (approximately 1.89 MiB).
-- Packaging uses https://remoteassist.example.com only to validate the build. Rebuild with the actual signaling domain before operational installation.
+PASS — generated portrait/ultrawide streams, fit scaling, fullscreen entry/exit, local input start/stop, Escape/Tab release and safe handling of geometry changes.
+
+## Final automated checks
+
+PASS — scripts/test.ps1: 14 frontend tests and production build, Go tests/build, Rust check and 5 native tests. npm audit reports zero vulnerabilities; git diff whitespace checks pass.
+
+PASS — Windows portable EXE and RemoteAssist_0.5.0-alpha_x64-setup.exe built successfully (approximately 1.89 MiB). This validates packaging with the example domain, not installation or production connectivity.
 
 ## NOT VERIFIED
 
-- Installer startup on a second machine; native consent and Credential Manager runtime in this version.
-- Windows capture/input, primary-screen identification, DPI/layouts/IME, two-machine LAN, restrictive NAT and public TURN.
-- Live PostgreSQL migration/backup/restore and container hardening under Docker; no daemon is running locally.
-- Local Go race detector (CGO/compiler unavailable), GitHub CI execution.
-- Performance benchmarks; no quantitative improvement is claimed.
+- Complete WCAG compliance, screen-reader/high-contrast/touch-device acceptance.
+- Live Windows capture/input/clipboard/native consent, OS DPI calibration and secondary monitors.
+- Two-machine LAN/public TURN, cloud firewall/DNS/certificates, PostgreSQL/container runtime and GitHub-hosted CI.
+- Local Go race detector requires unavailable CGO/compiler; configured in Linux CI.
 
-## Compatibility
+## Delivery constraints
 
-Upgrade server and both clients together. Version 0.4 requires first-frame WebSocket authentication and sequenced pointer messages. Use one signaling instance. Sessions end on restart, expiry, or control-heartbeat loss; renewed sessions require consent.
+Build with the real signaling HTTPS domain. The example-domain package is only a packaging check and cannot connect to the user's cloud server. Keep server and clients on the 0.4-or-newer protocol; 0.3 URL-token clients are unsupported. One signaling replica only.

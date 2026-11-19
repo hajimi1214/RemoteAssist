@@ -131,7 +131,7 @@ export class SignalingClient {
 
   async devices(accessToken: string, currentDeviceId: string): Promise<Device[]> {
     const body = await this.request<{ devices: Device[] }>(`/api/v1/devices?currentDeviceId=${encodeURIComponent(currentDeviceId)}`, {}, accessToken);
-    return body.devices;
+    return body.devices ?? [];
   }
 
   async updateDevice(accessToken: string, id: string, note: string): Promise<Device> {
@@ -164,7 +164,7 @@ export class SignalingClient {
 
   async assistRequests(accessToken: string, deviceId: string): Promise<AssistRequest[]> {
     const body = await this.request<{ requests: AssistRequest[] }>(`/api/v1/devices/${encodeURIComponent(deviceId)}/assist-requests`, {}, accessToken);
-    return body.requests;
+    return body.requests ?? [];
   }
 
   async resolveAssistRequest(accessToken: string, id: string, status: "ACCEPTED" | "REJECTED"): Promise<AssistRequest> {

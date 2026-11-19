@@ -1,6 +1,8 @@
 # RemoteAssist
 
-RemoteAssist is a visible Windows remote assistance client. It requires sign in, automatic device registration, host-started sharing, an 8-digit temporary code, and explicit host approval before remote input is accepted.
+Version 0.5 adds a Chinese responsive workspace, system/light/dark themes, larger text, accessible forms and session navigation, connection-code feedback, and a remote viewer with fit/100%/150%/fullscreen controls. Read [0.5 research](docs/research-and-decisions-0.5.md) and [browser validation](docs/validation-0.5.md) for scope and limitations.
+
+RemoteAssist is a visible Windows remote assistance client. It requires sign in, device registration, host-started primary-display sharing, an 8-digit temporary code, and explicit host approval before remote input is accepted. The controller then explicitly enables local input capture; Escape or Tab releases it.
 
 ## Local Development
 

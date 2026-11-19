@@ -1,14 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { inputFromPointer, InputEventGate, keyInput, wheelInput } from "./inputEvents";
 import { AssistRequest, AuthResult, Device, IceServer, SignalingClient, SignalingHttpError, User } from "./signaling";
 import { ControllerPeer, HostPeer, SignalMessage } from "./webrtc";
 
-type View = "Dashboard" | "My Devices" | "Remote Assist" | "Sessions" | "Settings";
+import { AuthShell, Dashboard, MyDevices, SessionsPage, SettingsPage } from "./pages";
+import { BrandMark, ConfirmDialog, Icon, RemoteScreen, StatusMessage, usePreferences } from "./ui";
+import { pages, friendlyError, connectionLabel, normalizeConnectionCode, remainingTime } from "./ux";
+import type { View, AssistMode } from "./ux";
 type AuthMode = "signin" | "register";
 
 const signaling = new SignalingClient();
-const appVersion = "0.4.0-alpha";
+const appVersion = "0.5.0-alpha";
 
 export function App() {
   const [auth, setAuth, authLoaded] = useStoredAuth();
@@ -20,8 +23,27 @@ export function App() {
   const [serviceStatus, setServiceStatus] = useState("Disconnected");
   const [assistRequests, setAssistRequests] = useState<AssistRequest[]>([]);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [assistMode, setAssistMode] = useState<AssistMode>("share");
+  const [sessionActive, setSessionActive] = useState(false);
+  const activeRef = useRef(false);
+  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
+  const [retry, setRetry] = useState(0);
+  const [requestBusy, setRequestBusy] = useState(false);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const preferences = usePreferences();
+  const viewRef=useRef(view); viewRef.current=view;
+  const modeRef=useRef(assistMode); modeRef.current=assistMode;
   const authRef = useRef(auth);
   authRef.current = auth;
+
+  function updateActivity(active: boolean) { activeRef.current=active; setSessionActive(active); }
+  function guard(action: () => void) { if (activeRef.current) setPendingNavigation(() => action); else action(); }
+  function navigate(next: View, mode?: AssistMode) {
+    if (next === viewRef.current && (!mode || mode === modeRef.current)) return;
+    guard(() => { setView(next); if (mode) setAssistMode(mode); });
+  }
+  useEffect(() => { headingRef.current?.focus({ preventScroll:true }); }, [view]);
 
   useEffect(() => {
     if (!auth) return;
@@ -51,6 +73,8 @@ export function App() {
   useEffect(() => {
     if (!authLoaded || !auth) return;
     let cancelled = false;
+    setUser(auth.user);
+    setServiceStatus("Connecting");
     async function bootstrap() {
       try {
         let activeAuth = auth!;
@@ -77,29 +101,37 @@ export function App() {
         if (cancelled) return;
         setUser(me);
         const registered = await signaling.registerDevice(activeAuth.accessToken, localDeviceInfo());
+        if (cancelled || authRef.current !== auth) return;
         localStorage.setItem("remoteassist.deviceId", registered.id);
         setDevice(registered);
         setServiceStatus("Connected");
         const listed = await signaling.devices(activeAuth.accessToken, registered.id);
-        setDevices(listed);
+        if (!cancelled && authRef.current === auth) setDevices(listed);
       } catch {
-        setServiceStatus("Disconnected");
+        if (!cancelled) setServiceStatus("Disconnected");
       }
     }
     void bootstrap();
     return () => {
       cancelled = true;
     };
-  }, [auth, authLoaded]);
+  }, [auth, authLoaded, retry]);
 
   useEffect(() => {
     if (!auth || !device) return;
-    const timer = window.setInterval(() => {
-      signaling.heartbeat(auth.accessToken, device.id).then(setDevice).catch(() => setServiceStatus("Disconnected"));
-      signaling.assistRequests(auth.accessToken, device.id).then(setAssistRequests).catch(() => undefined);
-    }, 30_000);
-    return () => window.clearInterval(timer);
-  }, [auth, device]);
+    let cancelled = false;
+    let timer: number;
+    const poll = async () => {
+      const results = await Promise.allSettled([signaling.heartbeat(auth.accessToken,device.id),signaling.assistRequests(auth.accessToken,device.id),signaling.devices(auth.accessToken,device.id)]);
+      if (cancelled || authRef.current !== auth) return;
+      if (results[0].status === "fulfilled") { setDevice(results[0].value); setServiceStatus("Connected"); } else setServiceStatus("Disconnected");
+      if (results[1].status === "fulfilled") setAssistRequests(results[1].value ?? []);
+      if (results[2].status === "fulfilled") setDevices(results[2].value ?? []);
+      timer = window.setTimeout(() => { void poll(); },30_000);
+    };
+    void poll();
+    return () => { cancelled=true; window.clearTimeout(timer); };
+  }, [auth, device?.id]);
 
   async function handleAuth(result: AuthResult, remember: boolean) {
     await setAuth(result, remember);
@@ -108,15 +140,31 @@ export function App() {
   }
 
   async function signOut() {
-    if (auth) await signaling.logout(auth.refreshToken).catch(() => undefined);
+    const current = auth;
+    authRef.current=null;
     await setAuth(null);
     setUser(null);
     setDevice(null);
     setDevices([]);
     setView("Dashboard");
+    setAssistRequests([]); setNotice(""); setError("");
+    if (current) await signaling.logout(current.refreshToken).catch(() => undefined);
   }
 
-  if (!authLoaded) return <main className="auth-page"><section className="auth-panel">Loading secure sign-in…</section></main>;
+  async function resolveRequest(status: "ACCEPTED" | "REJECTED") {
+    if (!auth || requestBusy || !assistRequests[0]) return;
+    setRequestBusy(true); setError("");
+    const request = assistRequests[0];
+    try {
+      await signaling.resolveAssistRequest(auth.accessToken,request.id,status);
+      if (authRef.current?.user.id !== auth.user.id) return;
+      setAssistRequests((items)=>items.filter((item)=>item.id!==request.id));
+      setNotice(status === "ACCEPTED" ? "已接受协助请求。请选择主显示器，并将连接码发给对方。" : "已拒绝协助请求。");
+      if (status === "ACCEPTED") navigate("Remote Assist","share");
+    } catch(err) { if(authRef.current?.user.id===auth.user.id)setError(friendlyError(err)); } finally { setRequestBusy(false); }
+  }
+
+  if (!authLoaded) return <main className="loading-page" role="status"><BrandMark /><p>正在恢复安全登录…</p></main>;
   if (!auth || !user) {
     return (
       <AuthShell
@@ -125,39 +173,44 @@ export function App() {
         onError={setError}
         onMode={setAuthMode}
         onAuth={handleAuth}
+        signaling={signaling}
       />
     );
   }
 
   return (
     <main className="desktop-shell">
+      <a className="skip-link" href="#workspace">跳到主要内容</a>
       <header className="app-nav">
-        <button className="brand-lockup" onClick={() => setView("Dashboard")} aria-label="RemoteAssist home">
+        <button className="brand-lockup" onClick={() => navigate("Dashboard")} aria-label="RemoteAssist 工作台">
           <BrandMark />
           <span className="brand-wordmark"><b>Remote</b><strong>Assist</strong></span>
         </button>
-        <nav className="nav-menu" aria-label="Primary navigation">
+        <nav className="nav-menu" aria-label="主要导航">
           {(["Dashboard", "My Devices", "Remote Assist", "Sessions", "Settings"] as View[]).map((item) => (
-            <button key={item} className={view === item ? "nav-active" : ""} onClick={() => setView(item)}>{item}</button>
+            <button key={item} aria-current={view===item?"page":undefined} className={view === item ? "nav-active" : ""} onClick={() => navigate(item)}>{pages[item].title}</button>
           ))}
         </nav>
         <div className="nav-actions">
-          <span className={`service-pill ${serviceStatus === "Connected" ? "is-online" : ""}`}><i />{serviceStatus}</span>
+          <span className={`service-pill ${serviceStatus === "Connected" ? "is-online" : ""}`} role="status"><i />{serviceStatus==="Connected"?"服务在线":serviceStatus==="Connecting"?"正在连接":"服务离线"}</span>
           <span className="user-chip">{user.username.slice(0, 1).toUpperCase()}</span>
-          <button className="link-button" onClick={() => void signOut()}>Sign Out</button>
+          <button className="link-button" onClick={() => guard(()=>{void signOut();})}>退出登录</button>
         </div>
       </header>
-      <section className="workspace">
+      <section className="workspace" id="workspace">
         <div className="page-heading">
-          <div><span className="eyebrow">REMOTE ASSISTANCE CONTROL CENTER</span><h1>{view}</h1><p>{viewDescription(view)}</p></div>
+          <div><span className="eyebrow">REMOTE ASSISTANCE WORKSPACE</span><h1 ref={headingRef} tabIndex={-1}>{pages[view].title}</h1><p>{pages[view].description}</p></div>
           {device && <span className="device-badge"><i />{device.deviceName}</span>}
         </div>
+        {serviceStatus === "Disconnected" && <div className="connection-banner" role="status"><span>暂时无法连接服务器。已建立的协助不会自动重连。</span><button className="secondary-action" onClick={()=>setRetry((v)=>v+1)}>重新连接服务</button></div>}
+        {error && <StatusMessage error>{error}</StatusMessage>}
+        {notice && <div className="notice-banner" role="status"><span>{notice}</span><button className="link-button" onClick={()=>setNotice("")}>关闭提示</button></div>}
         {assistRequests.length > 0 && (
           <div className="assist-banner">
             <strong>{assistRequests[0].controllerDeviceName}</strong>
-            <span>is requesting remote assistance. Start sharing, choose a screen/window, and only allow control if you approve.</span>
-            <button className="primary-action" onClick={() => { setView("Remote Assist"); void signaling.resolveAssistRequest(auth.accessToken, assistRequests[0].id, "ACCEPTED"); setAssistRequests([]); }}>Start Sharing</button>
-            <button className="danger-action" onClick={() => { void signaling.resolveAssistRequest(auth.accessToken, assistRequests[0].id, "REJECTED"); setAssistRequests([]); }}>Reject</button>
+            <span>请求协助。接受后仍需你选择屏幕并批准控制。</span>
+            <button className="primary-action" disabled={requestBusy} onClick={() => void resolveRequest("ACCEPTED")}>{requestBusy?"正在处理…":"接受请求"}</button>
+            <button className="danger-quiet" disabled={requestBusy} onClick={() => void resolveRequest("REJECTED")}>拒绝</button>
           </div>
         )}
         {view === "Dashboard" && (
@@ -165,201 +218,37 @@ export function App() {
             user={user}
             device={device}
             devices={devices}
-            onShare={() => setView("Remote Assist")}
-            onControl={() => setView("Remote Assist")}
+            onShare={() => navigate("Remote Assist","share")}
+            onControl={() => navigate("Remote Assist","control")}
           />
         )}
         {view === "My Devices" && auth && device && (
-          <MyDevices auth={auth} currentDevice={device} devices={devices} onDevices={setDevices} onRemoteAssist={() => setView("Remote Assist")} />
+          <MyDevices auth={auth} currentDevice={device} devices={devices} onDevices={setDevices} signaling={signaling} onRemoteAssist={(message) => { setNotice(message??""); navigate("Remote Assist","control"); }} />
         )}
-        {view === "Remote Assist" && <RemoteAssist auth={auth} />}
-        {view === "Sessions" && <SessionsPage />}
-        {view === "Settings" && <SettingsPage user={user} device={device} />}
+        {view === "My Devices" && !device && <div className="panel empty-state"><Icon name="devices" /><h2>正在登记这台设备</h2><p>服务连接成功后会显示设备列表。</p></div>}
+        {view === "Remote Assist" && <RemoteAssist auth={auth} mode={assistMode} onMode={(mode)=>navigate("Remote Assist",mode)} onActivity={updateActivity} />}
+        {view === "Sessions" && <SessionsPage onStart={()=>navigate("Remote Assist","share")} />}
+        {view === "Settings" && <SettingsPage user={user} device={device} version={appVersion} preferences={preferences} />}
       </section>
+      <footer className="workspace-footer"><span>RemoteAssist {appVersion}</span><span>{sessionActive?"协助进行中 · 离开页面将结束连接":"清晰可见 · 每次授权 · 随时结束"}</span></footer>
+      {pendingNavigation && <ConfirmDialog title="结束当前协助并离开？" description="离开此页面会停止屏幕共享、断开连接并释放远程输入。下次连接需要重新授权。" confirmLabel="结束并离开" onCancel={()=>setPendingNavigation(null)} onConfirm={()=>{const action=pendingNavigation;setPendingNavigation(null);action();}} />}
     </main>
   );
 }
 
-function BrandMark() {
-  return <svg className="brand-mark" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="3.5" y="5.5" width="25" height="20" rx="4.5" fill="#edf4ff" stroke="#1b62f0" strokeWidth="2.5" /><path d="M10 32.5h12M16 25.5v7" stroke="#1b62f0" strokeWidth="2.5" strokeLinecap="round" /><circle cx="30.5" cy="29.5" r="6" fill="#7359e8" stroke="white" strokeWidth="2" /><path d="M27 9.5h3.5a5 5 0 0 1 5 5v6" stroke="#7359e8" strokeWidth="2.5" strokeLinecap="round" /><circle cx="35.5" cy="22" r="1.7" fill="#7359e8" /></svg>;
-}
-
-function Icon({ name }: { name: "monitor" | "devices" | "shield" | "history" | "arrow" }) {
-  const paths = {
-    monitor: <><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></>,
-    devices: <><rect x="3" y="4" width="13" height="15" rx="2" /><path d="M8 21h10a3 3 0 0 0 3-3V8a2 2 0 0 0-2-2h-3M7 16h5" /></>,
-    shield: <><path d="M12 3 20 6v5c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-3Z" /><path d="m8.5 12 2.2 2.2 4.8-5" /></>,
-    history: <><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5M12 7v5l3 2" /></>,
-    arrow: <><path d="M5 12h14M13 6l6 6-6 6" /></>
-  };
-  return <svg className="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
-}
-
-function viewDescription(view: View): string {
-  switch (view) {
-    case "Dashboard": return "See your devices, sessions, and connection readiness at a glance.";
-    case "My Devices": return "Manage trusted devices and start an explicit assistance request.";
-    case "Remote Assist": return "Share a screen or connect with a temporary, host-approved code.";
-    case "Sessions": return "Review recent assistance activity and connection status.";
-    case "Settings": return "Review account, service, and device preferences.";
-  }
-}
-
-function AuthShell({
-  mode,
-  error,
-  onError,
-  onMode,
-  onAuth
-}: {
-  mode: AuthMode;
-  error: string;
-  onError: (value: string) => void;
-  onMode: (mode: AuthMode) => void;
-  onAuth: (result: AuthResult, remember: boolean) => Promise<void>;
-}) {
-  const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({ username: "", email: "", login: "", password: "", confirm: "", terms: false });
-  const [remember, setRemember] = useState(true);
-  const strength = passwordStrength(form.password);
-
-  async function submit() {
-    setLoading(true);
-    onError("");
-    try {
-      if (mode === "signin") {
-        await onAuth(await signaling.login(form.login, form.password), remember);
-      } else {
-        if (form.password !== form.confirm || !form.terms) throw new Error("Check password confirmation and agreement.");
-        await onAuth(await signaling.register(form.username, form.email, form.password), remember);
-      }
-    } catch (err) {
-      onError(err instanceof Error ? err.message : "Request failed");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <main className="auth-page">
-      <section className="auth-layout">
-        <div className="auth-showcase"><div className="showcase-brand"><BrandMark /><span><b>Remote</b><strong>Assist</strong></span></div><span className="eyebrow">VISIBLE BY DESIGN</span><h1>Help from anywhere.<br /><em>With permission.</em></h1><p>A calm, transparent remote assistance workspace for people and teams who need to stay in control.</p><div className="showcase-note"><i />Host approval is required before remote input is enabled.</div></div>
-        <section className="auth-panel">
-          <span className="eyebrow">SECURE WORKSPACE</span><h2>{mode === "signin" ? "Welcome back" : "Create your workspace"}</h2><p className="auth-subtitle">{mode === "signin" ? "Sign in to manage your trusted devices." : "Set up an account for explicit, visible assistance."}</p>
-          {mode === "signin" ? (
-            <>
-              <label>Username or email<input value={form.login} onChange={(ev) => setForm({ ...form, login: ev.target.value })} placeholder="you@example.com" /></label>
-              <label>Password<input value={form.password} onChange={(ev) => setForm({ ...form, password: ev.target.value })} placeholder="Enter your password" type="password" /></label>
-              <label className="check-row"><input type="checkbox" checked={remember} onChange={(ev) => setRemember(ev.target.checked)} /> Remember sign in on this PC</label>
-              {error && <div className="error-box">{error}</div>}
-              <button className="primary-action wide-action" disabled={loading} onClick={() => void submit()}>{loading ? "Signing In" : "Sign In"}</button>
-              <button className="link-button auth-switch" onClick={() => onMode("register")}>Create Account</button>
-            </>
-          ) : (
-            <>
-              <label>Username<input value={form.username} onChange={(ev) => setForm({ ...form, username: ev.target.value })} placeholder="Choose a username" /></label>
-              <label>Email<input value={form.email} onChange={(ev) => setForm({ ...form, email: ev.target.value })} placeholder="you@example.com" /></label>
-              <label>Password<input value={form.password} onChange={(ev) => setForm({ ...form, password: ev.target.value })} placeholder="At least 8 characters" type="password" /></label>
-              <label>Confirm password<input value={form.confirm} onChange={(ev) => setForm({ ...form, confirm: ev.target.value })} placeholder="Repeat your password" type="password" /></label>
-              <div className="strength"><span style={{ width: `${strength}%` }} /></div>
-              <label className="check-row"><input type="checkbox" checked={form.terms} onChange={(ev) => setForm({ ...form, terms: ev.target.checked })} /> I agree to use RemoteAssist only with explicit host authorization.</label>
-              {error && <div className="error-box">{error}</div>}
-              <button className="primary-action wide-action" disabled={loading} onClick={() => void submit()}>{loading ? "Creating" : "Create Account"}</button>
-              <button className="link-button auth-switch" onClick={() => onMode("signin")}>← Back to sign in</button>
-            </>
-          )}
-        </section>
-      </section>
-    </main>
-  );
-}
-
-function Dashboard({ user, device, devices, onShare, onControl }: { user: User; device: Device | null; devices: Device[]; onShare: () => void; onControl: () => void }) {
-  const recent = useMemo(() => devices.slice(0, 3), [devices]);
-  return (
-    <section className="dashboard-page">
-      <div className="welcome-hero">
-        <div className="hero-copy"><span className="eyebrow">YOUR SUPPORT WORKSPACE</span><h2>Good to see you,<br /><em>{user.username}.</em></h2><p>Connect with confidence. Every session is visible, temporary, and approved by the host.</p><div className="hero-actions"><button className="primary-action" onClick={onShare}><Icon name="monitor" /> Share this computer</button><button className="hero-secondary" onClick={onControl}>Connect with a code <Icon name="arrow" /></button></div></div>
-        <RemoteLinkVisual />
-      </div>
-      <div className="metric-grid">
-        <div className="metric-card"><span className="metric-icon blue-icon"><Icon name="monitor" /></span><span>THIS DEVICE</span><strong>{device?.online ? "Online" : device ? "Connecting" : "Registering"}</strong><small>{device?.deviceName ?? "Windows desktop"}</small></div>
-        <div className="metric-card"><span className="metric-icon violet-icon"><Icon name="devices" /></span><span>TRUSTED DEVICES</span><strong>{devices.length}</strong><small>{devices.filter((item) => item.online).length} online now</small></div>
-        <div className="metric-card"><span className="metric-icon green-icon"><Icon name="shield" /></span><span>SESSION SECURITY</span><strong>Host approved</strong><small>Remote input stays locked until consent</small></div>
-      </div>
-      <section className="table-card device-overview">
-        <div className="section-head"><div><span className="eyebrow">YOUR NETWORK</span><h2>Recently seen devices</h2></div><span className="count-chip">{devices.length} devices</span></div>
-        {recent.length === 0 ? <div className="empty-inline"><span className="empty-icon"><Icon name="devices" /></span><div><strong>Your trusted device list is getting ready</strong><p>Once registered, your devices will appear here.</p></div></div> : recent.map((item) => <div className="device-summary" key={item.id}><span className="device-symbol"><Icon name="monitor" /></span><div className="device-summary-copy"><strong>{item.deviceName}</strong><span>{item.osName} · {item.current ? "This device" : `Last seen ${new Date(item.lastSeenAt).toLocaleString()}`}</span></div><span className={`presence ${item.online ? "online" : "offline"}`}><i />{item.online ? "Online" : "Offline"}</span></div>)}
-      </section>
-    </section>
-  );
-}
-
-function RemoteLinkVisual() {
-  return <div className="hero-visual" aria-hidden="true"><div className="visual-orbit orbit-one" /><div className="visual-orbit orbit-two" /><div className="endpoint endpoint-left"><span className="endpoint-screen"><i /><i /><i /></span><span className="endpoint-label">YOUR DEVICE</span></div><svg className="connection-line" viewBox="0 0 250 80"><path d="M8 40h75l20-22h42l20 44h77" /><circle cx="8" cy="40" r="4" /><circle cx="242" cy="62" r="4" /></svg><span className="secure-node"><Icon name="shield" /></span><div className="endpoint endpoint-right"><span className="endpoint-screen remote-screen"><i /><i /><i /></span><span className="endpoint-label">REMOTE DEVICE</span></div><div className="visual-caption"><span className="caption-dot" /> Secure by default <b>Host approval required</b></div></div>;
-}
-
-function SessionsPage() {
-  return <section className="panel empty-state"><span className="empty-icon large-empty"><Icon name="history" /></span><span className="eyebrow">SESSION ACTIVITY</span><h2>Your session history will live here</h2><p>This build doesn’t yet provide a session history feed. Start a visible, host-approved connection from Remote Assist when you’re ready.</p><div className="empty-security"><Icon name="shield" /><span>Session access remains temporary and host controlled.</span></div></section>;
-}
-
-function SettingsPage({ user, device }: { user: User; device: Device | null }) {
-  return <section className="settings-grid"><article className="table-card settings-card"><span className="eyebrow">ACCOUNT</span><h2>Profile details</h2><div className="setting-row"><span>Name</span><strong>{user.username}</strong></div><div className="setting-row"><span>Email</span><strong>{user.email}</strong></div><div className="setting-row"><span>Sign-in storage</span><strong>Windows Credential Manager</strong></div></article><article className="table-card settings-card"><span className="eyebrow">THIS DEVICE</span><h2>Desktop client</h2><div className="setting-row"><span>Device</span><strong>{device?.deviceName ?? "Registering device"}</strong></div><div className="setting-row"><span>Operating system</span><strong>{device?.osName ?? "Windows"}</strong></div><div className="setting-row"><span>Application version</span><strong>{appVersion}</strong></div></article><article className="settings-safety"><span className="safety-icon"><Icon name="shield" /></span><div><strong>Host consent is always required</strong><p>Signing in does not grant remote access. The host must start sharing and explicitly approve input for each session.</p></div></article></section>;
-}
-
-function MyDevices({ auth, currentDevice, devices, onDevices, onRemoteAssist }: { auth: StoredAuth; currentDevice: Device; devices: Device[]; onDevices: (devices: Device[]) => void; onRemoteAssist: () => void }) {
-  const [message, setMessage] = useState("");
-  async function reload() {
-    onDevices(await signaling.devices(auth.accessToken, currentDevice.id));
-  }
-  async function updateNote(id: string, note: string) {
-    await signaling.updateDevice(auth.accessToken, id, note);
-    await reload();
-  }
-  async function revoke(id: string) {
-    await signaling.revokeDevice(auth.accessToken, id);
-    await reload();
-  }
-  async function requestAssist(id: string) {
-    await signaling.requestAssist(auth.accessToken, id, currentDevice.id);
-    setMessage("Remote assistance request sent. The host must explicitly start sharing and allow control.");
-    onRemoteAssist();
-  }
-  return (
-    <section className="table-card device-list-page">
-      <div className="section-head"><div><span className="eyebrow">TRUSTED ENDPOINTS</span><h2>My Devices</h2></div><span className="count-chip">{devices.length} devices</span></div>
-      <p className="section-intro">Only your account’s registered devices appear here. A host still needs to start sharing and approve each request.</p>
-      {message && <div className="info-box">{message}</div>}
-      {devices.map((item) => (
-        <div className="device-row" key={item.id}>
-          <div>
-            <strong>{item.deviceName}</strong>
-            <span>{item.osName} - {item.online ? "Online" : "Offline"} - Last seen {new Date(item.lastSeenAt).toLocaleString()}</span>
-            {item.current && <em>Current device</em>}
-          </div>
-          <input defaultValue={item.note} placeholder="Note" onBlur={(ev) => void updateNote(item.id, ev.target.value)} />
-          <button className="secondary-action" disabled={item.current || !item.online} onClick={() => void requestAssist(item.id)}>Connect</button>
-          <button className="danger-action" disabled={item.current} onClick={() => void revoke(item.id)}>Unbind</button>
-        </div>
-      ))}
-    </section>
-  );
-}
-
-function RemoteAssist({ auth }: { auth: AuthResult }) {
-  const [tab, setTab] = useState<"share" | "control">("share");
+function RemoteAssist({ auth, mode: tab, onMode, onActivity }: { auth: AuthResult; mode: AssistMode; onMode: (mode: AssistMode) => void; onActivity: (active: boolean) => void }) {
   return (
     <section className="remote-assist-page">
-      <div className="segmented" role="tablist" aria-label="Remote assistance mode">
-        <button role="tab" aria-selected={tab === "share"} className={tab === "share" ? "nav-active" : ""} onClick={() => setTab("share")}><Icon name="monitor" /> Share this computer</button>
-        <button role="tab" aria-selected={tab === "control"} className={tab === "control" ? "nav-active" : ""} onClick={() => setTab("control")}><Icon name="devices" /> Control another</button>
+      <div className="segmented" role="tablist" aria-label="协助方式" onKeyDown={(ev)=>{if(["ArrowLeft","ArrowRight","Home","End"].includes(ev.key)){ev.preventDefault();const target=ev.key==="Home"?"share":ev.key==="End"?"control":ev.target===(document.getElementById("share-tab"))?"control":"share";document.getElementById(`${target}-tab`)?.focus();}}}>
+        <button id="share-tab" role="tab" aria-controls="share-panel" tabIndex={tab==="share"?0:-1} aria-selected={tab === "share"} className={tab === "share" ? "nav-active" : ""} onClick={() => onMode("share")}><Icon name="monitor" />共享这台电脑</button>
+        <button id="control-tab" role="tab" aria-controls="control-panel" tabIndex={tab==="control"?0:-1} aria-selected={tab === "control"} className={tab === "control" ? "nav-active" : ""} onClick={() => onMode("control")}><Icon name="devices" />连接另一台电脑</button>
       </div>
-      {tab === "share" ? <ShareComputer auth={auth} /> : <ControlComputer auth={auth} />}
+      {tab === "share" ? <ShareComputer auth={auth} onActivity={onActivity} /> : <ControlComputer auth={auth} onActivity={onActivity} />}
     </section>
   );
 }
 
-function ShareComputer({ auth }: { auth: AuthResult }) {
+function ShareComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (active: boolean) => void }) {
   const [status, setStatus] = useState("Idle");
   const [permission, setPermission] = useState("Not sharing");
   const [code, setCode] = useState("");
@@ -374,11 +263,25 @@ function ShareComputer({ auth }: { auth: AuthResult }) {
   const generationRef = useRef(0);
   const authorizingRef = useRef(false);
   const expiryTimer = useRef<number | undefined>(undefined);
+  const readyTimer = useRef<number | undefined>(undefined);
   const [quality, setQuality] = useState("Balanced");
+  const [busy, setBusy] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [error, setError] = useState("");
+  const [copyStatus, setCopyStatus] = useState("");
+  const [expiresAt, setExpiresAt] = useState(0);
+  const [clock, setClock] = useState(Date.now());
+  useEffect(()=>{if(!expiresAt)return;const timer=window.setInterval(()=>setClock(Date.now()),1000);return()=>clearInterval(timer);},[expiresAt]);
+
+  async function copyCode() {
+    try { await navigator.clipboard.writeText(code); setCopyStatus("连接码已复制"); }
+    catch { setCopyStatus("无法访问剪贴板，请选中连接码手动复制。"); }
+  }
 
   async function startSharing() {
     if (sharingRef.current) return;
     sharingRef.current = true;
+    setBusy(true); setError(""); setCopyStatus(""); onActivity(true);
     const generation = ++generationRef.current;
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: "monitor", frameRate: { ideal: 20, max: 30 } }, audio: false });
@@ -397,6 +300,7 @@ function ShareComputer({ auth }: { auth: AuthResult }) {
       if (!sharingRef.current || generationRef.current !== generation) { await signaling.disconnect(created.id, created.hostToken).catch(() => undefined); return; }
       sessionRef.current = created;
       setSession({ id: created.id, hostToken: created.hostToken });
+      setExpiresAt(Date.parse(created.expiresAt)); setClock(Date.now());
       setPermission("Sharing selected screen/window, waiting for controller");
       setStatus(`Code expires at ${new Date(created.expiresAt).toLocaleTimeString()}`);
       const ws = new WebSocket(signaling.wsURL(created.id, "host"));
@@ -408,7 +312,7 @@ function ShareComputer({ auth }: { auth: AuthResult }) {
         let msg: SignalMessage;
         try { msg = JSON.parse(ev.data) as SignalMessage; } catch { void stopSharing("Invalid signaling message"); return; }
         if (msg.sessionId !== created.id) return;
-        if (msg.type === "ready") { setCode(created.code); return; }
+        if (msg.type === "ready") { window.clearTimeout(readyTimer.current); setCode(created.code); setBusy(false); return; }
         if (["disconnect", "rejected", "expired"].includes(msg.type)) { void stopSharing("Session ended"); return; }
         if (msg.type === "ping") {
           setPendingApproval(true);
@@ -419,9 +323,10 @@ function ShareComputer({ auth }: { auth: AuthResult }) {
       };
       ws.onclose = () => { void stopSharing("Disconnected"); };
       ws.onerror = () => { void stopSharing("Connection failed"); };
+      readyTimer.current=window.setTimeout(()=>{setError("连接响应超时，请检查网络后重试。");void stopSharing("failed");},15_000);
       expiryTimer.current = window.setTimeout(() => { void stopSharing("Connection code expired"); }, Math.max(0, Date.parse(created.expiresAt) - Date.now()));
     } catch (err) {
-      if (generationRef.current === generation) await stopSharing(err instanceof Error ? err.message : "Sharing could not start");
+      if (generationRef.current === generation) { setError(friendlyError(err)); await stopSharing("Idle"); }
     }
   }
 
@@ -430,6 +335,7 @@ function ShareComputer({ auth }: { auth: AuthResult }) {
     if (!current || !sharingRef.current || !streamRef.current || !wsRef.current || authorizingRef.current) return;
     if (!streamRef.current.getVideoTracks().some((track) => track.readyState === "live")) { await stopSharing("Capture stopped"); return; }
     authorizingRef.current = true;
+    setApproving(true); setError("");
     const generation = generationRef.current;
     try {
       const consent = await invoke<boolean>("request_input_authorization");
@@ -445,18 +351,19 @@ function ShareComputer({ auth }: { auth: AuthResult }) {
       if (expiryTimer.current != null) window.clearTimeout(expiryTimer.current);
       expiryTimer.current = window.setTimeout(() => { void stopSharing("Session expired"); }, Math.max(0, Date.parse(approved.expiresAt) - Date.now()));
       setSession({ ...current, controllerToken: approved.controllerToken });
+      setExpiresAt(Date.parse(approved.expiresAt)); setClock(Date.now());
       setPendingApproval(false);
       setPermission("Remote input authorized");
       const gate = new InputEventGate(approved.controllerToken, () => sharingRef.current);
       const peer = new HostPeer(current.id, current.hostToken, wsRef.current!, iceServersRef.current, {
-        onConnectionStatus: (status) => { setStatus(status); if (status === "failed" || status === "disconnected") void stopSharing("Connection lost"); },
+        onConnectionStatus: (status) => { setStatus(status); if (["failed","disconnected","signaling error"].includes(status)) void stopSharing("Connection lost"); },
         onQuality: setQuality
       });
       hostPeerRef.current = peer;
       await peer.start(streamRef.current!, gate);
     } catch (err) {
-      await stopSharing(err instanceof Error ? err.message : "Authorization failed");
-    } finally { if (generationRef.current === generation) authorizingRef.current = false; }
+      if (generationRef.current === generation) { setError(friendlyError(err)); await stopSharing("failed"); }
+    } finally { if (generationRef.current === generation) { authorizingRef.current = false; setApproving(false); } }
   }
 
   async function stopSharing(reason = "Disconnected") {
@@ -467,6 +374,7 @@ function ShareComputer({ auth }: { auth: AuthResult }) {
     sessionRef.current = null;
     if (expiryTimer.current != null) window.clearTimeout(expiryTimer.current);
     expiryTimer.current = undefined;
+    window.clearTimeout(readyTimer.current); readyTimer.current=undefined;
     const ws = wsRef.current;
     wsRef.current = null;
     if (ws) { ws.onclose = null; ws.onmessage = null; ws.onerror = null; }
@@ -475,12 +383,13 @@ function ShareComputer({ auth }: { auth: AuthResult }) {
     ws?.close();
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
-    setStatus(reason);
+    if(reason!=="Closed")setStatus(reason);
     setPermission("Not sharing");
     setCode("");
     setPendingApproval(false);
     setSession(null);
     setQuality("Balanced");
+    setBusy(false); setApproving(false); setExpiresAt(0); setCopyStatus(""); onActivity(false);
     await invoke("clear_input_authorization").catch(() => undefined);
     if (current) await signaling.disconnect(current.id, current.hostToken).catch(() => undefined);
   }
@@ -488,26 +397,28 @@ function ShareComputer({ auth }: { auth: AuthResult }) {
   useEffect(() => () => { void stopSharing("Closed"); }, []);
 
   return (
-    <section className="panel share-panel">
-      <div className="panel-heading"><div><span className="eyebrow">HOST WORKFLOW</span><h2>Share this computer</h2><p>Choose your primary full display. Remote input requires your approval; window and secondary-display control are not supported yet.</p></div><span className={`presence ${code ? "online" : "offline"}`}><i />{code ? "Sharing is visible" : "Not sharing"}</span></div>
-      {!code && <div className="share-start"><span className="large-monitor"><Icon name="monitor" /></span><div><strong>Start a visible support session</strong><p>Select your primary monitor in the system picker. You can stop sharing at any time.</p><button className="primary-action" onClick={() => void startSharing()}><Icon name="monitor" /> Choose primary display</button></div></div>}
-      {code && <div className="share-active"><span className="eyebrow">TEMPORARY CONNECTION CODE</span><div className="code-box">{code}</div><p>Share this code with the person you trust. It expires at {status.startsWith("Code expires at ") ? status.replace("Code expires at ", "") : "the displayed time"}.</p></div>}
+    <section className="panel share-panel" id="share-panel" role="tabpanel" aria-labelledby="share-tab">
+      <div className="panel-heading"><div><span className="eyebrow">SHARE WITH CONFIDENCE</span><h2>把主屏共享给信任的人</h2><p>选择主显示器的整个屏幕。当前暂不支持窗口、标签页或副屏控制。</p></div><span className={`presence ${code ? "online" : "offline"}`} role="status"><i />{code ? "屏幕共享中" : busy ? "准备共享" : "尚未共享"}</span></div>
+      {error && <StatusMessage error>{error}</StatusMessage>}
+      <ol className="session-steps" aria-label="共享步骤"><li className={code?"complete":"current"}><span>1</span>选择屏幕</li><li className={pendingApproval||session?.controllerToken?"complete":code?"current":""}><span>2</span>发送连接码</li><li className={session?.controllerToken?"complete":pendingApproval?"current":""}><span>3</span>确认控制</li></ol>
+      {!code && <div className="share-start"><span className="large-monitor"><Icon name="monitor" /></span><div><strong>从一次明确的共享开始</strong><p>系统会让你选择屏幕。确认后生成临时连接码，对方输入后仍需你授权。</p><button className="primary-action" disabled={busy} onClick={() => void startSharing()}><Icon name="monitor" />{busy?"正在准备共享…":"选择主显示器"}</button></div></div>}
+      {code && <div className="share-active"><span className="eyebrow">临时连接码</span><div className="code-row"><output className="code-box" aria-label={`连接码 ${code.split("").join(" ")}`}>{code.slice(0,4)} {code.slice(4)}</output><button className="secondary-action" onClick={()=>void copyCode()}><Icon name="copy" />复制连接码</button></div><p>仅发送给你信任的人。<span className="countdown" aria-label={`剩余有效时间 ${remainingTime(expiresAt,clock)}`}>{session?.controllerToken?"会话剩余":"连接码剩余"} <b>{remainingTime(expiresAt,clock)}</b></span></p>{copyStatus&&<p role="status">{copyStatus}</p>}</div>}
       {pendingApproval && (
         <div className="approval">
-          <div><span className="eyebrow">HOST APPROVAL REQUIRED</span><strong>Someone is waiting to connect</strong><p>Review the request, then approve only if you recognize this person.</p></div>
+          <div><span className="eyebrow">需要你的确认</span><strong>对方正在请求控制</strong><p>请确认对方身份。允许后，对方可以操作你的鼠标与键盘。</p></div>
           <div className="row">
-            <button className="primary-action" onClick={() => void allowControl()}><Icon name="shield" /> Review & allow control</button>
-            <button className="danger-action" onClick={() => void stopSharing("Rejected")}>Reject</button>
+            <button className="primary-action" disabled={approving} onClick={() => void allowControl()}><Icon name="shield" />{approving?"等待本机确认…":"确认并允许控制"}</button>
+            <button className="danger-quiet" onClick={() => void stopSharing("Rejected")}>拒绝并结束</button>
           </div>
         </div>
       )}
-      <dl className="status-grid"><dt>Connection</dt><dd>{status}</dd><dt>Permission</dt><dd>{permission}</dd>{session?.controllerToken && <><dt>Adaptive quality</dt><dd>{quality}</dd></>}</dl>
-      {code && <button className="danger-action" onClick={() => void stopSharing("Stopped by host")}>Stop sharing</button>}
+      <dl className="status-grid"><dt>连接状态</dt><dd role="status">{connectionLabel(status)}</dd><dt>输入权限</dt><dd>{permission==="Remote input authorized"?"已允许远程控制":"尚未允许控制"}</dd>{session?.controllerToken && <><dt>自适应画质</dt><dd>{{Balanced:"平衡",Sharp:"清晰",Economy:"节省带宽","Browser managed":"自动"}[quality]??quality}</dd></>}</dl>
+      {(code||busy) && <div className="session-end-row"><span>停止后，画面与远程输入都会立即断开。</span><button className="danger-action" onClick={() => void stopSharing("Stopped by host")}><Icon name="stop" />停止共享</button></div>}
     </section>
   );
 }
 
-function ControlComputer({ auth }: { auth: AuthResult }) {
+function ControlComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (active: boolean) => void }) {
   const [code, setCode] = useState("");
   const [status, setStatus] = useState("Idle");
   const [relay, setRelay] = useState<"P2P" | "TURN Relay" | "Unknown">("Unknown");
@@ -518,11 +429,15 @@ function ControlComputer({ auth }: { auth: AuthResult }) {
   const wsRef = useRef<WebSocket | null>(null);
   const sessionRef = useRef<{ id: string; controllerToken: string } | null>(null);
   const connectingRef = useRef(false);
+  const readyTimer = useRef<number | undefined>(undefined);
   const generationRef = useRef(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   async function connect() {
     if (connectingRef.current) return;
     connectingRef.current = true;
+    setBusy(true); setError(""); onActivity(true);
     const generation = ++generationRef.current;
     try {
       const iceServers = await signaling.iceServers(auth.accessToken);
@@ -531,12 +446,13 @@ function ControlComputer({ auth }: { auth: AuthResult }) {
       if (!connectingRef.current || generationRef.current !== generation) { await signaling.disconnect(joined.id, joined.controllerToken).catch(() => undefined); return; }
       sessionRef.current = joined;
       setSession({ id: joined.id, controllerToken: joined.controllerToken });
+      setBusy(false);
       setStatus("Waiting for host authorization");
       const ws = new WebSocket(signaling.wsURL(joined.id, "controller"));
       wsRef.current = ws;
       const peer = new ControllerPeer(joined.id, joined.controllerToken, ws, iceServers, {
         onRemoteStream: (stream) => { if (videoRef.current) videoRef.current.srcObject = stream; },
-        onConnectionStatus: (status) => { setStatus(status); if (status === "failed" || status === "disconnected") disconnect("Connection lost"); },
+        onConnectionStatus: (status) => { setStatus(status); if (["failed","disconnected","signaling error"].includes(status)) disconnect("Connection lost"); },
         onRelayStatus: setRelay,
         onLatency: setLatency
       });
@@ -547,6 +463,7 @@ function ControlComputer({ auth }: { auth: AuthResult }) {
         try { msg = JSON.parse(ev.data) as SignalMessage; } catch { disconnect("Invalid signaling message"); return; }
         if (msg.sessionId !== joined.id) return;
         if (msg.type === "ready") {
+          window.clearTimeout(readyTimer.current);
           ws.send(JSON.stringify({ type: "ping", sessionId: joined.id, sessionToken: joined.controllerToken, ts: Date.now() }));
           return;
         }
@@ -555,7 +472,8 @@ function ControlComputer({ auth }: { auth: AuthResult }) {
       };
       ws.onclose = () => disconnect("Disconnected");
       ws.onerror = () => disconnect("Connection failed");
-    } catch (err) { if (generationRef.current === generation) disconnect(err instanceof Error ? err.message : "Connection failed"); }
+      readyTimer.current=window.setTimeout(()=>{setError("连接响应超时，请确认对方仍在共享。");disconnect("failed");},15_000);
+    } catch (err) { if (generationRef.current === generation) { setError(friendlyError(err)); disconnect("failed"); } }
   }
 
   function sendPointer(type: "mouse_move" | "mouse_down" | "mouse_up", ev: React.PointerEvent<HTMLVideoElement>) {
@@ -582,7 +500,7 @@ function ControlComputer({ auth }: { auth: AuthResult }) {
     peerRef.current?.sendInput(keyInput(type, sessionRef.current.controllerToken, ev));
   }
 
-  function sendWheel(ev: React.WheelEvent<HTMLVideoElement>) {
+  function sendWheel(ev: WheelEvent) {
     if (!sessionRef.current) return;
     ev.preventDefault();
     peerRef.current?.sendInput(wheelInput(sessionRef.current.controllerToken, ev));
@@ -590,6 +508,7 @@ function ControlComputer({ auth }: { auth: AuthResult }) {
 
   function disconnect(reason = "Disconnected") {
     connectingRef.current = false;
+    window.clearTimeout(readyTimer.current); readyTimer.current=undefined;
     generationRef.current++;
     const current = sessionRef.current;
     sessionRef.current = null;
@@ -603,8 +522,9 @@ function ControlComputer({ auth }: { auth: AuthResult }) {
     if (videoRef.current) videoRef.current.srcObject = null;
     setLatency(null);
     setRelay("Unknown");
-    setStatus(reason);
+    if(reason!=="Closed")setStatus(reason);
     setSession(null);
+    setBusy(false); onActivity(false);
   }
 
   useEffect(() => () => { disconnect("Closed"); }, []);
@@ -617,19 +537,15 @@ function ControlComputer({ auth }: { auth: AuthResult }) {
   }, []);
 
   return (
-    <section className="panel control-panel">
-      <div className="panel-heading"><div><span className="eyebrow">CONTROLLER WORKFLOW</span><h2>Connect to a computer</h2><p>Enter a temporary code. The host chooses what to share and must approve control.</p></div><span className="presence offline"><i />{status}</span></div>
-      {!session && <form className="join-form" onSubmit={(ev) => { ev.preventDefault(); void connect(); }}><label htmlFor="session-code">8-digit session code</label><div><input id="session-code" value={code} onChange={(ev) => setCode(ev.target.value.replace(/\D/g, "").slice(0, 8))} placeholder="00000000" inputMode="numeric" /><button className="primary-action" disabled={code.length !== 8}>Connect</button></div></form>}
-      <div className="remote-stage"><video ref={videoRef} autoPlay playsInline tabIndex={0} onPointerMove={(ev) => sendPointer("mouse_move", ev)} onPointerDown={(ev) => sendPointer("mouse_down", ev)} onPointerUp={(ev) => sendPointer("mouse_up", ev)} onPointerCancel={releaseInputs} onBlur={releaseInputs} onContextMenu={(ev) => ev.preventDefault()} onWheel={sendWheel} onKeyDown={(ev) => sendKey("key_down", ev)} onKeyUp={(ev) => sendKey("key_up", ev)} /></div>
-      {!session && <div className="stage-placeholder"><span className="empty-icon"><Icon name="monitor" /></span><strong>Remote screen will appear here</strong><span>Connect with a temporary code to begin.</span></div>}
-      <dl className="status-grid"><dt>Connection</dt><dd>{status}</dd><dt>Route</dt><dd>{relay}</dd><dt>Latency</dt><dd>{latency == null ? "Waiting for connection" : `${latency} ms`}</dd></dl>
-      {session && <button className="danger-action" onClick={() => disconnect("Stopped by controller")}>Disconnect</button>}
+    <section className="panel control-panel" id="control-panel" role="tabpanel" aria-labelledby="control-tab">
+      <div className="panel-heading"><div><span className="eyebrow">CONNECT WITH A CODE</span><h2>连接另一台电脑</h2><p>请对方先共享主屏，再输入他们提供的 8 位连接码。</p></div><span className={`presence ${status==="connected"?"online":"offline"}`} role="status"><i />{connectionLabel(status)}</span></div>
+      {error&&<StatusMessage error>{error}</StatusMessage>}
+      {!session && <form className="join-form" onSubmit={(ev) => { ev.preventDefault(); void connect(); }} aria-busy={busy}><label htmlFor="session-code">对方的连接码</label><div><input id="session-code" required pattern="[0-9]{8}" autoComplete="off" value={code} onChange={(ev) => setCode(normalizeConnectionCode(ev.target.value))} placeholder="输入 8 位连接码" inputMode="numeric" disabled={busy} aria-describedby="code-help" /><button className="primary-action" disabled={code.length !== 8||busy}>{busy?"正在连接…":"发起连接"}<Icon name="arrow" /></button></div><p id="code-help" className="field-hint">可以直接粘贴包含空格的连接码。对方批准后才会建立远程控制。</p></form>}
+      {busy&&<button className="secondary-action" onClick={()=>disconnect("Disconnected")}>取消连接</button>}
+      <RemoteScreen videoRef={videoRef} connected={!!session} status={connectionLabel(status)} onPointer={sendPointer} onKey={sendKey} onWheel={sendWheel} onRelease={releaseInputs} onDisconnect={()=>disconnect("Stopped by controller")} />
+      <dl className="connection-details"><div><dt>连接状态</dt><dd>{connectionLabel(status)}</dd></div><div><dt>传输路径</dt><dd>{relay==="P2P"?"设备直连":relay==="TURN Relay"?"中继连接":"等待连接"}</dd></div><div><dt>往返延迟</dt><dd>{latency == null ? "待测量" : `${latency} ms`}</dd></div></dl>
     </section>
   );
-}
-
-function Placeholder({ title, text }: { title: string; text: string }) {
-  return <section className="panel"><h2>{title}</h2><p>{text}</p></section>;
 }
 
 type StoredAuth = AuthResult;
@@ -679,13 +595,4 @@ function localDeviceInfo() {
     osName: navigator.userAgent.includes("Windows") ? "Windows" : navigator.platform,
     appVersion
   };
-}
-
-function passwordStrength(password: string): number {
-  let score = 0;
-  if (password.length >= 8) score += 25;
-  if (/[A-Z]/.test(password)) score += 25;
-  if (/[0-9]/.test(password)) score += 25;
-  if (/[^A-Za-z0-9]/.test(password)) score += 25;
-  return score;
 }

@@ -111,7 +111,7 @@ export function inputFromPointer(
   };
 }
 
-export function wheelInput(sessionToken: string, ev: React.WheelEvent): RemoteInputEvent {
+export function wheelInput(sessionToken: string, ev: Pick<WheelEvent,"deltaX"|"deltaY">): RemoteInputEvent {
   return {
     type: "mouse_wheel",
     sessionToken,

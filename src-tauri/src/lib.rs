@@ -279,8 +279,8 @@ fn confirm_host_control() -> bool {
     let result = unsafe {
         MessageBoxW(
             None,
-            w!("Allow remote mouse and keyboard control? Confirm that you selected your PRIMARY full display. Window and secondary-display control are not supported in this build."),
-            w!("RemoteAssist — Explicit approval required"),
+            w!("是否允许对方操作这台电脑的鼠标和键盘？请确认你选择了主显示器的整个屏幕。当前版本不支持窗口或副屏控制。你可以随时停止共享。"),
+            w!("RemoteAssist — 需要你的明确授权"),
             MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
         )
     };
