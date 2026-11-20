@@ -140,7 +140,7 @@ abstract class SessionPeer {
     this.remoteIce.clear();
     if(this.pc){this.pc.onconnectionstatechange=null;this.pc.onicecandidate=null;this.pc.ontrack=null;this.pc.ondatachannel=null;}
     for(const channel of [this.inputChannel,this.pointerChannel]){
-      if(channel){channel.onopen=null;channel.onmessage=null;channel.onclose=null;channel.onerror=null;channel.close();}
+      if(channel){channel.onopen=null;channel.onmessage=null;channel.onclose=null;channel.onerror=null;channel.onbufferedamountlow=null;channel.close();}
     }
     this.pc?.close();
   }
@@ -235,8 +235,9 @@ export class HostPeer extends SessionPeer {
         if(this.pc.connectionState==="connected"){
           const stats=await this.pc.getStats();if(this.closed)return;
           this.callbacks.onRelayStatus?.(connectionRoute(stats));
-          this.callbacks.onTelemetry?.(this.statsSampler.sample(stats,"send"));
-          const quality=this.policy.observe(connectionSample(stats));
+          const telemetry=this.statsSampler.sample(stats,"send");
+          this.callbacks.onTelemetry?.(telemetry);
+          const quality=this.policy.observe({...connectionSample(stats),sendQueueMs:telemetry.sendQueueMs});
           const key=quality+":"+this.preference;
           if(key!==this.appliedProfile){
             const parameters=this.videoSender.getParameters();
@@ -276,9 +277,9 @@ export class ControllerPeer extends SessionPeer {
       this.installPeerHandlers();
       this.pc.ontrack=(ev)=>this.callbacks.onRemoteStream?.(ev.streams[0]??new MediaStream([ev.track]));
       this.pc.ondatachannel=(ev)=>{
-        if(ev.channel.label==="pointer"&&!this.pointerChannel){this.pointerChannel=ev.channel;return;}
+        if(ev.channel.label==="pointer"&&!this.pointerChannel){this.pointerChannel=ev.channel;this.watchPointerBuffer(ev.channel);return;}
         if(ev.channel.label!=="input"||this.inputChannel){ev.channel.close();return;}
-        this.inputChannel=ev.channel;this.installInputFailureHandlers();
+        this.inputChannel=ev.channel;this.installInputFailureHandlers();this.watchPointerBuffer(ev.channel);
         this.inputChannel.onmessage=(message)=>{
           const parsed=parseMessage(message.data);
           if(parsed?.type!=="pong"||parsed.sessionToken!==this.sessionToken||!this.heartbeat)return;
@@ -308,16 +309,20 @@ export class ControllerPeer extends SessionPeer {
     if(event.type==="mouse_down"||event.type==="mouse_up"||event.type==="release_all"||event.type==="disconnect")this.pointer.discard();
     this.deliverInput(event);
   }
-  private deliverInput(event:RemoteInputEvent){
-    if(this.closed)return;
+  private watchPointerBuffer(channel:RTCDataChannel){
+    channel.bufferedAmountLowThreshold=MAX_POINTER_BUFFER/2;
+    channel.onbufferedamountlow=()=>{if(!this.closed)this.pointer.flush();};
+  }
+  private deliverInput(event:RemoteInputEvent):boolean{
+    if(this.closed||this.inputChannel?.readyState!=="open")return false;
     const pointerChannel=event.type==="mouse_move"&&this.pointerChannel?.readyState==="open"?this.pointerChannel:undefined;
     if(pointerChannel){
-      if(pointerChannel.bufferedAmount>MAX_POINTER_BUFFER)return;
-      try{pointerChannel.send(JSON.stringify({...event,sequence:++this.inputSequence}));}
-      catch{this.fail("input_channel_failed");}
+      if(pointerChannel.bufferedAmount>MAX_POINTER_BUFFER)return false;
+      try{pointerChannel.send(JSON.stringify({...event,sequence:++this.inputSequence}));return true;}
+      catch{this.fail("input_channel_failed");return false;}
     }else{
-      if(event.type==="mouse_move"&&(this.inputChannel?.bufferedAmount??0)>MAX_POINTER_BUFFER)return;
-      this.sendReliable({...event,sequence:++this.inputSequence});
+      if(event.type==="mouse_move"&&this.inputChannel.bufferedAmount>MAX_POINTER_BUFFER)return false;
+      return this.sendReliable({...event,sequence:++this.inputSequence});
     }
   }
   override close(){

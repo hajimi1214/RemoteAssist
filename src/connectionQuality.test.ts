@@ -59,6 +59,42 @@ test("zero available bandwidth is a congestion measurement, not missing telemetr
   assert.equal(policy.current,"Economy");
 });
 
+test("persistent local packet queue pressure reduces quality even with an optimistic bandwidth estimate",()=>{
+  const policy=new AdaptiveVideoPolicy();
+  const queued={availableOutgoingBitrate:8_000_000,rttMs:30,sendQueueMs:140};
+  assert.equal(policy.observe(queued),"Balanced");
+  assert.equal(policy.observe(queued),"Constrained");
+  policy.observe(queued); assert.equal(policy.observe(queued),"Economy");
+  for(let i=0;i<5;i++)assert.equal(policy.observe({...queued,sendQueueMs:65}),"Economy");
+  for(let i=0;i<5;i++)assert.equal(policy.observe({...queued,sendQueueMs:35}),"Economy");
+  assert.equal(policy.observe({...queued,sendQueueMs:5}),"Economy");
+  assert.equal(policy.observe({...queued,sendQueueMs:5}),"Economy");
+  assert.equal(policy.observe({...queued,sendQueueMs:5}),"Constrained");
+});
+
+test("transient, unavailable and invalid queue samples cannot manufacture sustained pressure",()=>{
+  const policy=new AdaptiveVideoPolicy();
+  policy.observe({sendQueueMs:150}); policy.observe({sendQueueMs:0});
+  assert.equal(policy.observe({sendQueueMs:150}),"Balanced");
+  policy.observe({sendQueueMs:NaN});
+  assert.equal(policy.observe({sendQueueMs:150}),"Balanced");
+  policy.observe({sendQueueMs:-1}); policy.observe({sendQueueMs:Infinity});
+  assert.equal(policy.observe({sendQueueMs:150}),"Balanced");
+});
+
+test("a reported CPU ceiling does not promote economy quality during continued pressure",()=>{
+  const policy=new AdaptiveVideoPolicy();
+  for(let i=0;i<4;i++)policy.observe({availableOutgoingBitrate:0});
+  for(let i=0;i<5;i++)assert.equal(policy.observe({qualityLimitationReason:"cpu"}),"Economy");
+});
+
+test("video limitation aggregation is independent of stream order and never loses bandwidth pressure",()=>{
+  for(const reasons of [["bandwidth","none"],["none","bandwidth"],["cpu","bandwidth","other"],["bandwidth","cpu","none"]]){
+    const stats=new Map(reasons.map((reason,index)=>[String(index),{type:"outbound-rtp",kind:"video",qualityLimitationReason:reason}])) as unknown as RTCStatsReport;
+    assert.equal(connectionSample(stats).qualityLimitationReason,"bandwidth");
+  }
+});
+
 test("uses selected transport pair and detects relay on the local side", () => {
   const stats = new Map([
     ["old", { id: "old", type: "candidate-pair", state: "succeeded", nominated: true }],

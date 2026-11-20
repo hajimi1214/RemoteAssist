@@ -1,6 +1,7 @@
 export const HEARTBEAT_INTERVAL_MS = 2_000;
 export const HEARTBEAT_TIMEOUT_MS = 8_000;
 export const NEGOTIATION_TIMEOUT_MS = 25_000;
+export const POINTER_MAX_AGE_MS = 150;
 
 // Monotonic time and individually correlated probes support RTTs longer than
 // one probe interval; a late pong must not be compared with the newest ping.
@@ -32,20 +33,22 @@ export class HeartbeatTracker {
   expired(now: number): boolean { return now - this.acknowledgedAt >= HEARTBEAT_TIMEOUT_MS; }
 }
 
-// Keep the latest position during a burst and deliver the final position even
-// when the pointer stops before the next frame. Keys/buttons never use this queue.
+// Keep only the latest position while pacing or briefly backpressured. A false
+// send result retries, but never replays motion older than the short age limit.
+// Keys/buttons never use this queue; release barriers discard it immediately.
 export class LatestPointer<T> {
   private value?: T;
+  private queuedAt = 0;
   private lastSent = -Infinity;
   private scheduled?: ReturnType<typeof setTimeout>;
   private closed = false;
-  private readonly send: (value: T) => void;
+  private readonly send: (value: T) => boolean | void;
   private readonly intervalMs: number;
   private readonly now: () => number;
   private readonly schedule: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
   private readonly cancel: (id: ReturnType<typeof setTimeout>) => void;
   constructor(
-    send: (value: T) => void,
+    send: (value: T) => boolean | void,
     intervalMs = 20,
     now: () => number = () => performance.now(),
     schedule: (fn: () => void, ms: number) => ReturnType<typeof setTimeout> = (fn,ms)=>setTimeout(fn,ms),
@@ -55,6 +58,7 @@ export class LatestPointer<T> {
   push(value: T): void {
     if (this.closed) return;
     this.value = value;
+    this.queuedAt = this.now();
     const remaining = this.intervalMs - (this.now() - this.lastSent);
     if (remaining <= 0) this.flush();
     else if (this.scheduled == null) this.scheduled = this.schedule(() => { this.scheduled = undefined; this.flush(); }, remaining);
@@ -64,10 +68,25 @@ export class LatestPointer<T> {
     if (this.scheduled != null) this.cancel(this.scheduled);
     this.scheduled = undefined;
     if (this.closed || this.value === undefined) return;
+    const now = this.now();
+    const remainingAge = POINTER_MAX_AGE_MS - (now - this.queuedAt);
+    if (remainingAge <= 0) { this.value = undefined; return; }
+    const remainingInterval = this.intervalMs - (now - this.lastSent);
+    if (remainingInterval > 0) {
+      this.scheduleRetry(Math.min(remainingInterval, remainingAge));
+      return;
+    }
     const value = this.value;
+    const sent = this.send(value);
+    // A failed send can close the peer and discard this queue synchronously.
+    if (this.closed || this.value !== value) return;
+    if (sent === false) { this.scheduleRetry(Math.min(this.intervalMs, remainingAge)); return; }
     this.value = undefined;
-    this.lastSent = this.now();
-    this.send(value);
+    this.lastSent = now;
+  }
+
+  private scheduleRetry(ms: number): void {
+    this.scheduled = this.schedule(() => { this.scheduled = undefined; this.flush(); }, ms);
   }
 
   discard(): void {

@@ -84,17 +84,17 @@ export class SignalingClient {
   private refreshFlight?: { token: string; result: Promise<AuthResult> };
   constructor(private readonly baseURL = defaultBaseURL.replace(/\/$/, "")) {}
 
-  async register(username: string, email: string, password: string): Promise<AuthResult> {
+  async register(username: string, email: string, password: string, signal?: AbortSignal): Promise<AuthResult> {
     return this.request<AuthResult>("/api/v1/auth/register", {
       method: "POST",
-      body: JSON.stringify({ username, email, password })
+      body: JSON.stringify({ username, email, password }), signal
     });
   }
 
-  async login(login: string, password: string): Promise<AuthResult> {
+  async login(login: string, password: string, signal?: AbortSignal): Promise<AuthResult> {
     return this.request<AuthResult>("/api/v1/auth/login", {
       method: "POST",
-      body: JSON.stringify({ login, password })
+      body: JSON.stringify({ login, password }), signal
     });
   }
 
@@ -185,18 +185,18 @@ export class SignalingClient {
     return body.iceServers;
   }
 
-  async createShareSession(): Promise<ShareSession> {
+  async createShareSession(accessToken: string): Promise<ShareSession> {
     return this.request<ShareSession>("/api/v1/share-sessions", {
       method: "POST",
       body: JSON.stringify({})
-    });
+    }, accessToken);
   }
 
-  async join(code: string): Promise<JoinSession> {
+  async join(code: string, accessToken: string): Promise<JoinSession> {
     return this.request<JoinSession>("/api/v1/control-sessions/join", {
       method: "POST",
       body: JSON.stringify({ code })
-    });
+    }, accessToken);
   }
 
   async approve(id: string, hostToken: string): Promise<ApproveSession> {
@@ -235,7 +235,7 @@ export class SignalingClient {
   private async request<T = unknown>(path: string, init: RequestInit = {}, accessToken = ""): Promise<T> {
     const response = await fetch(`${this.getBaseURL()}${path}`, {
       ...init,
-      signal: init.signal ?? AbortSignal.timeout(15_000),
+      signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000),
       cache: "no-store",
       credentials: "omit",
       headers: {

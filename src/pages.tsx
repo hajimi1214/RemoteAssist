@@ -1,93 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AuthResult, Device, SignalingClient, User } from "./signaling";
-import { BrandMark, ConfirmDialog, Icon, StatusMessage } from "./ui";
+import { ConfirmDialog, Icon, StatusMessage } from "./ui";
 import type { usePreferences } from "./preferences";
 import { friendlyError } from "./ux";
 import { sessionDuration } from "./sessionJournal";
 import type { SessionSummary } from "./sessionJournal";
-import { FloatingField, PasswordStrength, PasswordVisibility } from "./forms";
-import { validateAuth, validateAuthField } from "./formRules";
-import type { AuthErrors, AuthField } from "./formRules";
-
-export function AuthShell({ mode, error, onError, onMode, onAuth, signaling }: {
-  mode: "signin" | "register"; error: string; onError: (message: string) => void;
-  onMode: (mode: "signin" | "register") => void;
-  onAuth: (result: AuthResult, remember: boolean) => Promise<void>; signaling: SignalingClient;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [remember, setRemember] = useState(true);
-  const [registerStep, setRegisterStep] = useState<0 | 1>(0);
-  const [focusField, setFocusField] = useState<AuthField | null>(null);
-  const [form, setForm] = useState({ login:"", username:"", email:"", password:"", confirm:"", consent:false });
-  const [fieldErrors, setFieldErrors] = useState<AuthErrors>({});
-  const formRef = useRef<HTMLFormElement>(null);
-  useEffect(() => {
-    if (focusField) { formRef.current?.querySelector<HTMLInputElement>(`[name="${focusField}"]`)?.focus(); setFocusField(null); }
-  }, [focusField, registerStep]);
-  function changeField(field: AuthField, value: string | boolean) {
-    setForm(previous => ({...previous, [field]: value}));
-    setFieldErrors(previous => ({...previous, [field]: undefined, ...(field === "password" ? {confirm: undefined} : {})}));
-  }
-  function blurField(field: AuthField) {
-    setFieldErrors(previous => ({...previous, [field]: validateAuthField(field, form, mode) || undefined}));
-  }
-  async function submit() {
-    if (busy) return;
-    onError("");
-    const errors = validateAuth(form, mode);
-    if (mode === "register" && registerStep === 0) {
-      const accountErrors = { username: errors.username, email: errors.email };
-      setFieldErrors(accountErrors);
-      if (accountErrors.username || accountErrors.email) { setFocusField(accountErrors.username ? "username" : "email"); return; }
-      setRegisterStep(1); setFocusField("password"); return;
-    }
-    setFieldErrors(errors);
-    const firstField = Object.keys(errors)[0];
-    if (firstField) { if (firstField === "username" || firstField === "email") setRegisterStep(0); setFocusField(firstField as AuthField); return; }
-    setBusy(true);
-    try {
-      const result = mode === "signin" ? await signaling.login(form.login.trim(), form.password) : await signaling.register(form.username.trim(), form.email.trim(), form.password);
-      await onAuth(result, remember);
-    } catch (err) { onError(friendlyError(err)); } finally { setBusy(false); }
-  }
-  function changeMode() { onError(""); setFieldErrors({}); setRegisterStep(0); setShowPassword(false); setForm({...form,password:"",confirm:""}); onMode(mode === "signin" ? "register" : "signin"); }
-  const passwordStep = mode === "signin" || registerStep === 1;
-  return <main className={`auth-page${mode === "register" ? " auth-register" : ""}`}>
-    <header className="auth-topbar"><a className="brand-lockup" href="#auth-form"><BrandMark /><span className="brand-wordmark"><b>Remote</b><strong>Assist</strong></span></a><span className="version-tag">WINDOWS · 0.7 ALPHA</span></header>
-    <section className="auth-layout">
-      <div className="auth-showcase">
-        <span className="eyebrow light-eyebrow">CONNECTED, WITH CONSENT</span>
-        <h1>距离很远，<br /><em>协助很近。</em></h1>
-        <p>把熟悉的桌面连接起来。每一次共享都清晰可见，每一次控制都由你确认。</p>
-        <div className="auth-illustration" aria-hidden="true"><div className="mini-screen one"><span /><span /><span /></div><div className="illustration-link"><Icon name="shield" /></div><div className="mini-screen two"><span /><span /><span /></div></div>
-        <div className="showcase-points"><span><Icon name="check" />临时连接码</span><span><Icon name="check" />主机明确授权</span><span><Icon name="check" />随时停止</span></div>
-      </div>
-      <div className="auth-panel">
-        <span className="eyebrow">{mode === "signin" ? "欢迎使用 REMOTEASSIST" : `第 ${registerStep + 1} 步，共 2 步 · 所有字段均需填写`}</span><h2>{mode === "signin" ? "登录你的工作空间" : registerStep === 0 ? "创建账号" : "设置你的密码"}</h2><p className="auth-subtitle">{mode === "signin" ? "登录后管理设备，发起一次安全的协助。" : registerStep === 0 ? "先填写用于登录的用户名和邮箱。" : "设置独立密码，保护你的工作空间。"}</p>
-        <form ref={formRef} id="auth-form" noValidate onSubmit={(ev) => { ev.preventDefault(); void submit(); }} aria-busy={busy}>
-          {mode === "signin" ? <FloatingField label="用户名或邮箱" help="使用注册时的用户名或邮箱登录。" name="login" required autoComplete="username" autoCapitalize="none" spellCheck={false} value={form.login} onChange={ev => changeField("login", ev.target.value)} onBlur={() => blurField("login")} error={fieldErrors.login} disabled={busy} /> : registerStep === 0 && <>
-            <FloatingField label="用户名" help="3–40 位英文字母、数字、下划线、点或短横线。" name="username" required minLength={3} maxLength={40} autoComplete="username" autoCapitalize="none" spellCheck={false} value={form.username} onChange={ev => changeField("username", ev.target.value)} onBlur={() => blurField("username")} error={fieldErrors.username} disabled={busy} />
-            <FloatingField label="邮箱" help="例如 you@example.com，也可用于登录。" name="email" required type="email" autoComplete="email" autoCapitalize="none" spellCheck={false} value={form.email} onChange={ev => changeField("email", ev.target.value)} onBlur={() => blurField("email")} error={fieldErrors.email} disabled={busy} />
-          </>}
-          {passwordStep && <>
-          <FloatingField label="密码" help={mode === "register" ? "至少 8 个字符，建议使用较长的密码短语。" : "输入此账号的密码，可用右侧按钮查看。"} name="password" required minLength={mode === "register" ? 8 : undefined} type={showPassword ? "text" : "password"} autoComplete={mode === "signin" ? "current-password" : "new-password"} value={form.password} onChange={ev => changeField("password", ev.target.value)} onBlur={() => blurField("password")} error={fieldErrors.password} disabled={busy} trailing={<PasswordVisibility visible={showPassword} onToggle={() => setShowPassword(!showPassword)} disabled={busy}/>}>
-            {mode === "register" && <PasswordStrength value={form.password}/>}
-          </FloatingField>
-          {mode === "register" && <FloatingField label="确认密码" help="再次输入相同密码，避免输入错误。" name="confirm" required type={showPassword ? "text" : "password"} autoComplete="new-password" value={form.confirm} onChange={ev => changeField("confirm", ev.target.value)} onBlur={() => blurField("confirm")} error={fieldErrors.confirm} disabled={busy} />}
-          <label className="check-row"><input type="checkbox" checked={remember} onChange={(ev) => setRemember(ev.target.checked)} disabled={busy} />在这台电脑上记住登录</label>
-          {mode === "register" && <div><label className="check-row"><input name="consent" required type="checkbox" checked={form.consent} onChange={ev => changeField("consent", ev.target.checked)} onBlur={() => blurField("consent")} aria-invalid={fieldErrors.consent ? true : undefined} aria-describedby={fieldErrors.consent ? "auth-consent-error" : undefined} disabled={busy} />我只在设备所有者明确授权后使用远程协助。</label>{fieldErrors.consent && <p id="auth-consent-error" className="field-error" role="alert">{fieldErrors.consent}</p>}</div>}
-          </>}
-          {error && <StatusMessage error>{error}</StatusMessage>}
-          <button className="primary-action wide-action" type="submit" disabled={busy} onPointerDown={ev=>{if(ev.button===0)ev.preventDefault();}}>{busy ? "正在连接…" : mode === "signin" ? "登录" : registerStep === 0 ? "下一步：设置密码" : "创建账号"}<Icon name="arrow" /></button>
-          <p className="auth-switch">{mode === "register" && registerStep === 1 && <button type="button" className="link-button" disabled={busy} onClick={() => { setRegisterStep(0); setFieldErrors({}); setFocusField("username"); }}>上一步</button>}{mode === "signin" ? "还没有账号？" : "已经有账号？"}<button type="button" className="link-button" disabled={busy} onClick={changeMode}>{mode === "signin" ? "创建账号" : "返回登录"}</button></p>
-        </form>
-        <div className="auth-footnote"><Icon name="shield" /><span>登录不会自动开启共享或授予控制权限。</span></div>
-      </div>
-    </section>
-    <footer className="auth-footer">让连接更简单，让控制权始终属于你。</footer>
-  </main>;
-}
+import { FloatingField } from "./forms";
 
 export function Dashboard({ user, device, devices, onShare, onControl, recentSessions, onHistory }: { user: User; device: Device | null; devices: Device[]; onShare: () => void; onControl: () => void; recentSessions:SessionSummary[];onHistory:()=>void }) {
   const recent = useMemo(() => devices.slice(0,4),[devices]);
@@ -121,17 +39,17 @@ export function MyDevices({ auth, currentDevice, devices, onDevices, onRemoteAss
   </section>;
 }
 
-export function SettingsPage({ user, device, version, preferences, auth, signaling }: { user: User; device: Device | null; version: string; preferences: ReturnType<typeof usePreferences>;auth:AuthResult;signaling:SignalingClient }) {
+export function SettingsPage({ user, device, version, preferences, auth, signaling, onLogin }: { onLogin: () => void; user: User | null; device: Device | null; version: string; preferences: ReturnType<typeof usePreferences>;auth:AuthResult | null;signaling:SignalingClient }) {
   const [adminState,setAdminState]=useState<{status:string;identityStorage:string;requiresHostConsent:boolean}|null>(null);
   const [adminError,setAdminError]=useState("");
-  useEffect(()=>{let cancelled=false;setAdminState(null);setAdminError("");if(user.role==="admin")void signaling.adminStatus(auth.accessToken).then(value=>{if(!cancelled)setAdminState(value);}).catch(err=>{if(!cancelled)setAdminError(friendlyError(err));});return()=>{cancelled=true;};},[user.role,auth.accessToken,signaling]);
+  useEffect(()=>{let cancelled=false;setAdminState(null);setAdminError("");if(user?.role==="admin" && auth)void signaling.adminStatus(auth.accessToken).then(value=>{if(!cancelled)setAdminState(value);}).catch(err=>{if(!cancelled)setAdminError(friendlyError(err));});return()=>{cancelled=true;};},[user?.role,auth?.accessToken,signaling]);
   return <section className="settings-grid">
     <article className="table-card settings-card"><span className="eyebrow">PERSONALIZE</span><h2>外观与阅读</h2>
       <fieldset className="theme-options"><legend>界面主题</legend><p className="field-hint" id="theme-help">跟随系统，或选择你喜欢的外观。</p><div>{([{value:"system",label:"跟随系统"},{value:"light",label:"浅色"},{value:"dark",label:"深色"}] as const).map(option => <label key={option.value} className={preferences.theme === option.value ? "selected" : ""}><input type="radio" name="theme" value={option.value} checked={preferences.theme === option.value} onChange={() => preferences.setTheme(option.value)} aria-describedby="theme-help"/><span>{option.label}</span></label>)}</div></fieldset>
       <label className="check-row setting-row"><span><strong>更大的文字</strong><small>增大文字与控件，适合高分辨率屏幕。</small></span><input type="checkbox" checked={preferences.largeText} onChange={ev => preferences.setLargeText(ev.target.checked)} /></label>
     </article>
-    <article className="table-card settings-card"><span className="eyebrow">ACCOUNT</span><h2>账号与设备</h2><div className="setting-row"><span>用户名</span><strong>{user.username}</strong></div><div className="setting-row"><span>账号角色</span><strong>{user.role==="admin"?"管理员":"普通用户"}</strong></div><div className="setting-row"><span>邮箱</span><strong>{user.email}</strong></div><div className="setting-row"><span>当前设备</span><strong>{device?.deviceName??"等待设备登记"}</strong></div><div className="setting-row"><span>版本</span><strong>{version}</strong></div></article>
-    {user.role==="admin"&&<article className="table-card settings-card"><span className="eyebrow">ADMINISTRATOR</span><h2>管理员服务检查</h2>{adminError&&<StatusMessage error>{adminError}</StatusMessage>}<div className="setting-row"><span>服务端角色校验</span><strong>{adminState?"已通过":adminError?"检查失败":"正在检查…"}</strong></div><div className="setting-row"><span>账号存储</span><strong>{adminState?.identityStorage==="memory"?"本机预览（内存）":adminState?.identityStorage==="postgresql"?"PostgreSQL":"待检查"}</strong></div><p className="field-hint">管理员身份不授予远程控制权。协助仍需主机逐次确认。</p></article>}
+    {user ? <article className="table-card settings-card"><span className="eyebrow">ACCOUNT</span><h2>账号与设备</h2><div className="setting-row"><span>用户名</span><strong>{user.username}</strong></div><div className="setting-row"><span>账号角色</span><strong>{user.role==="admin"?"管理员":"普通用户"}</strong></div><div className="setting-row"><span>邮箱</span><strong>{user.email}</strong></div><div className="setting-row"><span>当前设备</span><strong>{device?.deviceName??"等待设备登记"}</strong></div><div className="setting-row"><span>版本</span><strong>{version}</strong></div></article> : <article className="table-card settings-card"><span className="eyebrow">YOUR ACCOUNT</span><h2>先逛逛，随时登录</h2><p className="field-hint">外观设置立即生效。登录后可以管理设备、发起协助。</p><button className="primary-action" onClick={onLogin}>登录账号<Icon name="arrow"/></button></article>}
+    {user?.role==="admin"&&<article className="table-card settings-card"><span className="eyebrow">ADMINISTRATOR</span><h2>管理员服务检查</h2>{adminError&&<StatusMessage error>{adminError}</StatusMessage>}<div className="setting-row"><span>服务端角色校验</span><strong>{adminState?"已通过":adminError?"检查失败":"正在检查…"}</strong></div><div className="setting-row"><span>账号存储</span><strong>{adminState?.identityStorage==="memory"?"本机预览（内存）":adminState?.identityStorage==="postgresql"?"PostgreSQL":"待检查"}</strong></div><p className="field-hint">管理员身份不授予远程控制权。协助仍需主机逐次确认。</p></article>}
     <article className="settings-safety"><Icon name="shield" /><div><strong>登录不等于授权</strong><p>每次共享都需要主机选择屏幕并确认控制。关闭共享或断开连接后，远程输入立即停止。</p></div></article>
   </section>;
 }

@@ -39,3 +39,14 @@ test("derives sender packet-queue time separately from encode time",()=>{
   const result=sampler.sample(make(3000,40000,30,.11,300,1.4),"send");
   assert.equal(result.encodeMs,4);assert.equal(result.sendQueueMs,5);
 });
+
+test("sender queue delay stays unavailable for idle, missing, and reset packet counters",()=>{
+  const make=(timestamp:number,packets:number,delay?:number)=>new Map([["send",{id:"send",type:"outbound-rtp",kind:"video",timestamp,bytesSent:timestamp,packetsSent:packets,totalPacketSendDelay:delay}]]) as unknown as RTCStatsReport;
+  const sampler=new VideoStatsSampler();
+  assert.equal(sampler.sample(make(1000,100,10),"send").sendQueueMs,undefined);
+  assert.equal(sampler.sample(make(2000,100,10),"send").sendQueueMs,undefined);
+  assert.equal(sampler.sample(make(3000,110),"send").sendQueueMs,undefined);
+  assert.equal(sampler.sample(make(4000,120,11),"send").sendQueueMs,undefined);
+  assert.equal(sampler.sample(make(5000,10,1),"send").sendQueueMs,undefined);
+  assert.equal(sampler.sample(make(6000,20,1.1),"send").sendQueueMs,10);
+});

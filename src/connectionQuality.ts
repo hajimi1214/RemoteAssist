@@ -4,6 +4,8 @@ export type VideoPreference = "auto" | "text" | "motion";
 export interface ConnectionSample {
   rttMs?: number;
   availableOutgoingBitrate?: number;
+  // Mean RTP packetizer-to-socket delay from consecutive sender samples.
+  sendQueueMs?: number;
   qualityLimitationReason?: "none" | "cpu" | "bandwidth" | "other";
 }
 
@@ -36,23 +38,26 @@ export class AdaptiveVideoPolicy {
   observe(sample: ConnectionSample): VideoQuality {
     const bandwidth = finiteNonnegative(sample.availableOutgoingBitrate);
     const rtt = typeof sample.rttMs === "number" && Number.isFinite(sample.rttMs) && sample.rttMs >= 0 ? sample.rttMs : undefined;
+    const sendQueue = finiteNonnegative(sample.sendQueueMs);
     const constrained = sample.qualityLimitationReason === "cpu" || sample.qualityLimitationReason === "bandwidth";
-    if (bandwidth == null && rtt == null && !constrained) {
+    if (bandwidth == null && rtt == null && sendQueue == null && !constrained) {
       this.candidate = undefined;
       this.samples = 0;
       return this.current;
     }
 
     let desired = this.current;
-    if ((bandwidth != null && bandwidth < 900_000) || (rtt != null && rtt > 500)) {
+    if ((bandwidth != null && bandwidth < 900_000) || (rtt != null && rtt > 500) || (sendQueue != null && sendQueue > 120)) {
       desired = "Economy";
-    } else if (constrained || (bandwidth != null && bandwidth < 1_800_000) || (rtt != null && rtt > 300)) {
+    } else if (constrained || (bandwidth != null && bandwidth < 1_800_000) || (rtt != null && rtt > 300) || (sendQueue != null && sendQueue > 50)) {
       desired = "Constrained";
-    } else if (bandwidth != null && bandwidth >= 6_000_000 && rtt != null && rtt >= 0 && rtt < 120) {
+    } else if ((sendQueue == null || sendQueue < 25) && bandwidth != null && bandwidth >= 6_000_000 && rtt != null && rtt >= 0 && rtt < 120) {
       desired = "Sharp";
-    } else if (bandwidth != null && bandwidth >= 2_500_000 && rtt != null && rtt < 220) {
+    } else if ((sendQueue == null || sendQueue < 25) && bandwidth != null && bandwidth >= 2_500_000 && rtt != null && rtt < 220) {
       desired = "Balanced";
     }
+    // A pressure tier is a ceiling, never a reason to upgrade from Economy.
+    if (qualityRank[desired] > qualityRank[this.current] && (constrained || (sendQueue != null && sendQueue >= 25))) desired=this.current;
     if (desired === this.current) {
       this.candidate = undefined;
       this.samples = 0;
@@ -95,12 +100,15 @@ export function connectionSample(stats: RTCStatsReport): ConnectionSample {
   const sample: ConnectionSample = {};
   if (typeof pair?.currentRoundTripTime === "number") sample.rttMs = pair.currentRoundTripTime * 1000;
   if (typeof pair?.availableOutgoingBitrate === "number") sample.availableOutgoingBitrate = pair.availableOutgoingBitrate;
+  const limitationRank: Record<NonNullable<ConnectionSample["qualityLimitationReason"]>, number> = {none:0,other:1,cpu:2,bandwidth:3};
   stats.forEach((report) => {
     if (report.type !== "outbound-rtp" || (report.kind ?? report.mediaType) !== "video") return;
     const reason = report.qualityLimitationReason;
     if (["none", "cpu", "bandwidth", "other"].includes(reason)) {
-      // CPU pressure wins when multiple outbound streams report different limits.
-      if (sample.qualityLimitationReason !== "cpu") sample.qualityLimitationReason = reason;
+      // Preserve reported pressure across streams; W3C prioritizes bandwidth,
+      // then CPU, then other when more than one limiting factor is present.
+      const nextReason=reason as NonNullable<ConnectionSample["qualityLimitationReason"]>;
+      if (limitationRank[nextReason] >= limitationRank[sample.qualityLimitationReason??"none"]) sample.qualityLimitationReason = nextReason;
     }
   });
   return sample;

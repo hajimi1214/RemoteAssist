@@ -374,6 +374,10 @@ func (s *Server) iceConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createShareSession(w http.ResponseWriter, r *http.Request) {
+	if _, err := s.identity.Me(r.Context(), bearerToken(r)); err != nil {
+		writeIdentityError(w, err)
+		return
+	}
 	if !decodeEmptyOrObject(w, r) {
 		return
 	}
@@ -392,6 +396,10 @@ func (s *Server) createShareSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) joinControlSession(w http.ResponseWriter, r *http.Request) {
+	if _, err := s.identity.Me(r.Context(), bearerToken(r)); err != nil {
+		writeIdentityError(w, err)
+		return
+	}
 	var req struct {
 		Code string `json:"code"`
 	}

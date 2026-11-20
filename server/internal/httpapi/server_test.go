@@ -20,9 +20,12 @@ import (
 
 func TestSessionHTTPFlow(t *testing.T) {
 	app := testServer()
+	auth := registerTestUser(t, app)
 
 	createResp := httptest.NewRecorder()
-	app.ServeHTTP(createResp, httptest.NewRequest(http.MethodPost, "/api/v1/share-sessions", bytes.NewBufferString("{}")))
+	createReq := jsonReq(http.MethodPost, "/api/v1/share-sessions", map[string]string{})
+	createReq.Header.Set("Authorization", "Bearer "+auth.AccessToken)
+	app.ServeHTTP(createResp, createReq)
 	if createResp.Code != http.StatusCreated {
 		t.Fatalf("create status = %d body=%s", createResp.Code, createResp.Body.String())
 	}
@@ -40,7 +43,9 @@ func TestSessionHTTPFlow(t *testing.T) {
 	}
 
 	joinResp := httptest.NewRecorder()
-	app.ServeHTTP(joinResp, jsonReq(http.MethodPost, "/api/v1/control-sessions/join", map[string]string{"code": created.Code}))
+	joinReq := jsonReq(http.MethodPost, "/api/v1/control-sessions/join", map[string]string{"code": created.Code})
+	joinReq.Header.Set("Authorization", "Bearer "+auth.AccessToken)
+	app.ServeHTTP(joinResp, joinReq)
 	if joinResp.Code != http.StatusOK {
 		t.Fatalf("join status = %d body=%s", joinResp.Code, joinResp.Body.String())
 	}
@@ -54,9 +59,12 @@ func TestSessionHTTPFlow(t *testing.T) {
 
 func TestApproveRequiresHostToken(t *testing.T) {
 	app := testServer()
+	auth := registerTestUser(t, app)
 
 	createResp := httptest.NewRecorder()
-	app.ServeHTTP(createResp, httptest.NewRequest(http.MethodPost, "/api/v1/share-sessions", bytes.NewBufferString("{}")))
+	createReq := jsonReq(http.MethodPost, "/api/v1/share-sessions", map[string]string{})
+	createReq.Header.Set("Authorization", "Bearer "+auth.AccessToken)
+	app.ServeHTTP(createResp, createReq)
 	var created struct {
 		ID   string `json:"id"`
 		Code string `json:"code"`
@@ -64,7 +72,9 @@ func TestApproveRequiresHostToken(t *testing.T) {
 	_ = json.Unmarshal(createResp.Body.Bytes(), &created)
 
 	joinResp := httptest.NewRecorder()
-	app.ServeHTTP(joinResp, jsonReq(http.MethodPost, "/api/v1/control-sessions/join", map[string]string{"code": created.Code}))
+	joinReq := jsonReq(http.MethodPost, "/api/v1/control-sessions/join", map[string]string{"code": created.Code})
+	joinReq.Header.Set("Authorization", "Bearer "+auth.AccessToken)
+	app.ServeHTTP(joinResp, joinReq)
 
 	approveResp := httptest.NewRecorder()
 	app.ServeHTTP(approveResp, jsonReq(http.MethodPost, "/api/v1/share-sessions/"+created.ID+"/approve", map[string]string{"token": "wrong"}))

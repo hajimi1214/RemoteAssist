@@ -4,7 +4,7 @@ import { inputFromPointer, InputEventGate, keyInput, wheelInput } from "./inputE
 import { AssistRequest, AuthResult, Device, SignalingClient, SignalingHttpError, User } from "./signaling";
 import { ControllerPeer, HostPeer, SignalMessage } from "./webrtc";
 
-import { AuthShell, Dashboard, MyDevices, SessionsPage, SettingsPage } from "./pages";
+import { Dashboard, MyDevices, SessionsPage, SettingsPage } from "./pages";
 import { BrandMark, ConfirmDialog, Icon, RemoteScreen, StatusMessage, ConnectionDiagnostics, QualityPreference } from "./ui";
 import type { VideoPreference } from "./connectionQuality";
 import type { VideoTelemetry } from "./videoTelemetry";
@@ -13,15 +13,21 @@ import { useSessionJournal } from "./useSessionJournal";
 import { createSessionRecorder } from "./sessionJournal";
 import type { SessionSummary } from "./sessionJournal";
 import { ConnectionCode } from "./forms";
+import { AuthDialog } from "./AuthDialog";
+import { FeedbackDialog, GuestFeature, GuestWorkspace, nativeWindow, WindowBar } from "./workspaceChrome";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { pages, friendlyError, connectionLabel, remainingTime, transportFailure } from "./ux";
 import type { View, AssistMode } from "./ux";
 type AuthMode = "signin" | "register";
 
 const signaling = new SignalingClient();
-const appVersion = "0.7.0-alpha";
+const appVersion = "0.8.0-alpha";
 
 export function App() {
   const [auth, setAuth, authLoaded] = useStoredAuth();
+  const [loginTarget, setLoginTarget] = useState<{ view: View; mode?: AssistMode } | null>(null);
+  const [loginError, setLoginError] = useState("");
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("signin");
   const [user, setUser] = useState<User | null>(auth?.user ?? null);
   const [device, setDevice] = useState<Device | null>(null);
@@ -45,8 +51,11 @@ export function App() {
   const authRef = useRef(auth);
   authRef.current = auth;
 
+  function clearAccountData() { authRef.current = null; setUser(null); setDevice(null); setDevices([]); setAssistRequests([]); setServiceStatus("Disconnected"); setView("Dashboard"); }
   function updateActivity(active: boolean) { activeRef.current=active; setSessionActive(active); }
   function guard(action: () => void) { if (activeRef.current) setPendingNavigation(() => action); else action(); }
+  function requestLogin(next: View = view, mode?: AssistMode) { if (!authLoaded) { setNotice("正在恢复登录，请稍候再试。"); return; } setLoginError(""); setAuthMode("signin"); setLoginTarget({ view: next, mode }); }
+  function useAssist(mode: AssistMode) { if (!authRef.current) requestLogin("Remote Assist", mode); else navigate("Remote Assist", mode); }
   function navigate(next: View, mode?: AssistMode) {
     if (next === viewRef.current && (!mode || mode === modeRef.current)) return;
     guard(() => { setView(next); if (mode) setAssistMode(mode); });
@@ -65,8 +74,8 @@ export function App() {
       } catch (err) {
         if (cancelled || authRef.current !== expected) return;
         if (err instanceof SignalingHttpError && err.status === 401) {
+          clearAccountData(); setNotice("登录已过期，请重新登录后继续使用。");
           await setAuth(null);
-          setUser(null);
         } else {
           setServiceStatus("Disconnected");
           timer = window.setTimeout(() => { void refresh(); }, 15_000);
@@ -99,8 +108,8 @@ export function App() {
           } catch (refreshError) {
             if (refreshError instanceof SignalingHttpError && refreshError.status === 401) {
               if (cancelled || authRef.current !== auth) return;
+              clearAccountData(); setNotice("登录已过期，请重新登录后继续使用。");
               await setAuth(null);
-              setUser(null);
               return;
             }
             throw refreshError;
@@ -142,9 +151,12 @@ export function App() {
   }, [auth, device?.id]);
 
   async function handleAuth(result: AuthResult, remember: boolean) {
+    const destination = loginTarget;
+    setDevice(null); setDevices([]); setAssistRequests([]); setServiceStatus("Connecting");
+    setLoginTarget(null); setLoginError(""); setUser(result.user); setError("");
+    setNotice("登录成功，可以开始使用。共享和控制仍需单独确认。");
+    if (destination) { setView(destination.view); if (destination.mode) setAssistMode(destination.mode); }
     await setAuth(result, remember);
-    setUser(result.user);
-    setError("");
   }
 
   async function signOut() {
@@ -155,7 +167,7 @@ export function App() {
     setDevice(null);
     setDevices([]);
     setView("Dashboard");
-    setAssistRequests([]); setNotice(""); setError("");
+    setAssistRequests([]); setNotice("已退出登录，可以继续浏览。"); setError(""); setServiceStatus("Disconnected");
     if (current) await signaling.logout(current.refreshToken).catch(() => undefined);
   }
 
@@ -172,21 +184,12 @@ export function App() {
     } catch(err) { if(authRef.current?.user.id===auth.user.id)setError(friendlyError(err)); } finally { setRequestBusy(false); }
   }
 
-  if (!authLoaded) return <main className="loading-page" role="status"><BrandMark /><p>正在恢复安全登录…</p></main>;
-  if (!auth || !user) {
-    return (
-      <AuthShell
-        mode={authMode}
-        error={error}
-        onError={setError}
-        onMode={setAuthMode}
-        onAuth={handleAuth}
-        signaling={signaling}
-      />
-    );
-  }
+  const signedIn = !!auth && !!user;
+  const publicView = signedIn ? user : null;
+  const closeWindow = () => guard(() => { void getCurrentWindow().close().catch(() => setError("关闭窗口失败，请重试。")); });
 
   return (
+    <div className={`app-frame${nativeWindow ? " native-frame" : ""}`}><WindowBar onClose={closeWindow} onError={setError}/>
     <main className="desktop-shell">
       <a className="skip-link" href="#workspace">跳到主要内容</a>
       <header className="app-nav">
@@ -200,20 +203,18 @@ export function App() {
           ))}
         </nav>
         <div className="nav-actions">
-          <span className={`service-pill ${serviceStatus === "Connected" ? "is-online" : ""}`} role="status"><i />{serviceStatus==="Connected"?"服务在线":serviceStatus==="Connecting"?"正在连接":"服务离线"}</span>
-          <span className="user-chip">{user.username.slice(0, 1).toUpperCase()}</span>
-          <button className="link-button" onClick={() => guard(()=>{void signOut();})}>退出登录</button>
+          {signedIn ? <><span className={`service-pill ${serviceStatus === "Connected" ? "is-online" : ""}`} role="status"><i />{serviceStatus==="Connected"?"服务在线":serviceStatus==="Connecting"?"正在连接":"服务离线"}</span><span className="user-chip">{user!.username.slice(0, 1).toUpperCase()}</span><button className="link-button" onClick={() => guard(()=>{void signOut();})}>退出登录</button></> : <><span className="guest-badge">{authLoaded ? "自由浏览" : "恢复登录中…"}</span><button className="primary-action nav-login" disabled={!authLoaded} onClick={() => requestLogin()}>登录<Icon name="arrow"/></button></>}
         </div>
       </header>
       <section className="workspace" id="workspace">
         <div className="page-heading">
           <div><span className="eyebrow">REMOTE ASSISTANCE WORKSPACE</span><h1 ref={headingRef} tabIndex={-1}>{pages[view].title}</h1><p>{pages[view].description}</p></div>
-          {device && <span className="device-badge"><i />{device.deviceName}</span>}
+          {signedIn && device && <span className="device-badge"><i />{device.deviceName}</span>}
         </div>
-        {serviceStatus === "Disconnected" && <div className="connection-banner" role="status"><span>暂时无法连接服务器。已建立的协助不会自动重连。</span><button className="secondary-action" onClick={()=>setRetry((v)=>v+1)}>重新连接服务</button></div>}
+        {signedIn && serviceStatus === "Disconnected" && <div className="connection-banner" role="status"><span>暂时无法连接服务器。已建立的协助不会自动重连。</span><button className="secondary-action" onClick={()=>setRetry((v)=>v+1)}>重新连接服务</button></div>}
         {error && <StatusMessage error>{error}</StatusMessage>}
         {notice && <div className="notice-banner" role="status"><span>{notice}</span><button className="link-button" onClick={()=>setNotice("")}>关闭提示</button></div>}
-        {assistRequests.length > 0 && (
+        {signedIn && assistRequests.length > 0 && (
           <div className="assist-banner">
             <strong>{assistRequests[0].controllerDeviceName}</strong>
             <span>请求协助。接受后仍需你选择屏幕并批准控制。</span>
@@ -221,28 +222,32 @@ export function App() {
             <button className="danger-quiet" disabled={requestBusy} onClick={() => void resolveRequest("REJECTED")}>拒绝</button>
           </div>
         )}
-        {view === "Dashboard" && (
+        {view === "Dashboard" && signedIn && (
           <Dashboard
-            user={user}
+            user={user!}
             device={device}
             devices={devices}
             recentSessions={journal.records}
             onHistory={()=>navigate("Sessions")}
-            onShare={() => navigate("Remote Assist","share")}
-            onControl={() => navigate("Remote Assist","control")}
+            onShare={() => useAssist("share")}
+            onControl={() => useAssist("control")}
           />
         )}
-        {view === "My Devices" && auth && device && (
+        {!signedIn && view === "Dashboard" && <GuestWorkspace onUse={useAssist}/>}
+        {!signedIn && view !== "Dashboard" && view !== "Settings" && <GuestFeature view={view} onLogin={() => requestLogin()} onUse={useAssist}/>}
+        {view === "My Devices" && signedIn && auth && device && (
           <MyDevices auth={auth} currentDevice={device} devices={devices} onDevices={setDevices} signaling={signaling} onRemoteAssist={(message) => { setNotice(message??""); navigate("Remote Assist","control"); }} />
         )}
-        {view === "My Devices" && !device && <div className="panel empty-state"><Icon name="devices" /><h2>正在登记这台设备</h2><p>服务连接成功后会显示设备列表。</p></div>}
-        {view === "Remote Assist" && <RemoteAssist auth={auth} mode={assistMode} onMode={(mode)=>navigate("Remote Assist",mode)} onActivity={updateActivity} onRecord={summary=>journal.add(auth.user.id,summary)} />}
-        {view === "Sessions" && <SessionsPage records={journal.records} persist={journal.persist} storageError={journal.storageError} onPersistence={journal.setPersistence} onClear={journal.clear} onRetryStorage={journal.retryStorage} onStart={()=>navigate("Remote Assist","share")} />}
-        {view === "Settings" && <SettingsPage user={user} device={device} version={appVersion} preferences={preferences} auth={auth} signaling={signaling} />}
+        {view === "My Devices" && signedIn && !device && <div className="panel empty-state"><Icon name="devices" /><h2>正在登记这台设备</h2><p>服务连接成功后会显示设备列表。</p></div>}
+        {view === "Remote Assist" && auth && signedIn && <RemoteAssist auth={auth} mode={assistMode} onMode={(mode)=>navigate("Remote Assist",mode)} onActivity={updateActivity} onRecord={summary=>journal.add(auth.user.id,summary)} />}
+        {view === "Sessions" && signedIn && <SessionsPage records={journal.records} persist={journal.persist} storageError={journal.storageError} onPersistence={journal.setPersistence} onClear={journal.clear} onRetryStorage={journal.retryStorage} onStart={()=>navigate("Remote Assist","share")} />}
+        {view === "Settings" && <SettingsPage onLogin={() => requestLogin()} user={publicView} device={device} version={appVersion} preferences={preferences} auth={auth} signaling={signaling} />}
       </section>
-      <footer className="workspace-footer"><span>RemoteAssist {appVersion}</span><span>{sessionActive?"协助进行中 · 离开页面将结束连接":"清晰可见 · 每次授权 · 随时结束"}</span></footer>
+      <footer className="workspace-footer"><span>RemoteAssist {appVersion}</span><button className="feedback-trigger" onClick={() => setFeedbackOpen(true)}>使用反馈<Icon name="arrow"/></button><span>{sessionActive?"协助进行中 · 离开页面将结束连接":"清晰可见 · 每次授权 · 随时结束"}</span></footer>
+      {loginTarget && <AuthDialog mode={authMode} error={loginError} onError={setLoginError} onMode={setAuthMode} onAuth={handleAuth} signaling={signaling} onClose={() => { setLoginTarget(null); setLoginError(""); }} purpose={loginTarget.view === "Remote Assist" ? "登录后进入远程协助，准备好再开始连接。" : "登录后管理设备和协助记录，也可以先关闭继续看看。"}/>}
+      {feedbackOpen && <FeedbackDialog version={appVersion} page={pages[view].title} connection={signedIn ? serviceStatus : "未登录"} onClose={() => setFeedbackOpen(false)}/>}
       {pendingNavigation && <ConfirmDialog title="结束当前协助并离开？" description="离开此页面会停止屏幕共享、断开连接并释放远程输入。下次连接需要重新授权。" confirmLabel="结束并离开" onCancel={()=>setPendingNavigation(null)} onConfirm={()=>{const action=pendingNavigation;setPendingNavigation(null);action();}} />}
-    </main>
+    </main></div>
   );
 }
 
@@ -307,7 +312,7 @@ function ShareComputer({ auth, onActivity, onRecord }: { auth: AuthResult; onAct
       if (!capture || capture.readyState !== "live" || capture.getSettings().displaySurface !== "monitor") {
         throw new Error("Choose your primary full display. Window and tab control are not supported yet.");
       }
-      const created = await signaling.createShareSession();
+      const created = await signaling.createShareSession(latestAuth.current.accessToken);
       if (!sharingRef.current || generationRef.current !== generation) { await signaling.disconnect(created.id, created.hostToken).catch(() => undefined); return; }
       sessionRef.current = created;
       recorder.current=createSessionRecorder("share",onRecord);
@@ -463,7 +468,7 @@ function ControlComputer({ auth, onActivity, onRecord }: { auth: AuthResult; onA
     const generation = ++generationRef.current;
     recorder.current=createSessionRecorder("control",onRecord);
     try {
-      const joined = await signaling.join(code);
+      const joined = await signaling.join(code, latestAuth.current.accessToken);
       if (!connectingRef.current || generationRef.current !== generation) { await signaling.disconnect(joined.id, joined.controllerToken).catch(() => undefined); return; }
       sessionRef.current = joined;
       setSession({ id: joined.id, controllerToken: joined.controllerToken });
@@ -580,31 +585,45 @@ function useStoredAuth(): [StoredAuth | null, (auth: StoredAuth | null, remember
   const [auth, setAuthState] = useState<StoredAuth | null>(null);
   const [loaded, setLoaded] = useState(false);
   const rememberRef = useRef(true);
+  const generation = useRef(0);
+  const storageQueue = useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
+    let cancelled = false;
+    const started = generation.current;
     void invoke<string | null>("read_stored_auth")
-      .then(async (raw) => {
+      .then(async raw => {
+        if (cancelled || generation.current !== started) return;
         const legacy = localStorage.getItem("remoteassist.auth");
         localStorage.removeItem("remoteassist.auth");
         const saved = raw ?? legacy;
         if (!saved) return;
         const parsed = JSON.parse(saved) as StoredAuth & { remember?: boolean };
         if (parsed.remember === false) return;
+        if (!parsed.user?.id || typeof parsed.accessToken !== "string" || typeof parsed.refreshToken !== "string") return;
         const { remember: _remember, ...secureAuth } = parsed;
         setAuthState(secureAuth);
-        if (!raw) await invoke("write_stored_auth", { authState: JSON.stringify(secureAuth) });
+        if (!raw) {
+          storageQueue.current = storageQueue.current.then(async () => {
+            if (!cancelled && generation.current === started) await invoke("write_stored_auth", { authState: JSON.stringify(secureAuth) });
+          }).catch(() => undefined);
+          await storageQueue.current;
+        }
       })
       .catch(() => undefined)
-      .finally(() => setLoaded(true));
+      .finally(() => { if (!cancelled) setLoaded(true); });
+    return () => { cancelled = true; };
   }, []);
   async function setAuth(next: StoredAuth | null, remember?: boolean) {
+    generation.current++;
     if (remember != null) rememberRef.current = remember;
+    const persist = !!next && rememberRef.current;
     setAuthState(next);
-    try {
-      if (next && rememberRef.current) await invoke("write_stored_auth", { authState: JSON.stringify(next) });
+    // Serialize credential writes so a slow save can never complete after logout deletion.
+    storageQueue.current = storageQueue.current.then(async () => {
+      if (persist) await invoke("write_stored_auth", { authState: JSON.stringify(next) });
       else await invoke("delete_stored_auth");
-    } catch {
-      // Authentication remains in memory when the platform credential store is unavailable.
-    }
+    }).catch(() => undefined);
+    await storageQueue.current;
   }
   return [auth, setAuth, loaded];
 }

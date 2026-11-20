@@ -1,5 +1,7 @@
 # RemoteAssist
 
+Version 0.8 opens directly into a guest workspace and asks for login in a dismissible dialog when a protected feature is used. It adds custom window controls, responsive page layouts, local copyable feedback, bounded pointer retries and adaptation to sender queue pressure. Session creation/join now require an authenticated account on the server too; upgrade service and clients together. See [0.8 behavior and validation](docs/guest-workspace-0.8.md).
+
 Version 0.7 refines the VelaMost-inspired light workspace, adds real local session summaries with opt-in retention, and presents bounded diagnostic trends with readable status hints. It also fixes zero-bandwidth adaptation and delayed pointer motion after releasing input. See [0.7 details](docs/workspace-refinement-0.7.md) and [validation](docs/validation-0.7.md).
 
 Version 0.6 adds measured video diagnostics, host quality preferences, gradual quality changes, correlated heartbeat timeouts, negotiation deadlines, and latest-position mouse delivery. Read [communication and quality decisions](docs/communication-quality-0.6.md). The responsive workspace, themes and viewer controls are documented in [0.5 research](docs/research-and-decisions-0.5.md).
@@ -32,7 +34,7 @@ For a browser-only UI preview, use `Browser` **instead of** `Desktop` in termina
 
 Both frontend modes use port 1420, so run only one at a time. Browser preview supports UI checks; Windows capture and remote input require the desktop client. To connect a frontend to an already deployed server, pass `-SignalingUrl https://your-signaling-domain.example`; this option applies only to `Desktop` and `Browser`. It does not configure a production server.
 
-First launch opens the login page. After registration or login, the client binds the current device and starts heartbeats.
+First launch opens the guest workspace. Protected actions show a closable login dialog. After registration or login, the client binds the current device and starts heartbeats; sharing still requires a separate explicit action.
 
 ### Local preview administrator
 
