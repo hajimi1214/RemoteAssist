@@ -1,6 +1,6 @@
 [package]
 name = "remoteassist"
-version = "0.8.0-alpha"
+version = "0.9.0-alpha"
 description = "Visible Windows remote assistance client"
 edition = "2021"
 

@@ -1,3 +1,4 @@
+import { configuredServer, androidClient } from "./platform";
 export type SessionState =
   | "CREATED"
   | "WAITING_FOR_CONTROLLER"
@@ -78,7 +79,7 @@ export interface AssistRequest {
   createdAt: string;
 }
 
-const defaultBaseURL = import.meta.env.VITE_SIGNALING_URL ?? (import.meta.env.DEV ? "http://localhost:8080" : "");
+const defaultBaseURL = configuredServer() || import.meta.env.VITE_SIGNALING_URL || (import.meta.env.DEV && !androidClient ? "http://localhost:8080" : "");
 
 export class SignalingClient {
   private refreshFlight?: { token: string; result: Promise<AuthResult> };

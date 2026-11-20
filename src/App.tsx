@@ -1,3 +1,6 @@
+import { androidClient, configuredServer, controllerOnly, secureCredentialStorage } from "./platform";
+import { MobileGuestPage, MobileHome, ServerDialog } from "./MobileHome";
+import type { MobileAction } from "./mobileInput";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
 import { inputFromPointer, InputEventGate, keyInput, wheelInput } from "./inputEvents";
@@ -22,13 +25,14 @@ import type { View, AssistMode } from "./ux";
 type AuthMode = "signin" | "register";
 
 const signaling = new SignalingClient();
-const appVersion = "0.8.0-alpha";
+const appVersion = "0.9.0-alpha";
 const navigationIcons: Record<View, IconName> = { Dashboard:"grid", "My Devices":"devices", "Remote Assist":"monitor", Sessions:"history", Settings:"settings" };
 
 export function App() {
   const [auth, setAuth, authLoaded] = useStoredAuth();
   const [loginTarget, setLoginTarget] = useState<{ view: View; mode?: AssistMode } | null>(null);
   const [loginError, setLoginError] = useState("");
+  const [serverOpen, setServerOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("signin");
   const [user, setUser] = useState<User | null>(auth?.user ?? null);
@@ -39,7 +43,7 @@ export function App() {
   const [assistRequests, setAssistRequests] = useState<AssistRequest[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [assistMode, setAssistMode] = useState<AssistMode>("share");
+  const [assistMode, setAssistMode] = useState<AssistMode>(controllerOnly ? "control" : "share");
   const [sessionActive, setSessionActive] = useState(false);
   const activeRef = useRef(false);
   const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
@@ -56,9 +60,10 @@ export function App() {
   function clearAccountData() { authRef.current = null; setUser(null); setDevice(null); setDevices([]); setAssistRequests([]); setServiceStatus("Disconnected"); setView("Dashboard"); }
   function updateActivity(active: boolean) { activeRef.current=active; setSessionActive(active); }
   function guard(action: () => void) { if (activeRef.current) setPendingNavigation(() => action); else action(); }
-  function requestLogin(next: View = view, mode?: AssistMode) { if (!authLoaded) { setNotice("正在恢复登录，请稍候再试。"); return; } setLoginError(""); setAuthMode("signin"); setLoginTarget({ view: next, mode }); }
-  function useAssist(mode: AssistMode) { if (!authRef.current) requestLogin("Remote Assist", mode); else navigate("Remote Assist", mode); }
+  function requestLogin(next: View = view, mode?: AssistMode) { if(androidClient&&!configuredServer()&&!import.meta.env.VITE_SIGNALING_URL){setServerOpen(true);return;} if (!authLoaded) { setNotice("正在恢复登录，请稍候再试。"); return; } setLoginError(""); setAuthMode("signin"); setLoginTarget({ view: next, mode }); }
+  function useAssist(mode: AssistMode) { if(controllerOnly)mode="control"; if (!authRef.current) requestLogin("Remote Assist", mode); else navigate("Remote Assist", mode); }
   function navigate(next: View, mode?: AssistMode) {
+    if(controllerOnly && next==="Remote Assist")mode="control";
     if (next === viewRef.current && (!mode || mode === modeRef.current)) return;
     guard(() => { setView(next); if (mode) setAssistMode(mode); });
   }
@@ -191,7 +196,7 @@ export function App() {
   const closeWindow = () => guard(() => { void getCurrentWindow().close().catch(() => setError("关闭窗口失败，请重试。")); });
 
   return (
-    <div className={`app-frame${nativeWindow ? " native-frame" : ""}`}><WindowBar onClose={closeWindow} onError={setError}/>
+    <div className={`app-frame${nativeWindow ? " native-frame" : ""}${androidClient?" android-frame":""}`}><WindowBar onClose={closeWindow} onError={setError}/>
     <main className="desktop-shell">
       <a className="skip-link" href="#workspace">跳到主要内容</a>
       <header className="app-nav">
@@ -224,7 +229,7 @@ export function App() {
             <button className="danger-quiet" disabled={requestBusy} onClick={() => void resolveRequest("REJECTED")}>拒绝</button>
           </div>
         )}
-        {view === "Dashboard" && signedIn && (
+        {view === "Dashboard" && signedIn && !controllerOnly && (
           <Dashboard
             user={user!}
             device={device}
@@ -235,17 +240,22 @@ export function App() {
             onControl={() => useAssist("control")}
           />
         )}
-        {!signedIn && view === "Dashboard" && <GuestWorkspace onUse={useAssist}/>}
+        {controllerOnly && view === "Dashboard" && <MobileHome signedIn={signedIn} username={user?.username} onConnect={()=>useAssist("control")} onServer={()=>guard(()=>setServerOpen(true))}/>}
+        {controllerOnly && !signedIn && view === "My Devices" && <MobileGuestPage page="My Devices" onLogin={()=>requestLogin()} onServer={()=>guard(()=>setServerOpen(true))}/>}
+        {controllerOnly && !signedIn && view === "Sessions" && <MobileGuestPage page="Sessions" onLogin={()=>requestLogin()} onServer={()=>guard(()=>setServerOpen(true))}/>}
+        {!controllerOnly && !signedIn && view === "Dashboard" && <GuestWorkspace onUse={useAssist}/>}
         {!signedIn && view !== "Dashboard" && view !== "Settings" && <GuestFeature view={view} onLogin={() => requestLogin()} onUse={useAssist}/>}
         {view === "My Devices" && signedIn && auth && device && (
           <MyDevices auth={auth} currentDevice={device} devices={devices} onDevices={setDevices} signaling={signaling} onRemoteAssist={(message) => { setNotice(message??""); navigate("Remote Assist","control"); }} />
         )}
         {view === "My Devices" && signedIn && !device && <div className="panel empty-state"><Icon name="devices" /><h2>正在登记这台设备</h2><p>服务连接成功后会显示设备列表。</p></div>}
+        {view === "Settings" && <button className="secondary-action mobile-settings-server" onClick={()=>guard(()=>setServerOpen(true))}><Icon name="settings"/>连接服务设置</button>}
         {view === "Remote Assist" && auth && signedIn && <RemoteAssist auth={auth} mode={assistMode} onMode={(mode)=>navigate("Remote Assist",mode)} onActivity={updateActivity} onRecord={summary=>journal.add(auth.user.id,summary)} />}
         {view === "Sessions" && signedIn && <SessionsPage records={journal.records} persist={journal.persist} storageError={journal.storageError} onPersistence={journal.setPersistence} onClear={journal.clear} onRetryStorage={journal.retryStorage} onStart={()=>navigate("Remote Assist","share")} />}
         {view === "Settings" && <SettingsPage onLogin={() => requestLogin()} user={publicView} device={device} version={appVersion} preferences={preferences} auth={auth} signaling={signaling} />}
       </section>
       <footer className="workspace-footer"><span>RemoteAssist {appVersion}</span><button className="feedback-trigger" onClick={() => setFeedbackOpen(true)}>使用反馈<Icon name="arrow"/></button><span>{sessionActive?"协助进行中 · 离开页面将结束连接":"清晰可见 · 每次授权 · 随时结束"}</span></footer>
+      {serverOpen && <ServerDialog onClose={()=>setServerOpen(false)} onSave={async url=>{await signOut();localStorage.setItem("remoteassist.serverURL",url);window.location.reload();}}/>}
       {loginTarget && <AuthDialog mode={authMode} error={loginError} onError={setLoginError} onMode={setAuthMode} onAuth={handleAuth} signaling={signaling} onClose={() => { setLoginTarget(null); setLoginError(""); }} purpose={loginTarget.view === "Remote Assist" ? "登录后进入远程协助，准备好再开始连接。" : "登录后管理设备和协助记录，也可以先关闭继续看看。"}/>}
       {feedbackOpen && <FeedbackDialog version={appVersion} page={pages[view].title} connection={signedIn ? serviceStatus : "未登录"} onClose={() => setFeedbackOpen(false)}/>}
       {pendingNavigation && <ConfirmDialog title="结束当前协助并离开？" description="离开此页面会停止屏幕共享、断开连接并释放远程输入。下次连接需要重新授权。" confirmLabel="结束并离开" onCancel={()=>setPendingNavigation(null)} onConfirm={()=>{const action=pendingNavigation;setPendingNavigation(null);action();}} />}
@@ -256,10 +266,10 @@ export function App() {
 function RemoteAssist({ auth, mode: tab, onMode, onActivity, onRecord }: { auth: AuthResult; mode: AssistMode; onMode: (mode: AssistMode) => void; onActivity: (active: boolean) => void; onRecord:(summary:SessionSummary)=>void }) {
   return (
     <section className="remote-assist-page">
-      <div className="segmented" role="tablist" aria-label="协助方式" onKeyDown={(ev)=>{if(["ArrowLeft","ArrowRight","Home","End"].includes(ev.key)){ev.preventDefault();const target=ev.key==="Home"?"share":ev.key==="End"?"control":ev.target===(document.getElementById("share-tab"))?"control":"share";document.getElementById(`${target}-tab`)?.focus();}}}>
+      {!controllerOnly && <div className="segmented" role="tablist" aria-label="协助方式" onKeyDown={(ev)=>{if(["ArrowLeft","ArrowRight","Home","End"].includes(ev.key)){ev.preventDefault();const target=ev.key==="Home"?"share":ev.key==="End"?"control":ev.target===(document.getElementById("share-tab"))?"control":"share";document.getElementById(`${target}-tab`)?.focus();}}}>
         <button id="share-tab" role="tab" aria-controls="share-panel" tabIndex={tab==="share"?0:-1} aria-selected={tab === "share"} className={tab === "share" ? "nav-active" : ""} onClick={() => onMode("share")}><Icon name="monitor" />共享这台电脑</button>
         <button id="control-tab" role="tab" aria-controls="control-panel" tabIndex={tab==="control"?0:-1} aria-selected={tab === "control"} className={tab === "control" ? "nav-active" : ""} onClick={() => onMode("control")}><Icon name="devices" />连接另一台电脑</button>
-      </div>
+      </div>}
       {tab === "share" ? <ShareComputer auth={auth} onActivity={onActivity} onRecord={onRecord} /> : <ControlComputer auth={auth} onActivity={onActivity} onRecord={onRecord} />}
     </section>
   );
@@ -450,6 +460,7 @@ function ControlComputer({ auth, onActivity, onRecord }: { auth: AuthResult; onA
   const [relay, setRelay] = useState<"P2P" | "TURN Relay" | "Unknown">("Unknown");
   const [latency, setLatency] = useState<number | null>(null);
   const [telemetry,setTelemetry]=useState<VideoTelemetry|null>(null);
+  const [textSupported,setTextSupported]=useState(false);
   const [session, setSession] = useState<{ id: string; controllerToken: string } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const peerRef = useRef<ControllerPeer | null>(null);
@@ -479,6 +490,7 @@ function ControlComputer({ auth, onActivity, onRecord }: { auth: AuthResult; onA
       const ws = new WebSocket(signaling.wsURL(joined.id, "controller"));
       wsRef.current = ws;
       const peer = new ControllerPeer(joined.id, joined.controllerToken, ws, [], {
+        onTextSupport:setTextSupported,
         onRemoteStream: (stream) => { if (videoRef.current) videoRef.current.srcObject = stream; },
         onConnectionStatus: (status) => { setStatus(status);if(status==="connected")recorder.current?.connected(); if (["failed","disconnected","signaling error"].includes(status)) disconnect("Connection lost"); },
         onRelayStatus: setRelay,
@@ -524,6 +536,11 @@ function ControlComputer({ auth, onActivity, onRecord }: { auth: AuthResult; onA
     if (current) peerRef.current?.sendInput({ type: "release_all", sessionToken: current.controllerToken, ts: Date.now() });
   }
 
+  function sendMobile(action: MobileAction): boolean {
+    const current=sessionRef.current;
+    if(!current || status!=="connected")return false;
+    return peerRef.current?.sendInput({...action,sessionToken:current.controllerToken,ts:Date.now()}) ?? false;
+  }
   function sendKey(type: "key_down" | "key_up", ev: React.KeyboardEvent<HTMLVideoElement>) {
     if (!sessionRef.current) return;
     ev.preventDefault();
@@ -552,7 +569,7 @@ function ControlComputer({ auth, onActivity, onRecord }: { auth: AuthResult; onA
     ws?.close();
     if (videoRef.current) videoRef.current.srcObject = null;
     setLatency(null);
-    setTelemetry(null);
+    setTelemetry(null);setTextSupported(false);
     setRelay("Unknown");
     if(reason!=="Closed")setStatus(reason);
     setSession(null);
@@ -569,12 +586,12 @@ function ControlComputer({ auth, onActivity, onRecord }: { auth: AuthResult; onA
   }, []);
 
   return (
-    <section className="panel control-panel" id="control-panel" role="tabpanel" aria-labelledby="control-tab">
+    <section className="panel control-panel" id="control-panel" role={controllerOnly?"region":"tabpanel"} aria-label={controllerOnly?"连接另一台电脑":undefined} aria-labelledby={controllerOnly?undefined:"control-tab"}>
       <div className="panel-heading"><div><span className="eyebrow">CONNECT WITH A CODE</span><h2>连接另一台电脑</h2><p>请对方先共享主屏，再输入他们提供的 8 位连接码。</p></div><span className={`presence ${status==="connected"?"online":"offline"}`} role="status"><i />{connectionLabel(status)}</span></div>
       {error&&<StatusMessage error>{error}</StatusMessage>}
       {!session && <form className="join-form" onSubmit={(ev) => { ev.preventDefault(); void connect(); }} aria-busy={busy}><ConnectionCode id="session-code" value={code} onChange={value=>{setCode(value);setCodeError("");}} onBlur={()=>setCodeError(code&&!/^\d{8}$/.test(code)?"请填写完整的 8 位数字连接码。":"")} error={codeError} disabled={busy}/><button className="primary-action" disabled={busy} onPointerDown={ev=>{if(ev.button===0)ev.preventDefault();}}>{busy ? <ButtonSpinner/> : <Icon name="arrow"/>}{busy?"正在连接…":"发起连接"}</button></form>}
       {busy&&<button className="secondary-action" onClick={()=>disconnect("Disconnected")}>取消连接</button>}
-      <RemoteScreen videoRef={videoRef} connected={!!session} status={connectionLabel(status)} onPointer={sendPointer} onKey={sendKey} onWheel={sendWheel} onRelease={releaseInputs} onDisconnect={()=>disconnect("Stopped by controller")} />
+      <RemoteScreen onMobileAction={sendMobile} textSupported={textSupported} videoRef={videoRef} connected={!!session} status={connectionLabel(status)} onPointer={sendPointer} onKey={sendKey} onWheel={sendWheel} onRelease={releaseInputs} onDisconnect={()=>disconnect("Stopped by controller")} />
       <dl className="connection-details"><div><dt>连接状态</dt><dd>{connectionLabel(status)}</dd></div><div><dt>传输路径</dt><dd>{relay==="P2P"?"设备直连":relay==="TURN Relay"?"中继连接":"等待连接"}</dd></div><div><dt>往返延迟</dt><dd>{latency == null ? "待测量" : `${latency} ms`}</dd></div></dl>
       <ConnectionDiagnostics sample={telemetry} />
     </section>
@@ -590,6 +607,7 @@ function useStoredAuth(): [StoredAuth | null, (auth: StoredAuth | null, remember
   const generation = useRef(0);
   const storageQueue = useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
+    if (!secureCredentialStorage) { setLoaded(true); return; }
     let cancelled = false;
     const started = generation.current;
     void invoke<string | null>("read_stored_auth")
@@ -618,10 +636,11 @@ function useStoredAuth(): [StoredAuth | null, (auth: StoredAuth | null, remember
   async function setAuth(next: StoredAuth | null, remember?: boolean) {
     generation.current++;
     if (remember != null) rememberRef.current = remember;
-    const persist = !!next && rememberRef.current;
+    const persist = !!next && rememberRef.current && secureCredentialStorage;
     setAuthState(next);
     // Serialize credential writes so a slow save can never complete after logout deletion.
     storageQueue.current = storageQueue.current.then(async () => {
+      if(!secureCredentialStorage)return;
       if (persist) await invoke("write_stored_auth", { authState: JSON.stringify(next) });
       else await invoke("delete_stored_auth");
     }).catch(() => undefined);
@@ -637,9 +656,9 @@ function localDeviceInfo() {
     localStorage.setItem("remoteassist.deviceFingerprint", fingerprint);
   }
   return {
-    deviceName: navigator.userAgent.includes("Windows") ? "Windows PC" : "RemoteAssist Device",
+    deviceName: androidClient ? "Android 手机 / 平板" : navigator.userAgent.includes("Windows") ? "Windows PC" : "RemoteAssist Device",
     deviceFingerprint: fingerprint,
-    osName: navigator.userAgent.includes("Windows") ? "Windows" : navigator.platform,
+    osName: androidClient ? "Android" : navigator.userAgent.includes("Windows") ? "Windows" : navigator.platform,
     appVersion
   };
 }

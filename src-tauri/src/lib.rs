@@ -67,6 +67,32 @@ mod tests {
     }
 
     #[test]
+    fn unicode_text_is_bounded_and_still_requires_live_authorization() {
+        assert_eq!(
+            text_input_units(&serde_json::json!({"text":"中文🙂"}))
+                .unwrap()
+                .len(),
+            4
+        );
+        for text in [
+            "".to_string(),
+            "a".repeat(129),
+            "bad\0text".into(),
+            "\u{1b}".into(),
+        ] {
+            assert!(text_input_units(&serde_json::json!({"text":text})).is_err());
+        }
+        let mut permission = PermissionAdapter::default();
+        let mut input = event("token", 1000);
+        input.event_type = InputType::TextInput;
+        input.payload = serde_json::json!({"text":"中文"});
+        assert!(matches!(
+            validate_adapter_permission(&input, &mut permission, 1000),
+            Err(InputError::NotAuthorized)
+        ));
+    }
+
+    #[test]
     fn wheel_delta_preserves_both_directions() {
         assert_eq!(wheel_delta(120.0) as i32, -120);
         assert_eq!(wheel_delta(-120.0) as i32, 120);
@@ -185,6 +211,7 @@ enum InputType {
     MouseWheel,
     KeyDown,
     KeyUp,
+    TextInput,
 }
 
 #[derive(Debug, Deserialize)]
@@ -530,10 +557,17 @@ fn validate_adapter_permission(
     permission
         .recent_events
         .retain(|seen| now.saturating_sub(*seen) < 1_000);
-    if permission.recent_events.len() >= MAX_EVENTS_PER_SECOND {
+    let cost = if matches!(event.event_type, InputType::TextInput) {
+        text_input_units(&event.payload)?.len().div_ceil(8)
+    } else {
+        1
+    };
+    if permission.recent_events.len() + cost > MAX_EVENTS_PER_SECOND {
         return Err(InputError::RateLimited);
     }
-    permission.recent_events.push(now);
+    permission
+        .recent_events
+        .extend(std::iter::repeat_n(now, cost));
     Ok(())
 }
 
@@ -550,6 +584,7 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
@@ -614,8 +649,55 @@ impl InputAdapter for WindowsInputAdapter {
     fn send(&self, event: &InputEvent) -> Result<(), InputError> {
         use windows::Win32::UI::Input::KeyboardAndMouse::{
             SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP,
-            MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_MOVE, MOUSEEVENTF_WHEEL, MOUSEINPUT,
+            KEYEVENTF_UNICODE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_MOVE, MOUSEEVENTF_WHEEL,
+            MOUSEINPUT, VIRTUAL_KEY,
         };
+
+        if matches!(event.event_type, InputType::TextInput) {
+            let units = text_input_units(&event.payload)?;
+            // Unicode down/up pairs are submitted together. No clipboard or shell is involved.
+            let mut inputs = Vec::with_capacity(units.len() * 2);
+            for unit in units {
+                let special = match unit {
+                    10 => Some(13),
+                    9 => Some(9),
+                    _ => None,
+                };
+                let base = if special.is_some() {
+                    Default::default()
+                } else {
+                    KEYEVENTF_UNICODE
+                };
+                for flags in [base, base | KEYEVENTF_KEYUP] {
+                    inputs.push(INPUT {
+                        r#type: INPUT_KEYBOARD,
+                        Anonymous: INPUT_0 {
+                            ki: KEYBDINPUT {
+                                wVk: VIRTUAL_KEY(special.unwrap_or(0)),
+                                wScan: if special.is_some() { 0 } else { unit },
+                                dwFlags: flags,
+                                time: 0,
+                                dwExtraInfo: 0,
+                            },
+                        },
+                    });
+                }
+            }
+            let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+            if sent as usize != inputs.len() {
+                // A partial array can end on a Unicode key-down; pair it before failing.
+                if sent % 2 == 1 && (sent as usize) < inputs.len() {
+                    unsafe {
+                        SendInput(
+                            &inputs[sent as usize..sent as usize + 1],
+                            std::mem::size_of::<INPUT>() as i32,
+                        );
+                    }
+                }
+                return Err(InputError::SendInputFailed);
+            }
+            return Ok(());
+        }
 
         let input = match event.event_type {
             InputType::MouseMove => {
@@ -694,6 +776,7 @@ impl InputAdapter for WindowsInputAdapter {
                     },
                 }
             }
+            InputType::TextInput => return Err(InputError::InvalidPayload),
         };
 
         let sent = unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
@@ -738,6 +821,23 @@ impl InputAdapter for WindowsInputAdapter {
             Err(InputError::SendInputFailed)
         }
     }
+}
+
+fn text_input_units(payload: &serde_json::Value) -> Result<Vec<u16>, InputError> {
+    let text = payload
+        .get("text")
+        .and_then(|value| value.as_str())
+        .ok_or(InputError::InvalidPayload)?;
+    let units: Vec<u16> = text.encode_utf16().collect();
+    if units.is_empty()
+        || units.len() > 128
+        || text
+            .chars()
+            .any(|c| c.is_control() && c != '\n' && c != '\t')
+    {
+        return Err(InputError::InvalidPayload);
+    }
+    Ok(units)
 }
 
 fn wheel_delta(delta: f64) -> u32 {

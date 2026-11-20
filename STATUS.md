@@ -2,10 +2,13 @@
 
 ## Current milestone
 
-M11 follow-up — 0.8.0-alpha visual polish and form/feedback interaction refinement. Reviewed 2026-11-20.
+M12 — 0.9.0-alpha Android ARM64 controller APK and responsive touch controls. Reviewed 2026-11-20.
 
 ## Completed
 
+- Added an Android controller for Windows sessions, built a development-signed universal ARM64 APK, and verified its signature. The APK is in the generated Android build folder; Android SDK, local APKs and build keys remain outside Git. Configure the real HTTPS signaling address in the phone app. The connected Windows client must be version 0.9 or later for Unicode text input.
+- Android control supports mapped tap/cursor touch, optional left-button drag, two-finger wheel, right click, wheel controls, navigation key pairs and a bounded Unicode text send. Input remains disabled until explicitly enabled locally and approved at the Windows host. Stopping, page-backgrounding, rotation and connection loss release input.
+- Added an Android-only settings area for the HTTPS service origin. Credentials are memory-only on Android; server URLs cannot include credentials, path, query or fragment. The app includes no host screen capture controls.
 - Unified guest/signed-in workspace illustrations, navigation icons, card surfaces, action affordances, empty-state styling and quieter scrollbars. The shared illustration uses HTML/CSS and existing icons; no image asset or dependency was added.
 - Login now focuses the first field, retains password focus when the eye is clicked, and restores appropriate focus when switching modes. Dialog teardown does not trigger validation. Feedback preview/edit switches focus to the relevant text area.
 - Device search announces result counts and offers a clear-search action; refresh/save/request operations have distinct progress wording. Floating-label spacing now scales with text size. Details: docs/ui-polish-0.8.md.
@@ -30,6 +33,9 @@ M11 follow-up — 0.8.0-alpha visual polish and form/feedback interaction refine
 
 ## Verification
 
+- Android milestone: 54 frontend tests and TypeScript/Vite build PASS; Windows Rust 6 tests, Go tests/vet, ARM64 Rust cross-compile PASS. The universal ARM64 debug APK passed `apksigner verify` (v2), is about 29 MB, SHA256 `5FB69FC597092DDBB50CA54771CD4701B01EF7B3D95657C448B89759066DEF68`. See docs/android-controller.md for the exact path and server pairing steps.
+- Browser local synthetic WebRTC loopback: video display, click/right-click, wheel, Unicode text, paired Enter key, explicit stop and full-screen fallback PASS. It only delivered events to an in-memory receiver and did not touch the Windows desktop.
+- ADB reports no Android device or emulator. APK installation, actual Android WebView/IME, physical orientation changes, two-machine connection, production signing and real latency are NOT VERIFIED.
 - UI follow-up: 48 frontend tests, production build and diff checks PASS. Browser guest/signed-in desktop height checks, all five pages at 320px with dark/larger text, login focus/blur, password visibility focus, search/clear/refresh and feedback focus checks PASS. Fresh browser console has no errors. Actual maximized native workspace displays the new design and all window controls.
 - scripts/test.ps1: PASS — 48 frontend tests/build, Go tests/service build, Rust check and 5 native tests. Go vet: PASS.
 - 0.8 browser checks: guest navigation, dismissible authentication, preserved login destination, local feedback generation/copy and 320px dark/larger-text checks across all five main pages PASS. Actual native maximize/minimize/restore/close controls PASS; application reopened with the development launcher.
@@ -51,8 +57,7 @@ M11 follow-up — 0.8.0-alpha visual polish and form/feedback interaction refine
 - Source-reviewed account isolation and storage-error behavior are not a complete browser fault-injection/privacy audit.
 - Active sessions remain one-process; cloud/PostgreSQL/live container validation and degraded-network benchmarks remain pending.
 - Example-domain installer must be rebuilt with the actual HTTPS signaling URL; both endpoints should use the current client version.
-- Model concurrency remains limited to 2 including the main agent.
 
 ## Next milestone
 
-M12 — real cloud/two-machine acceptance, controlled network benchmarks, calibrated native display capture, durable server audit metadata and hardware media prototype.
+M13 — install the APK on a real phone/tablet, verify IME and two-machine control, then test weak-network latency and public TURN.

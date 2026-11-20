@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { mapVideoPoint } from "./pointerMapping";
 import { PointerOrder } from "./inputSequence";
+import { validRemoteText } from "./mobileInput";
 
 export type InputEventType =
   | "mouse_move"
@@ -9,6 +10,7 @@ export type InputEventType =
   | "mouse_wheel"
   | "key_down"
   | "key_up"
+  | "text_input"
   | "release_all"
   | "ping"
   | "pong"
@@ -144,6 +146,7 @@ function validType(value: string): value is InputEventType {
     "mouse_wheel",
     "key_down",
     "key_up",
+    "text_input",
     "release_all",
     "ping",
     "pong",
@@ -153,6 +156,7 @@ function validType(value: string): value is InputEventType {
 
 function validatePayload(event: RemoteInputEvent): void {
   const payload = event.payload ?? {};
+  if (event.type === "text_input" && (typeof payload.text !== "string" || !validRemoteText(payload.text))) throw new Error("invalid_text_payload");
   if (event.type.startsWith("mouse_")) {
     if (event.type === "mouse_wheel") {
       if (!Number.isFinite(payload.deltaX) || !Number.isFinite(payload.deltaY)) {

@@ -19,6 +19,7 @@ export interface PeerCallbacks {
   onLatency?: (ms: number) => void;
   onQuality?: (quality: VideoQuality | "Browser managed") => void;
   onTelemetry?: (sample: VideoTelemetry) => void;
+  onTextSupport?: (supported: boolean) => void;
   onFailure?: (reason: string) => void;
 }
 export interface PeerOptions {
@@ -195,7 +196,7 @@ export class HostPeer extends SessionPeer {
           if(this.closed)return;
           if(msg.type==="ping"){
             this.lastHeartbeat=performance.now();
-            this.sendReliable({type:"pong",sessionToken:msg.sessionToken,ts:msg.ts,probeId:msg.probeId});
+            this.sendReliable({type:"pong",sessionToken:msg.sessionToken,ts:msg.ts,probeId:msg.probeId,textInputVersion:1});
           }
         }).catch(()=>{
           // A failed authenticated keepalive means the native authorization lease
@@ -283,6 +284,7 @@ export class ControllerPeer extends SessionPeer {
         this.inputChannel.onmessage=(message)=>{
           const parsed=parseMessage(message.data);
           if(parsed?.type!=="pong"||parsed.sessionToken!==this.sessionToken||!this.heartbeat)return;
+          this.callbacks.onTextSupport?.(parsed.textInputVersion===1);
           const rtt=this.heartbeat.acknowledge(parsed.probeId,performance.now());
           if(rtt!=null)this.callbacks.onLatency?.(rtt);
         };
@@ -304,10 +306,10 @@ export class ControllerPeer extends SessionPeer {
     }
   }
   sendInput(event:RemoteInputEvent){
-    if(this.closed||this.inputChannel?.readyState!=="open")return;
-    if(event.type==="mouse_move"){this.pointer.push(event);return;}
-    if(event.type==="mouse_down"||event.type==="mouse_up"||event.type==="release_all"||event.type==="disconnect")this.pointer.discard();
-    this.deliverInput(event);
+    if(this.closed||this.inputChannel?.readyState!=="open")return false;
+    if(event.type==="mouse_move"){this.pointer.push(event);return true;}
+    if(event.type==="mouse_down"||event.type==="mouse_up"||event.type==="release_all"||event.type==="disconnect"||event.type==="text_input")this.pointer.discard();
+    return this.deliverInput(event);
   }
   private watchPointerBuffer(channel:RTCDataChannel){
     channel.bufferedAmountLowThreshold=MAX_POINTER_BUFFER/2;

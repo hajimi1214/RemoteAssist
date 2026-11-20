@@ -1,3 +1,4 @@
+import { secureCredentialStorage } from "./platform";
 import { useEffect, useRef, useState } from "react";
 import type { AuthResult, SignalingClient } from "./signaling";
 import { BrandMark, ButtonSpinner, Icon, StatusMessage } from "./ui";
@@ -18,7 +19,7 @@ export function AuthDialog({ mode, error, onError, onMode, onAuth, signaling, on
   useEffect(() => { active.current = true; return () => { active.current = false; request.current?.abort(); }; }, []);
   function dismiss() { active.current = false; request.current?.abort(); onClose(); }
   const [showPassword, setShowPassword] = useState(false);
-  const [remember, setRemember] = useState(true);
+  const [remember, setRemember] = useState(secureCredentialStorage);
   const [registerStep, setRegisterStep] = useState<0 | 1>(0);
   const [focusField, setFocusField] = useState<AuthField | null>(null);
   const [form, setForm] = useState({ login:"", username:"", email:"", password:"", confirm:"", consent:false });
@@ -73,7 +74,7 @@ export function AuthDialog({ mode, error, onError, onMode, onAuth, signaling, on
             {mode === "register" && <PasswordStrength value={form.password}/>}
           </FloatingField>
           {mode === "register" && <FloatingField label="确认密码" help="再次输入相同密码，避免输入错误。" name="confirm" required type={showPassword ? "text" : "password"} autoComplete="new-password" value={form.confirm} onChange={ev => changeField("confirm", ev.target.value)} onBlur={() => blurField("confirm")} error={fieldErrors.confirm} disabled={busy} />}
-          <label className="check-row"><input type="checkbox" checked={remember} onChange={(ev) => setRemember(ev.target.checked)} disabled={busy} />在这台电脑上记住登录</label>
+          {secureCredentialStorage ? <label className="check-row"><input type="checkbox" checked={remember} onChange={(ev) => setRemember(ev.target.checked)} disabled={busy} />在这台电脑上记住登录</label> : <p className="field-hint">登录仅保留在本次运行，关闭后需重新登录。</p>}
           {mode === "register" && <div><label className="check-row"><input name="consent" required type="checkbox" checked={form.consent} onChange={ev => changeField("consent", ev.target.checked)} onBlur={() => blurField("consent")} aria-invalid={fieldErrors.consent ? true : undefined} aria-describedby={fieldErrors.consent ? "auth-consent-error" : undefined} disabled={busy} />我只在设备所有者明确授权后使用远程协助。</label>{fieldErrors.consent && <p id="auth-consent-error" className="field-error" role="alert">{fieldErrors.consent}</p>}</div>}
           </>}
           {error && <StatusMessage error>{error}</StatusMessage>}
