@@ -22,6 +22,10 @@ func HashPassword(password string) (string, error) {
 	if len(password) < 8 {
 		return "", ErrInvalidInput
 	}
+	return hashPassword(password)
+}
+
+func hashPassword(password string) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
 		return "", err

@@ -39,6 +39,7 @@ export interface User {
   id: string;
   username: string;
   email: string;
+  role: "user" | "admin";
 }
 
 export interface AuthResult {
@@ -119,6 +120,10 @@ export class SignalingClient {
   async me(accessToken: string): Promise<User> {
     const body = await this.request<{ user: User }>("/api/v1/auth/me", {}, accessToken);
     return body.user;
+  }
+
+  async adminStatus(accessToken: string): Promise<{status:string;identityStorage:string;requiresHostConsent:boolean}> {
+    return this.request("/api/v1/admin/status",{},accessToken);
   }
 
   async registerDevice(accessToken: string, device: Pick<Device, "deviceName" | "deviceFingerprint" | "osName" | "appVersion">): Promise<Device> {

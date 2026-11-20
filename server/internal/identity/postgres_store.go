@@ -31,8 +31,11 @@ func OpenPostgres(ctx context.Context, databaseURL string) (*sql.DB, error) {
 }
 
 func (s *PostgresStore) CreateUser(ctx context.Context, user User) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO users (id, username, email, password_hash, created_at, updated_at, disabled_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-		user.ID, user.Username, user.Email, user.PasswordHash, user.CreatedAt, user.UpdatedAt, user.DisabledAt)
+	if user.Role == "" {
+		user.Role = "user"
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO users (id, username, email, password_hash, created_at, updated_at, disabled_at, role) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		user.ID, user.Username, user.Email, user.PasswordHash, user.CreatedAt, user.UpdatedAt, user.DisabledAt, user.Role)
 	if err != nil {
 		return mapSQLError(err)
 	}
@@ -40,12 +43,12 @@ func (s *PostgresStore) CreateUser(ctx context.Context, user User) error {
 }
 
 func (s *PostgresStore) GetUserByLogin(ctx context.Context, login string) (User, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, username, email, password_hash, created_at, updated_at, disabled_at FROM users WHERE lower(email)=lower($1) OR lower(username)=lower($1)`, login)
+	row := s.db.QueryRowContext(ctx, `SELECT id, username, email, password_hash, created_at, updated_at, disabled_at, role FROM users WHERE lower(email)=lower($1) OR lower(username)=lower($1)`, login)
 	return scanUser(row)
 }
 
 func (s *PostgresStore) GetUserByID(ctx context.Context, id string) (User, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, username, email, password_hash, created_at, updated_at, disabled_at FROM users WHERE id=$1`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT id, username, email, password_hash, created_at, updated_at, disabled_at, role FROM users WHERE id=$1`, id)
 	return scanUser(row)
 }
 
@@ -149,7 +152,7 @@ type scanner interface {
 
 func scanUser(row scanner) (User, error) {
 	var user User
-	if err := row.Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt); err != nil {
+	if err := row.Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt, &user.Role); err != nil {
 		return User{}, mapSQLError(err)
 	}
 	return user, nil

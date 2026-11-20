@@ -37,6 +37,12 @@ func (s *MemoryStore) CreateUser(_ context.Context, user User) error {
 	if s.userByEmail[email] != "" || s.userByName[username] != "" {
 		return ErrConflict
 	}
+	if user.Role == "" {
+		user.Role = "user"
+	}
+	if user.Role != "user" && user.Role != "admin" {
+		return ErrInvalidInput
+	}
 	s.users[user.ID] = user
 	s.userByEmail[email] = user.ID
 	s.userByName[username] = user.ID

@@ -70,7 +70,7 @@ func (s *Service) Register(ctx context.Context, username, email, password string
 		return AuthResult{}, err
 	}
 	now := s.cfg.Now()
-	user := User{ID: newID("usr"), Username: username, Email: email, PasswordHash: passwordHash, CreatedAt: now, UpdatedAt: now}
+	user := User{ID: newID("usr"), Username: username, Email: email, Role: "user", PasswordHash: passwordHash, CreatedAt: now, UpdatedAt: now}
 	if err := s.store.CreateUser(ctx, user); err != nil {
 		return AuthResult{}, err
 	}
@@ -115,7 +115,25 @@ func (s *Service) Me(ctx context.Context, accessToken string) (User, error) {
 	if err != nil {
 		return User{}, err
 	}
-	return s.store.GetUserByID(ctx, claims.Subject)
+	user, err := s.store.GetUserByID(ctx, claims.Subject)
+	if err != nil {
+		return User{}, err
+	}
+	if user.DisabledAt != nil {
+		return User{}, ErrUnauthorized
+	}
+	return user, nil
+}
+
+func (s *Service) RequireAdmin(ctx context.Context, accessToken string) (User, error) {
+	user, err := s.Me(ctx, accessToken)
+	if err != nil {
+		return User{}, err
+	}
+	if user.Role != "admin" {
+		return User{}, ErrForbidden
+	}
+	return user, nil
 }
 
 func (s *Service) RegisterDevice(ctx context.Context, accessToken, name, fingerprint, osName, appVersion string) (Device, error) {

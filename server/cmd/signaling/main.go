@@ -35,6 +35,10 @@ func main() {
 	if db != nil {
 		defer db.Close()
 	}
+	if err := identity.BootstrapLocalAdmin(context.Background(), identityStore, os.Getenv("LOCAL_ADMIN_SEED_FILE"), cfg.Addr, cfg.DatabaseURL); err != nil {
+		logger.Error("local administrator initialization failed", "error", err)
+		os.Exit(1)
+	}
 	identityService, err := identity.NewService(identityStore, identity.ServiceConfig{
 		AccessSecret:       cfg.JWTSecret,
 		RefreshSecret:      cfg.RefreshTokenSecret,

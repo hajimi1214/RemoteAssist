@@ -10,18 +10,39 @@ RemoteAssist is a visible Windows remote assistance client. It requires sign in,
 
 Use Node 24, Go, and the stable Rust Windows toolchain. Node 24 runs the TypeScript regression tests without another test runtime.
 
+Install the frontend dependencies once with `npm ci`. Run the local service and the client in **two terminals**:
+
 ```powershell
+# Terminal 1: local signaling service, kept in the foreground.
+.\scripts\dev.ps1 -Mode Server
+```
+
+```powershell
+# Terminal 2: the native Windows client (Desktop is the default mode).
 .\scripts\dev.ps1
 ```
 
-First launch opens the login page. After registration or login, the client binds the current device and starts heartbeats.
+`Server` binds only to `127.0.0.1:8080` and uses in-memory accounts and devices. `Desktop` runs Tauri, which starts its own Vite frontend; it connects to the existing signaling service at `http://localhost:8080`. It does not launch another service. Stop a mode with Ctrl+C in its terminal. Commands run in the foreground and return their exit status; the script restores its environment changes and the caller's working directory on exit. The script also works from another directory when invoked by its absolute path.
 
-The desktop UI defaults to `http://localhost:8080` for signaling. Start the Go signaling server separately when needed:
+For a browser-only UI preview, use `Browser` **instead of** `Desktop` in terminal 2, then open `http://127.0.0.1:1420`:
 
 ```powershell
-cd server
-& "C:\Program Files\Go\bin\go.exe" run ./cmd/signaling
+.\scripts\dev.ps1 -Mode Browser
 ```
+
+Both frontend modes use port 1420, so run only one at a time. Browser preview supports UI checks; Windows capture and remote input require the desktop client. To connect a frontend to an already deployed server, pass `-SignalingUrl https://your-signaling-domain.example`; this option applies only to `Desktop` and `Browser`. It does not configure a production server.
+
+First launch opens the login page. After registration or login, the client binds the current device and starts heartbeats.
+
+### Local preview administrator
+
+If `.local/admin-seed.json` already exists, `Server` loads it automatically on every start. The seed stores an Argon2id password hash, not a plaintext password; the script does not create, print, or overwrite it. `.local/` is excluded from Git. Keep the seed local: it is a preview account fixture, not a public deployment configuration.
+
+Restarting this memory-backed service recreates the seeded administrator, but does **not** restore other registered accounts, device bindings, refresh tokens, or active sessions. Sign in again after a restart; the seeded account receives a new internal user ID, so previously retained per-account local history is not automatically attached to it. Without the seed file there is no automatically created administrator, and ordinary registration still works.
+
+Public registration always creates the `user` role and keeps its normal minimum password requirement. Clients cannot request the `admin` role. The current administrator capability is the authenticated, read-only `GET /api/v1/admin/status` endpoint; there is no account-management console. The endpoint checks the stored role and disabled state on each request. Administrator status grants no unattended access, no host-consent bypass, and no extra remote-control privileges.
+
+The seed bootstrap is accepted only for a numeric loopback listener with in-memory storage. It is rejected for PostgreSQL or a public listener and refuses to overwrite or promote an existing conflicting account. The `Server` development mode temporarily clears `DATABASE_URL`; use the deployment procedure below for persistent server operation. Production administrator provisioning and its management workflow are not implemented by this local fixture.
 
 ## Tests
 

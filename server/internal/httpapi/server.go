@@ -83,6 +83,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/refresh", s.authRefresh)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.authLogout)
 	mux.HandleFunc("GET /api/v1/auth/me", s.authMe)
+	mux.HandleFunc("GET /api/v1/admin/status", s.adminStatus)
 	mux.HandleFunc("POST /api/v1/devices/register", s.registerDevice)
 	mux.HandleFunc("GET /api/v1/devices", s.listDevices)
 	mux.HandleFunc("PATCH /api/v1/devices/{id}", s.updateDevice)
@@ -174,6 +175,18 @@ func (s *Server) authMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})
+}
+
+func (s *Server) adminStatus(w http.ResponseWriter, r *http.Request) {
+	if _, err := s.identity.RequireAdmin(r.Context(), bearerToken(r)); err != nil {
+		writeIdentityError(w, err)
+		return
+	}
+	storage := "memory"
+	if s.cfg.DatabaseURL != "" {
+		storage = "postgresql"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "identityStorage": storage, "requiresHostConsent": true})
 }
 
 func (s *Server) registerDevice(w http.ResponseWriter, r *http.Request) {
@@ -772,6 +785,8 @@ func writeStoreError(w http.ResponseWriter, err error) {
 
 func writeIdentityError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, identity.ErrForbidden):
+		writeError(w, http.StatusForbidden, "forbidden")
 	case errors.Is(err, identity.ErrInvalidInput):
 		writeError(w, http.StatusBadRequest, "invalid_input")
 	case errors.Is(err, identity.ErrConflict):

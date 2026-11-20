@@ -13,12 +13,14 @@ var (
 	ErrUnauthorized       = errors.New("unauthorized")
 	ErrNotFound           = errors.New("not found")
 	ErrRevoked            = errors.New("revoked")
+	ErrForbidden          = errors.New("forbidden")
 )
 
 type User struct {
 	ID           string     `json:"id"`
 	Username     string     `json:"username"`
 	Email        string     `json:"email"`
+	Role         string     `json:"role"`
 	PasswordHash string     `json:"-"`
 	CreatedAt    time.Time  `json:"createdAt"`
 	UpdatedAt    time.Time  `json:"updatedAt"`

@@ -12,7 +12,8 @@ import { usePreferences } from "./preferences";
 import { useSessionJournal } from "./useSessionJournal";
 import { createSessionRecorder } from "./sessionJournal";
 import type { SessionSummary } from "./sessionJournal";
-import { pages, friendlyError, connectionLabel, normalizeConnectionCode, remainingTime, transportFailure } from "./ux";
+import { ConnectionCode } from "./forms";
+import { pages, friendlyError, connectionLabel, remainingTime, transportFailure } from "./ux";
 import type { View, AssistMode } from "./ux";
 type AuthMode = "signin" | "register";
 
@@ -237,7 +238,7 @@ export function App() {
         {view === "My Devices" && !device && <div className="panel empty-state"><Icon name="devices" /><h2>正在登记这台设备</h2><p>服务连接成功后会显示设备列表。</p></div>}
         {view === "Remote Assist" && <RemoteAssist auth={auth} mode={assistMode} onMode={(mode)=>navigate("Remote Assist",mode)} onActivity={updateActivity} onRecord={summary=>journal.add(auth.user.id,summary)} />}
         {view === "Sessions" && <SessionsPage records={journal.records} persist={journal.persist} storageError={journal.storageError} onPersistence={journal.setPersistence} onClear={journal.clear} onRetryStorage={journal.retryStorage} onStart={()=>navigate("Remote Assist","share")} />}
-        {view === "Settings" && <SettingsPage user={user} device={device} version={appVersion} preferences={preferences} />}
+        {view === "Settings" && <SettingsPage user={user} device={device} version={appVersion} preferences={preferences} auth={auth} signaling={signaling} />}
       </section>
       <footer className="workspace-footer"><span>RemoteAssist {appVersion}</span><span>{sessionActive?"协助进行中 · 离开页面将结束连接":"清晰可见 · 每次授权 · 随时结束"}</span></footer>
       {pendingNavigation && <ConfirmDialog title="结束当前协助并离开？" description="离开此页面会停止屏幕共享、断开连接并释放远程输入。下次连接需要重新授权。" confirmLabel="结束并离开" onCancel={()=>setPendingNavigation(null)} onConfirm={()=>{const action=pendingNavigation;setPendingNavigation(null);action();}} />}
@@ -437,6 +438,7 @@ function ControlComputer({ auth, onActivity, onRecord }: { auth: AuthResult; onA
   const recorder=useRef<ReturnType<typeof createSessionRecorder>|null>(null);
   const latestAuth=useRef(auth);latestAuth.current=auth;
   const [code, setCode] = useState("");
+  const [codeError,setCodeError]=useState("");
   const [status, setStatus] = useState("Idle");
   const [relay, setRelay] = useState<"P2P" | "TURN Relay" | "Unknown">("Unknown");
   const [latency, setLatency] = useState<number | null>(null);
@@ -454,6 +456,8 @@ function ControlComputer({ auth, onActivity, onRecord }: { auth: AuthResult; onA
 
   async function connect() {
     if (connectingRef.current) return;
+    if (!/^\d{8}$/.test(code)) { setCodeError("请填写完整的 8 位数字连接码。");document.getElementById("session-code")?.focus();return; }
+    setCodeError("");
     connectingRef.current = true;
     setBusy(true); setError(""); onActivity(true);
     const generation = ++generationRef.current;
@@ -561,7 +565,7 @@ function ControlComputer({ auth, onActivity, onRecord }: { auth: AuthResult; onA
     <section className="panel control-panel" id="control-panel" role="tabpanel" aria-labelledby="control-tab">
       <div className="panel-heading"><div><span className="eyebrow">CONNECT WITH A CODE</span><h2>连接另一台电脑</h2><p>请对方先共享主屏，再输入他们提供的 8 位连接码。</p></div><span className={`presence ${status==="connected"?"online":"offline"}`} role="status"><i />{connectionLabel(status)}</span></div>
       {error&&<StatusMessage error>{error}</StatusMessage>}
-      {!session && <form className="join-form" onSubmit={(ev) => { ev.preventDefault(); void connect(); }} aria-busy={busy}><label htmlFor="session-code">对方的连接码</label><div><input id="session-code" required pattern="[0-9]{8}" autoComplete="off" value={code} onChange={(ev) => setCode(normalizeConnectionCode(ev.target.value))} placeholder="输入 8 位连接码" inputMode="numeric" disabled={busy} aria-describedby="code-help" /><button className="primary-action" disabled={code.length !== 8||busy}>{busy?"正在连接…":"发起连接"}<Icon name="arrow" /></button></div><p id="code-help" className="field-hint">可以直接粘贴包含空格的连接码。对方批准后才会建立远程控制。</p></form>}
+      {!session && <form className="join-form" onSubmit={(ev) => { ev.preventDefault(); void connect(); }} aria-busy={busy}><ConnectionCode id="session-code" value={code} onChange={value=>{setCode(value);setCodeError("");}} onBlur={()=>setCodeError(code&&!/^\d{8}$/.test(code)?"请填写完整的 8 位数字连接码。":"")} error={codeError} disabled={busy}/><button className="primary-action" disabled={busy} onPointerDown={ev=>{if(ev.button===0)ev.preventDefault();}}>{busy?"正在连接…":"发起连接"}<Icon name="arrow" /></button></form>}
       {busy&&<button className="secondary-action" onClick={()=>disconnect("Disconnected")}>取消连接</button>}
       <RemoteScreen videoRef={videoRef} connected={!!session} status={connectionLabel(status)} onPointer={sendPointer} onKey={sendKey} onWheel={sendWheel} onRelease={releaseInputs} onDisconnect={()=>disconnect("Stopped by controller")} />
       <dl className="connection-details"><div><dt>连接状态</dt><dd>{connectionLabel(status)}</dd></div><div><dt>传输路径</dt><dd>{relay==="P2P"?"设备直连":relay==="TURN Relay"?"中继连接":"等待连接"}</dd></div><div><dt>往返延迟</dt><dd>{latency == null ? "待测量" : `${latency} ms`}</dd></div></dl>
