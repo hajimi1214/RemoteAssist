@@ -1,5 +1,7 @@
 # RemoteAssist
 
+Version 0.10 uses same-account device selection with automatic Windows primary-display capture, direct input and a fullscreen floating viewer. It targets up to native 4K/60 with separate actual statistics. Upgrade the service and both clients together; see [behavior and measured limits](docs/direct-desktop-0.10.md).
+
 Version 0.8 opens directly into a guest workspace and asks for login in a dismissible dialog when a protected feature is used. It adds custom window controls, responsive page layouts, local copyable feedback, bounded pointer retries and adaptation to sender queue pressure. Session creation/join now require an authenticated account on the server too; upgrade service and clients together. See [0.8 behavior and validation](docs/guest-workspace-0.8.md).
 
 Version 0.9 adds the Android ARM64 controller APK for viewing and operating an approved Windows host. Configure your HTTPS signaling service in Android settings; phones and Windows hosts must use the same service. Build/install and verification limits are documented in [Android controller setup](docs/android-controller.md).
@@ -8,7 +10,7 @@ Version 0.7 refines the VelaMost-inspired light workspace, adds real local sessi
 
 Version 0.6 adds measured video diagnostics, host quality preferences, gradual quality changes, correlated heartbeat timeouts, negotiation deadlines, and latest-position mouse delivery. Read [communication and quality decisions](docs/communication-quality-0.6.md). The responsive workspace, themes and viewer controls are documented in [0.5 research](docs/research-and-decisions-0.5.md).
 
-RemoteAssist is a visible Windows remote assistance client. It requires sign in, device registration, host-started primary-display sharing, an 8-digit temporary code, and explicit host approval before remote input is accepted. The controller then explicitly enables local input capture; Escape or Tab releases it.
+RemoteAssist is a visible same-account remote desktop client. Signed-in devices are registered under their owner, and selecting an online Windows host starts primary-display capture and input without a code or repeated prompt. The host can stop/pause access; closing the client or signing out revokes capture/input. Escape pauses the viewer.
 
 ## Local Development
 
@@ -36,7 +38,7 @@ For a browser-only UI preview, use `Browser` **instead of** `Desktop` in termina
 
 Both frontend modes use port 1420, so run only one at a time. Browser preview supports UI checks; Windows capture and remote input require the desktop client. To connect a frontend to an already deployed server, pass `-SignalingUrl https://your-signaling-domain.example`; this option applies only to `Desktop` and `Browser`. It does not configure a production server.
 
-First launch opens the guest workspace. Protected actions show a closable login dialog. After registration or login, the client binds the current device and starts heartbeats; sharing still requires a separate explicit action.
+First launch opens the guest workspace. Protected actions show a closable login dialog. After registration or login, the client binds the current device and starts heartbeats; the Windows host is then available to devices under the same account.
 
 ### Local preview administrator
 
@@ -44,7 +46,7 @@ If `.local/admin-seed.json` already exists, `Server` loads it automatically on e
 
 Restarting this memory-backed service recreates the seeded administrator, but does **not** restore other registered accounts, device bindings, refresh tokens, or active sessions. Sign in again after a restart; the seeded account receives a new internal user ID, so previously retained per-account local history is not automatically attached to it. Without the seed file there is no automatically created administrator, and ordinary registration still works.
 
-Public registration always creates the `user` role and keeps its normal minimum password requirement. Clients cannot request the `admin` role. The current administrator capability is the authenticated, read-only `GET /api/v1/admin/status` endpoint; there is no account-management console. The endpoint checks the stored role and disabled state on each request. Administrator status grants no unattended access, no host-consent bypass, and no extra remote-control privileges.
+Public registration always creates the `user` role and keeps its normal minimum password requirement. Clients cannot request the `admin` role. The current administrator capability is the authenticated, read-only `GET /api/v1/admin/status` endpoint; there is no account-management console. The endpoint checks the stored role and disabled state on each request. Administrator status grants no no host-consent bypass, and no extra remote-control privileges.
 
 The seed bootstrap is accepted only for a numeric loopback listener with in-memory storage. It is rejected for PostgreSQL or a public listener and refuses to overwrite or promote an existing conflicting account. The `Server` development mode temporarily clears `DATABASE_URL`; use the deployment procedure below for persistent server operation. Production administrator provisioning and its management workflow are not implemented by this local fixture.
 
@@ -80,4 +82,4 @@ See [research and decisions](docs/research-and-decisions-0.4.md) for the WebRTC 
 
 ## Safety Boundaries
 
-RemoteAssist does not provide remote shell, script execution, silent install, hidden operation, default autostart, unattended access, UAC bypass, Defender evasion, credential capture, key logging, or post-session capture.
+RemoteAssist does not provide remote shell, script execution, silent install, hidden operation, default autostart, UAC bypass, Defender evasion, credential capture, key logging, or post-session capture.

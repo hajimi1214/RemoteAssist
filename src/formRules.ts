@@ -11,7 +11,7 @@ export function validateAuthField(field: AuthField, values: AuthValues, mode: "s
     case "email": return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim()) ? "" : "请输入有效的邮箱地址，例如 you@example.com。";
     case "password": return !values.password ? "请输入密码。" : mode === "register" && [...values.password].length < 8 ? "新账号密码至少需要 8 个字符。" : "";
     case "confirm": return !values.confirm ? "请再次输入密码。" : values.confirm !== values.password ? "两次输入的密码不一致。" : "";
-    case "consent": return values.consent ? "" : "请确认仅在设备所有者明确授权后使用远程协助。";
+    case "consent": return values.consent ? "" : "请确认已了解同账号设备的连接方式，并仅操作有权使用的设备。";
   }
 }
 

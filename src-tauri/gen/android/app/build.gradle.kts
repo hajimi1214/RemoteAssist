@@ -55,6 +55,17 @@ android {
     buildFeatures {
         buildConfig = true
     }
+    // Explicit local test resources apply only to debug. No test CA is committed
+    // or included in a normal build; release always uses the system trust store.
+    providers.environmentVariable("REMOTEASSIST_LAN_CONFIG_DIR").orNull?.takeIf { it.isNotBlank() }?.let { path ->
+        val directory = file(path)
+        require(directory.resolve("AndroidManifest.xml").isFile) { "LAN test manifest is missing" }
+        require(directory.resolve("res/raw/lan_test_ca.pem").isFile) { "LAN test public CA is missing" }
+        sourceSets.getByName("debug") {
+            manifest.srcFile(directory.resolve("AndroidManifest.xml"))
+            res.srcDir(directory.resolve("res"))
+        }
+    }
 }
 
 kotlin {

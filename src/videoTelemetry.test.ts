@@ -50,3 +50,9 @@ test("sender queue delay stays unavailable for idle, missing, and reset packet c
   assert.equal(sampler.sample(make(5000,10,1),"send").sendQueueMs,undefined);
   assert.equal(sampler.sample(make(6000,20,1.1),"send").sendQueueMs,10);
 });
+
+test("simulcast frame rates are not added together and encoder target remains distinct from traffic",()=>{
+  const make=(timestamp:number,frames:number)=>new Map(["high","low"].map(id=>[id,{id,type:"outbound-rtp",kind:"video",timestamp,bytesSent:timestamp*10,framesEncoded:frames,frameWidth:id==="high"?3840:960,frameHeight:id==="high"?2160:540,targetBitrate:id==="high"?20_000_000:1_000_000}])) as unknown as RTCStatsReport;
+  const sampler=new VideoStatsSampler();sampler.sample(make(1000,60),"send");
+  const sample=sampler.sample(make(2000,120),"send");assert.equal(sample.fps,60);assert.equal(sample.width,3840);assert.equal(sample.bitrateKbps,160);assert.equal(sample.encoderTargetKbps,21000);
+});

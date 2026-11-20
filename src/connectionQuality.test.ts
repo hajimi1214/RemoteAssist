@@ -42,9 +42,27 @@ test("responds to CPU encoder pressure without a network estimate", () => {
 
 test("mild CPU or bandwidth pressure preserves full-size text while severe pressure reduces resolution",()=>{
   assert.equal(videoEncoding("Constrained","text").scaleResolutionDownBy,1);
-  assert.equal(videoEncoding("Constrained","motion").maxFramerate,20);
+  assert.equal(videoEncoding("Constrained","motion").maxFramerate,45);
   assert.equal(videoEncoding("Sharp","text").maxFramerate,15);
   assert.equal(videoEncoding("Economy","auto").scaleResolutionDownBy,2);
+});
+
+test("4K60 target budgets source pixels without upscaling smaller desktops",()=>{
+  const full=videoEncoding("Sharp","auto",{width:3840,height:2160});
+  assert.equal(full.maxFramerate,60);assert.equal(full.maxBitrate,40_000_000);assert.equal(full.scaleResolutionDownBy,1);
+  const low=videoEncoding("Sharp","auto",{width:1280,height:720});
+  assert.equal(low.scaleResolutionDownBy,1);assert.equal(low.maxFramerate,60);assert.equal(low.maxBitrate,8_000_000);
+  const oversized=videoEncoding("Sharp","auto",{width:7680,height:4320});
+  assert.equal(oversized.scaleResolutionDownBy,2);assert.equal(oversized.maxBitrate,40_000_000);
+  assert.equal(videoEncoding("Sharp","auto",{width:NaN,height:0}).maxBitrate,16_000_000);
+});
+
+test("high startup target yields to sustained congestion and does not bypass hysteresis",()=>{
+  const policy=new AdaptiveVideoPolicy("Sharp");
+  assert.equal(policy.observe({}),"Sharp");
+  assert.equal(policy.observe({rttMs:650}),"Sharp");
+  assert.equal(policy.observe({rttMs:650}),"Balanced");
+  policy.observe({sendQueueMs:140});assert.equal(policy.observe({sendQueueMs:140}),"Constrained");
 });
 
 test("missing samples break a congestion streak",()=>{

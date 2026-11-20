@@ -1,4 +1,6 @@
-# Android phone and tablet controller
+# Android phone and tablet controller — 0.9 build notes
+
+These notes record the 0.9 milestone. Version 0.10 replaces repeated approval and codes with same-account device access; use [current workflow and artifacts](direct-desktop-0.10.md). Generated output paths may now contain the newer build.
 
 The Android target is a visible controller APK for an existing Windows RemoteAssist host. The Windows user still starts sharing, chooses the primary display, and explicitly approves control. Installing the APK does not create a server or grant unattended access. The Android device receives a WebRTC video stream and sends authorized input through a DataChannel; it is not an Android screen-sharing host.
 

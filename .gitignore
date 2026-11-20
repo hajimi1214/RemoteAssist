@@ -8,3 +8,6 @@ server/signaling.exe
 deploy/.env
 *.log
 .local/
+
+__pycache__/
+*.pyc

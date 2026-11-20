@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { HeartbeatTracker, LatestPointer, POINTER_MAX_AGE_MS } from "./transportTiming.ts";
+import { HeartbeatTracker, LatestPointer, POINTER_MAX_AGE_MS, POINTER_INTERVAL_MS } from "./transportTiming.ts";
 
 test("late pong is correlated with its probe after a newer ping", () => {
   const heartbeats = new HeartbeatTracker(0);
@@ -37,6 +37,13 @@ test("pointer burst sends first and final positions, not stale queued movement",
   assert.deepEqual(sent,[1,3]);
   queue.close(); queue.push(5); queue.flush();
   assert.deepEqual(sent,[1,3]);
+});
+
+test("pointer pacing can deliver a fresh position within a 60Hz frame without exceeding the input gate",()=>{
+  assert.ok(POINTER_INTERVAL_MS<1000/60);assert.ok(1000/POINTER_INTERVAL_MS<=100);
+  let now=0;const sent:number[]=[];
+  const queue=new LatestPointer<number>(n=>{sent.push(n);},POINTER_INTERVAL_MS,()=>now,()=>1 as unknown as ReturnType<typeof setTimeout>,()=>undefined);
+  queue.push(1);now=10;queue.push(2);now=12;queue.flush();assert.deepEqual(sent,[1,2]);queue.close();
 });
 
 function pointerHarness() {

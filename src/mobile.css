@@ -1,5 +1,15 @@
 .android-frame { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 .mobile-home { display: grid; gap: 18px; max-inline-size: 980px; margin: auto; }
+@media (min-width: 801px) and (max-height: 900px) {
+  .app-frame:not(.android-frame) .workspace:has(.mobile-home) { display: flex; flex-direction: column; gap: 12px; }
+  .app-frame:not(.android-frame) .mobile-home { flex: 1; min-block-size: 340px; inline-size: 100%; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: minmax(165px,1fr) auto auto; gap: 14px; }
+  .app-frame:not(.android-frame) .mobile-welcome { grid-column: 1/-1; padding: 20px 28px; }
+  .app-frame:not(.android-frame) .mobile-welcome h2 { font-size: 2rem; margin-block: 8px; }
+  .app-frame:not(.android-frame) .mobile-welcome p { font-size: .8125rem; }
+  .app-frame:not(.android-frame) .mobile-connect-card { grid-column: 1; grid-row: 2; padding: 16px; }
+  .app-frame:not(.android-frame) .mobile-home > .mobile-server-link { grid-column: 2; grid-row: 2; }
+  .app-frame:not(.android-frame) .mobile-start-steps { grid-column: 1/-1; grid-row: 3; padding: 8px 4px; }
+}
 .mobile-welcome { position: relative; overflow: hidden; background: radial-gradient(ellipse at 95% 15%,#2d727c,transparent 65%),#163441; color: #eefaff; border-radius: 24px; padding: 30px; }
 .mobile-welcome .eyebrow { color: #a4d9d5; font-size: .65rem; }
 .mobile-welcome h2 { font-size: clamp(1.65rem,4.2vw,2.5rem); line-height: 1.4; margin-block: 12px; }
@@ -44,11 +54,11 @@
 .mobile-text-send { display: flex; gap: 10px; align-items: center; margin-block: 10px; }
 .mobile-text-send p { flex: 1; color: var(--muted); font-size: .7rem; margin: 0; }
 .mobile-text-send button { flex-shrink: 0; }
-.remote-screen:is(:fullscreen,.expanded-screen) { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); overflow: auto; }
-.remote-screen:is(:fullscreen,.expanded-screen) .screen-toolbar { flex-shrink: 0; position: sticky; top: 0; z-index: 2; }
-.remote-screen:is(:fullscreen,.expanded-screen) .touch-controls { flex-shrink: 0; }
+.remote-screen:not(.modern-screen):is(:fullscreen,.expanded-screen) { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); overflow: auto; }
+.remote-screen:not(.modern-screen):is(:fullscreen,.expanded-screen) .screen-toolbar { flex-shrink: 0; position: sticky; top: 0; z-index: 2; }
+.remote-screen:not(.modern-screen):is(:fullscreen,.expanded-screen) .touch-controls { flex-shrink: 0; }
 @media (max-width: 800px), (pointer: coarse) {
-  .remote-screen .screen-toolbar { position: sticky; top: 0; z-index: 2; }
+  .remote-screen:not(.modern-screen) .screen-toolbar { position: sticky; top: 0; z-index: 2; }
   .control-panel:has(.remote-screen.session-present) { padding: 10px; }
   .control-panel:has(.remote-screen.session-present) > .panel-heading { display: none; }
   .control-panel .screen-actions { width: 100%; }
@@ -56,8 +66,8 @@
   .control-panel .zoom-options label { flex: 1; justify-content: center; min-height: 44px; }
   .control-panel .remote-screen.session-present .remote-viewport { height: clamp(200px,45dvh,700px); }
   .remote-screen .screen-help { font-size: .75rem; }
-  .remote-screen:is(:fullscreen,.expanded-screen) .remote-viewport { min-height: 120px; }
-  .android-frame .workspace:has(.remote-screen:is(:fullscreen,.expanded-screen)) { overflow: visible; }
+  .remote-screen:not(.modern-screen):is(:fullscreen,.expanded-screen) .remote-viewport { min-height: 120px; }
+  .android-frame .workspace:has(.remote-screen:not(.modern-screen):is(:fullscreen,.expanded-screen)) { overflow: visible; }
   .app-frame .workspace:has(.mobile-home) { padding-block: 20px; }
   .app-frame .workspace:has(.mobile-home) > .page-heading { display: none; }
   .app-frame .workspace:has(.remote-screen.session-present) > .page-heading { display: none; }
@@ -87,12 +97,62 @@
   .android-frame .app-nav .nav-menu { order: initial; flex-basis: auto; }
   .android-frame .workspace-footer { display: none; }
   .android-frame .desktop-shell { grid-template-rows: auto minmax(0,1fr); }
-  .remote-screen:is(:fullscreen,.expanded-screen) .screen-help,.remote-screen:is(:fullscreen,.expanded-screen) .touch-instructions { display: none; }
-  .remote-screen:is(:fullscreen,.expanded-screen) .screen-title { display: none; }
-  .remote-screen:is(:fullscreen,.expanded-screen) .zoom-options { flex-basis: auto; }
-  .remote-screen:is(:fullscreen,.expanded-screen) .touch-controls { padding: 6px; }
-  .remote-screen:is(:fullscreen,.expanded-screen) .touch-control-actions { display: flex; }
+  .remote-screen:not(.modern-screen):is(:fullscreen,.expanded-screen) .screen-help,.remote-screen:not(.modern-screen):is(:fullscreen,.expanded-screen) .touch-instructions { display: none; }
+  .remote-screen:not(.modern-screen):is(:fullscreen,.expanded-screen) .screen-title { display: none; }
+  .remote-screen:not(.modern-screen):is(:fullscreen,.expanded-screen) .zoom-options { flex-basis: auto; }
+  .remote-screen:not(.modern-screen):is(:fullscreen,.expanded-screen) .touch-controls { padding: 6px; }
+  .remote-screen:not(.modern-screen):is(:fullscreen,.expanded-screen) .touch-control-actions { display: flex; }
 }
 
-.remote-screen.expanded-screen { position: fixed; inset: 0; z-index: 100; margin: 0; border: 0; border-radius: 0; display: flex; flex-direction: column; background: var(--surface); }
-.remote-screen.expanded-screen .remote-viewport { flex: 1; height: auto !important; min-height: 120px; }
+.remote-screen:not(.modern-screen).expanded-screen { position: fixed; inset: 0; z-index: 100; margin: 0; border: 0; border-radius: 0; display: flex; flex-direction: column; background: var(--surface); }
+.remote-screen:not(.modern-screen).expanded-screen .remote-viewport { flex: 1; height: auto !important; min-height: 120px; }
+
+/* The desktop viewport is the whole surface; all controls float above it. */
+.remote-screen.modern-screen { position: relative; display: block; block-size: clamp(320px,72dvh,980px); min-block-size: 240px; background: #0a1019; }
+.remote-screen.modern-screen > .remote-viewport { position: absolute; inset: 0; inline-size: 100%; block-size: 100% !important; min-block-size: 0; margin: 0; border: 0; scrollbar-gutter: auto; background: #0a1019; }
+.remote-screen.modern-screen > .remote-viewport.fill { overflow: hidden; }
+.remote-screen.modern-screen > .remote-viewport > .video-space { display: grid; place-content: center; }
+.remote-screen.modern-screen:is(:fullscreen,.expanded-screen) { position: fixed; inset: 0; z-index: 100; display: block; inline-size: 100%; block-size: 100dvh; min-block-size: 0; margin: 0; border: 0; border-radius: 0; padding: 0; overflow: hidden; }
+.app-frame .remote-screen.modern-screen:is(:fullscreen,.expanded-screen) > .remote-viewport { inset: 0; block-size: 100% !important; min-block-size: 0; flex: none; }
+.modern-screen .screen-floating-bar { position: absolute; z-index: 5; inset: calc(10px + env(safe-area-inset-top)) auto auto 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 5px; inline-size: max-content; max-inline-size: calc(100% - 20px - env(safe-area-inset-left) - env(safe-area-inset-right)); padding: 4px; color: #f0f5fe; background: #172337e8; border: 1px solid #c2d4f22e; border-radius: 14px; box-shadow: 0 6px 24px #0004; backdrop-filter: blur(10px); }
+.modern-screen .screen-floating-bar button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-block-size: 40px; min-inline-size: 42px; padding: 8px 10px; color: inherit; background: transparent; border: 0; border-radius: 9px; font-size: .75rem; white-space: nowrap; }
+.modern-screen .screen-floating-bar button:hover,.modern-screen .screen-floating-bar button[aria-expanded="true"] { background: #fff2; }
+.modern-screen .screen-floating-bar .ui-icon { inline-size: 17px; block-size: 17px; }
+.modern-screen .screen-floating-disconnect { color: #ffc2cc !important; background: #702d3d70 !important; }
+.screen-floating-name { display: flex; align-items: center; gap: 7px; padding-inline: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-inline-size: min(240px,28vw); font-size: .75rem; font-weight: 500; }
+.screen-floating-name i { display: block; inline-size: 6px; block-size: 6px; flex-shrink: 0; border-radius: 50%; background: #a5b0c1; }
+.screen-floating-name i.control-ready { background: #61e1ad; }
+.screen-floating-name > span { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.screen-floating-name small { display: block; margin-block-start: 2px; font-size: .5625rem; color: #bbcadf; font-weight: 400; }
+.modern-screen .screen-tools-panel { position: absolute; z-index: 6; inset: calc(66px + env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) auto auto; inline-size: min(410px,calc(100% - 24px)); max-block-size: calc(100dvh - 90px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 18px 70px #0006; }
+.modern-screen .screen-tools-panel[hidden] { display: none !important; }
+.modern-screen .screen-toolbar { position: static; display: grid; gap: 14px; padding: 16px; background: var(--surface); border-block-end: 1px solid var(--line); }
+.remote-screen.modern-screen .screen-tools-panel .screen-toolbar { position: relative; inset: auto; z-index: auto; flex: none; }
+.remote-screen.modern-screen .screen-tools-panel .touch-controls { position: relative; inset: auto; z-index: auto; flex: none; }
+.app-frame .modern-screen .screen-tools-panel .screen-title { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: .8125rem; }
+.modern-screen .screen-tools-panel .screen-title > span:first-child { font-weight: 700; }
+.modern-screen .screen-tools-panel .screen-title > span:last-child { color: var(--muted); font-size: .6875rem; }
+.modern-screen .screen-tools-panel .zoom-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+.modern-screen .screen-tools-panel .zoom-options legend { margin-block-end: 8px; font-size: .75rem; font-weight: 600; }
+.modern-screen .screen-tools-panel .zoom-options label { display: flex; justify-content: center; align-items: center; min-block-size: 44px; padding: 8px; font-size: .75rem; border-radius: 9px; }
+.modern-screen .screen-mode-help { margin: -6px 0 0; color: var(--muted); font-size: .6875rem; }
+.modern-screen .screen-input-toggle { inline-size: 100%; }
+.screen-live-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px 14px; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--subtle); }
+.screen-live-metrics > div { min-inline-size: 0; }
+.screen-live-metrics dt { color: var(--muted); font-size: .625rem; margin-block-end: 4px; }
+.screen-live-metrics dd { color: var(--ink); margin: 0; font-size: .75rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+.modern-screen .screen-stat-note { margin: -5px 0 0; color: var(--muted); font-size: .625rem; line-height: 1.6; }
+.modern-screen .touch-controls { padding: 14px; }
+.modern-screen .touch-control-actions { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px; }
+.modern-screen .touch-control-actions button { min-block-size: 44px; min-inline-size: 0; padding: 6px; font-size: .6875rem; }
+.modern-screen .touch-instructions { display: block !important; margin-block-start: 10px; }
+.modern-screen .screen-help { display: flex !important; font-size: .6875rem; padding: 12px 14px; border-block-start: 1px solid var(--line); }
+.modern-screen .mobile-keyboard-panel { padding-block-start: 12px; margin-block-start: 12px; }
+.modern-screen .mobile-keyboard-panel textarea { min-block-size: 72px; }
+.modern-screen .mobile-key-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; }
+.modern-screen .mobile-key-row button { min-inline-size: 0; flex: none; }
+.modern-screen .touch-tools-toggle { min-block-size: 44px; }
+.modern-screen .video-space video { -webkit-user-select: none; user-select: none; }
+@media (max-width: 480px) { .modern-screen .screen-floating-bar { gap: 2px; } .screen-floating-name { max-inline-size: 26vw; font-size: .6875rem; } .modern-screen .screen-floating-bar button { padding-inline: 8px; } }
+@media (max-height: 500px) and (orientation: landscape) { .modern-screen .screen-floating-bar { inset-block-start: calc(6px + env(safe-area-inset-top)); } .modern-screen .screen-floating-bar button { min-block-size: 36px; } .modern-screen .screen-tools-panel { inset-block-start: calc(54px + env(safe-area-inset-top)); max-block-size: calc(100dvh - 64px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); inline-size: min(390px,55vw); } }
+@media (prefers-reduced-motion: reduce) { .modern-screen .screen-floating-bar { backdrop-filter: none; } }

@@ -16,6 +16,7 @@ foreach ($name in $names) { $previous[$name] = [Environment]::GetEnvironmentVari
 $pushed = $false
 
 try {
+  if ($Release -and $env:REMOTEASSIST_LAN_CONFIG_DIR) { throw "LAN test trust cannot be used for a release build." }
   if ($MavenMirror) {
     $mirrorUri = $null
     if (![Uri]::TryCreate($MavenMirror, [UriKind]::Absolute, [ref]$mirrorUri) -or $mirrorUri.Scheme -ne "https" -or $mirrorUri.UserInfo -or $mirrorUri.Query -or $mirrorUri.Fragment) {
@@ -66,6 +67,13 @@ try {
   $logDirectory = Join-Path $projectRoot ".local"
   New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
   $buildLog = Join-Path $logDirectory "android-build.log"
+  # Force a fresh ZIP rather than retaining holes from incremental native-library replacement.
+  # Keep the previous output recoverable if this build fails.
+  $variant = if ($Release) { "release" } else { "debug" }
+  $existingAPK = Join-Path $projectRoot "src-tauri\gen\android\app\build\outputs\apk\universal\$variant\app-universal-$variant.apk"
+  if (Test-Path -LiteralPath $existingAPK -PathType Leaf) {
+    Move-Item -LiteralPath $existingAPK -Destination (Join-Path $logDirectory "previous-android-$variant.apk") -Force
+  }
   & $npm @buildArguments 2>&1 | Tee-Object -FilePath $buildLog
   $tauriExitCode = $LASTEXITCODE
   $variant = if ($Release) { "release" } else { "debug" }

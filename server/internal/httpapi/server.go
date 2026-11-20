@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
@@ -33,6 +34,7 @@ type Server struct {
 	loginLimiter *ipLimiter
 	upgrader     websocket.Upgrader
 	wsAuthSlots  chan struct{}
+	directMu     sync.Mutex
 }
 
 func NewServer(cfg config.Config, store *session.Store, logger *slog.Logger, identityServices ...*identity.Service) *Server {
@@ -90,6 +92,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/devices/{id}", s.deleteDevice)
 	mux.HandleFunc("POST /api/v1/devices/{id}/heartbeat", s.heartbeatDevice)
 	mux.HandleFunc("POST /api/v1/devices/{id}/assist", s.requestDeviceAssist)
+	mux.HandleFunc("POST /api/v1/devices/{id}/connect", s.connectDevice)
+	mux.HandleFunc("GET /api/v1/devices/{id}/direct-sessions", s.pendingDeviceSessions)
+	mux.HandleFunc("POST /api/v1/devices/{id}/direct-sessions/{sessionId}/accept", s.acceptDeviceSession)
 	mux.HandleFunc("GET /api/v1/devices/{id}/assist-requests", s.listDeviceAssistRequests)
 	mux.HandleFunc("POST /api/v1/assist-requests/{id}/resolve", s.resolveDeviceAssistRequest)
 	mux.HandleFunc("GET /api/v1/ice-config", s.iceConfig)
@@ -186,7 +191,7 @@ func (s *Server) adminStatus(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.DatabaseURL != "" {
 		storage = "postgresql"
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "identityStorage": storage, "requiresHostConsent": true})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "identityStorage": storage, "requiresHostConsent": false, "deviceAccessPolicy": "same-account"})
 }
 
 func (s *Server) registerDevice(w http.ResponseWriter, r *http.Request) {
@@ -232,9 +237,14 @@ func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {
+	s.directMu.Lock()
+	defer s.directMu.Unlock()
 	if err := s.identity.RevokeDevice(r.Context(), bearerToken(r), r.PathValue("id")); err != nil {
 		writeIdentityError(w, err)
 		return
+	}
+	for _, id := range s.store.InvalidateDeviceSessions(r.PathValue("id")) {
+		s.peers.closeSession(id)
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }
@@ -517,7 +527,7 @@ func (s *Server) websocket(w http.ResponseWriter, r *http.Request) {
 	}
 	token := authentication.Token
 	current, actualRole, err := s.store.ValidateToken(sessionID, token)
-	if err != nil || actualRole != role {
+	if err != nil || actualRole != role || !s.directSessionLive(r.Context(), current) {
 		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "invalid_authentication"), time.Now().Add(time.Second))
 		_ = conn.Close()
 		return
@@ -585,7 +595,7 @@ func (s *Server) readPump(p *peer, token string) {
 			continue
 		}
 		current, role, err := s.store.ValidateToken(p.sessionID, token)
-		if err != nil || role != p.role {
+		if err != nil || role != p.role || !s.directSessionLive(context.Background(), current) {
 			return
 		}
 		if msg.Type == "disconnect" {
@@ -640,7 +650,7 @@ func (s *Server) writePump(p *peer) {
 			}
 		case <-stateTicker.C:
 			current, err := s.store.Get(p.sessionID)
-			if err != nil || current.State == session.StateDisconnected || current.State == session.StateRejected || current.State == session.StateExpired {
+			if err != nil || current.State == session.StateDisconnected || current.State == session.StateRejected || current.State == session.StateExpired || !s.directSessionLive(context.Background(), current) {
 				s.peers.closeSession(p.sessionID)
 				return
 			}

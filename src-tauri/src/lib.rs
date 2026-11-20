@@ -1,9 +1,13 @@
 use serde::Deserialize;
 use std::collections::BTreeSet;
+#[cfg(windows)]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{Manager, State};
 use thiserror::Error;
+#[cfg(windows)]
+mod desktop_capture;
 
 const MAX_EVENT_AGE_MS: u64 = 30_000;
 const MAX_EVENTS_PER_SECOND: usize = 120;
@@ -146,11 +150,100 @@ mod tests {
         assert!(permission.session_token.is_none());
         assert!(permission.lease_deadline.is_none());
     }
+
+    #[cfg(windows)]
+    #[test]
+    fn stale_capture_cleanup_cannot_cancel_a_new_request() {
+        let state = Arc::new(Mutex::new(DirectCaptureState::default()));
+        state.lock().unwrap().request_id = Some("old-request".into());
+        let pending = PendingCaptureGuard {
+            state: state.clone(),
+            request_id: "old-request".into(),
+        };
+        assert!(state.lock().unwrap().clear_request("old-request"));
+        state.lock().unwrap().request_id = Some("new-request".into());
+        drop(pending);
+        assert_eq!(
+            state.lock().unwrap().request_id.as_deref(),
+            Some("new-request")
+        );
+        assert!(!state.lock().unwrap().clear_request("old-request"));
+        assert!(state.lock().unwrap().clear_request("new-request"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn failed_capture_start_releases_pending_reservation() {
+        let state = Arc::new(Mutex::new(DirectCaptureState::default()));
+        state.lock().unwrap().request_id = Some("failed-request".into());
+        let generation = state.lock().unwrap().generation;
+        {
+            let _pending = PendingCaptureGuard {
+                state: state.clone(),
+                request_id: "failed-request".into(),
+            };
+        }
+        let state = state.lock().unwrap();
+        assert!(state.request_id.is_none());
+        assert!(state.active.is_none());
+        assert_ne!(state.generation, generation);
+    }
 }
 
 #[derive(Default)]
 struct AppState {
     permission: Arc<Mutex<PermissionAdapter>>,
+    #[cfg(windows)]
+    capture: Arc<Mutex<DirectCaptureState>>,
+    #[cfg(windows)]
+    capture_starting: AtomicBool,
+    #[cfg(windows)]
+    capture_pulling: AtomicBool,
+}
+#[cfg(windows)]
+#[derive(Default)]
+struct DirectCaptureState {
+    generation: u64,
+    request_id: Option<String>,
+    active: Option<(String, desktop_capture::Capture)>,
+}
+#[cfg(windows)]
+impl DirectCaptureState {
+    fn clear(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        self.request_id = None;
+        self.active = None;
+    }
+    fn clear_request(&mut self, request_id: &str) -> bool {
+        if self.request_id.as_deref() != Some(request_id) {
+            return false;
+        }
+        self.clear();
+        true
+    }
+}
+#[cfg(windows)]
+struct PendingCaptureGuard {
+    state: Arc<Mutex<DirectCaptureState>>,
+    request_id: String,
+}
+#[cfg(windows)]
+impl Drop for PendingCaptureGuard {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.state.lock() {
+            if state.request_id.as_deref() == Some(&self.request_id) && state.active.is_none() {
+                state.clear();
+            }
+        }
+    }
+}
+#[cfg(windows)]
+struct FlightGuard<'a>(&'a AtomicBool);
+#[cfg(windows)]
+impl Drop for FlightGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 #[derive(Default)]
@@ -321,6 +414,10 @@ fn confirm_host_control() -> bool {
 
 #[tauri::command]
 fn clear_input_authorization(state: State<'_, AppState>) -> Result<(), InputError> {
+    #[cfg(windows)]
+    if let Ok(mut capture) = state.capture.lock() {
+        capture.clear();
+    }
     let mut permission = state
         .permission
         .lock()
@@ -329,6 +426,250 @@ fn clear_input_authorization(state: State<'_, AppState>) -> Result<(), InputErro
     NoopCaptureAdapter.stop_capture();
     NoopSessionIndicator.set_status("disconnected");
     Ok(())
+}
+
+#[derive(serde::Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DirectAcceptance {
+    id: String,
+    controller_token: String,
+    state: String,
+    expires_at: String,
+    host_device_id: String,
+}
+
+#[tauri::command]
+async fn accept_direct_capture(
+    server_url: String,
+    access_token: String,
+    device_id: String,
+    session_id: String,
+    host_token: String,
+    request_id: String,
+    state: State<'_, AppState>,
+) -> Result<DirectAcceptance, String> {
+    #[cfg(not(windows))]
+    {
+        let _ = (
+            server_url,
+            access_token,
+            device_id,
+            session_id,
+            host_token,
+            request_id,
+            state,
+        );
+        Err("windows_host_required".into())
+    }
+    #[cfg(windows)]
+    {
+        if state.capture_starting.swap(true, Ordering::AcqRel) {
+            return Err("capture_busy".into());
+        }
+        let _flight = FlightGuard(&state.capture_starting);
+        let mut base = reqwest::Url::parse(&server_url).map_err(|_| "invalid_service")?;
+        let local = matches!(base.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
+        if !(base.scheme() == "https" || cfg!(debug_assertions) && local && base.scheme() == "http")
+            || !base.username().is_empty()
+            || base.password().is_some()
+            || base.query().is_some()
+            || base.fragment().is_some()
+            || base.path() != "/"
+        {
+            return Err("invalid_service".into());
+        }
+        let valid_id = |id: &str| {
+            !id.is_empty()
+                && id.len() <= 128
+                && id
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+        };
+        if !valid_id(&device_id)
+            || !valid_id(&session_id)
+            || !valid_id(&request_id)
+            || access_token.is_empty()
+            || access_token.len() > 4096
+            || host_token.len() < 16
+            || host_token.len() > 512
+        {
+            return Err("invalid_direct_request".into());
+        }
+        let generation = {
+            let mut lock = state.capture.lock().map_err(|_| "capture_busy")?;
+            if lock.request_id.is_some() {
+                return Err("capture_busy".into());
+            }
+            lock.generation = lock.generation.wrapping_add(1);
+            lock.request_id = Some(request_id.clone());
+            lock.generation
+        };
+        let _pending = PendingCaptureGuard {
+            state: state.capture.clone(),
+            request_id: request_id.clone(),
+        };
+        base.set_path(&format!(
+            "/api/v1/devices/{device_id}/direct-sessions/{session_id}/accept"
+        ));
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none());
+        // Local development credentials must never traverse an environment proxy.
+        let client = if local { client.no_proxy() } else { client }
+            .build()
+            .map_err(|_| "service_unavailable")?;
+        let capture = tauri::async_runtime::spawn_blocking(desktop_capture::Capture::start)
+            .await
+            .map_err(|_| "capture_start_failed")??;
+        {
+            let lock = state.capture.lock().map_err(|_| "capture_busy")?;
+            if lock.generation != generation {
+                return Err("direct_cancelled".into());
+            }
+        }
+        let mut response = client
+            .post(base)
+            .bearer_auth(access_token)
+            .json(&serde_json::json!({"hostToken":host_token}))
+            .send()
+            .await
+            .map_err(|_| "direct_accept_failed")?;
+        if !response.status().is_success() {
+            return Err("direct_access_denied".into());
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|_| "invalid_direct_response")?
+        {
+            if bytes.len() + chunk.len() > 65536 {
+                return Err("invalid_direct_response".into());
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        let acceptance: DirectAcceptance =
+            serde_json::from_slice(&bytes).map_err(|_| "invalid_direct_response")?;
+        if acceptance.id != session_id
+            || acceptance.host_device_id != device_id
+            || acceptance.state != "AUTHORIZED_ACTIVE"
+            || acceptance.controller_token.len() < 16
+            || acceptance.controller_token.len() > 512
+        {
+            return Err("invalid_direct_response".into());
+        }
+        let expiry = chrono::DateTime::parse_from_rfc3339(&acceptance.expires_at)
+            .map_err(|_| "invalid_expiry")?
+            .timestamp_millis();
+        if expiry <= now_ms() as i64 || expiry - now_ms() as i64 > 8 * 60 * 60 * 1000 {
+            return Err("invalid_expiry".into());
+        }
+        let mut lock = state.capture.lock().map_err(|_| "capture_busy")?;
+        if lock.generation != generation {
+            return Err("direct_cancelled".into());
+        }
+        let mut permission = state.permission.lock().map_err(|_| "input_unavailable")?;
+        release_pressed(&mut permission).map_err(|_| "input_release_failed")?;
+        permission.authorized = true;
+        permission.pending_host_consent_until_ms = None;
+        permission.session_token = Some(acceptance.controller_token.clone());
+        permission.expires_at_ms = Some(expiry as u64);
+        permission.lease_deadline = Some(Instant::now() + INITIAL_INPUT_LEASE);
+        permission.recent_events.clear();
+        lock.active = Some((acceptance.controller_token.clone(), capture));
+        Ok(acceptance)
+    }
+}
+
+#[tauri::command]
+fn local_device_name() -> String {
+    #[cfg(windows)]
+    {
+        std::env::var("COMPUTERNAME")
+            .ok()
+            .filter(|name| !name.trim().is_empty() && name.len() <= 255)
+            .unwrap_or_else(|| "Windows PC".into())
+    }
+    #[cfg(not(windows))]
+    {
+        "RemoteAssist Device".into()
+    }
+}
+
+#[tauri::command]
+fn clear_direct_capture(request_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    #[cfg(not(windows))]
+    {
+        let _ = (request_id, state);
+        Ok(())
+    }
+    #[cfg(windows)]
+    {
+        let mut capture = state.capture.lock().map_err(|_| "capture_unavailable")?;
+        if capture.clear_request(&request_id) {
+            let mut permission = state.permission.lock().map_err(|_| "input_unavailable")?;
+            revoke_permission(&mut permission).map_err(|_| "input_release_failed")?;
+        }
+        Ok(())
+    }
+}
+
+#[tauri::command]
+async fn next_desktop_frame(
+    session_token: String,
+    state: State<'_, AppState>,
+) -> Result<tauri::ipc::Response, String> {
+    #[cfg(not(windows))]
+    {
+        let _ = (session_token, state);
+        Err("windows_host_required".into())
+    }
+    #[cfg(windows)]
+    {
+        if state.capture_pulling.swap(true, Ordering::AcqRel) {
+            return Err("capture_busy".into());
+        }
+        let _flight = FlightGuard(&state.capture_pulling);
+        {
+            let p = state.permission.lock().map_err(|_| "input_unavailable")?;
+            if !permission_is_live(&p, now_ms())
+                || p.session_token.as_deref() != Some(&session_token)
+            {
+                return Err("direct_access_expired".into());
+            }
+        }
+        let (generation, sender) = {
+            let lock = state.capture.lock().map_err(|_| "capture_unavailable")?;
+            let (token, capture) = lock.active.as_ref().ok_or("capture_unavailable")?;
+            if token != &session_token {
+                return Err("capture_not_owned".into());
+            }
+            (lock.generation, capture.requester())
+        };
+        let data = tauri::async_runtime::spawn_blocking(move || {
+            let (tx, rx) = std::sync::mpsc::channel();
+            sender.try_send(tx).map_err(|_| "capture_busy")?;
+            rx.recv_timeout(Duration::from_secs(2))
+                .map_err(|_| "capture_timeout")?
+        })
+        .await
+        .map_err(|_| "capture_failed")??;
+        {
+            let lock = state.capture.lock().map_err(|_| "capture_unavailable")?;
+            if lock.generation != generation || lock.active.is_none() {
+                return Err("capture_ended".into());
+            }
+        }
+        {
+            let p = state.permission.lock().map_err(|_| "input_unavailable")?;
+            if !permission_is_live(&p, now_ms())
+                || p.session_token.as_deref() != Some(&session_token)
+            {
+                return Err("direct_access_expired".into());
+            }
+        }
+        Ok(tauri::ipc::Response::new(data))
+    }
 }
 
 fn release_pressed(permission: &mut PermissionAdapter) -> Result<(), InputError> {
@@ -590,16 +931,32 @@ pub fn run() {
         .manage(AppState::default())
         .setup(|app| {
             let permission = Arc::downgrade(&app.state::<AppState>().permission);
+            #[cfg(windows)]
+            let capture = Arc::downgrade(&app.state::<AppState>().capture);
             std::thread::spawn(move || loop {
                 std::thread::sleep(Duration::from_millis(500));
                 let Some(permission) = permission.upgrade() else {
                     break;
+                };
+                #[cfg(windows)]
+                let capture = match capture.upgrade() {
+                    Some(value) => value,
+                    None => break,
+                };
+                #[cfg(windows)]
+                let mut capture = match capture.lock() {
+                    Ok(value) => value,
+                    Err(_) => continue,
                 };
                 if let Ok(mut permission) = permission.lock() {
                     if permission.authorized && !permission_is_live(&permission, now_ms()) {
                         let _ = revoke_permission(&mut permission);
                     } else if !permission.authorized {
                         let _ = release_pressed(&mut permission);
+                    }
+                    #[cfg(windows)]
+                    if !permission.authorized && capture.active.is_some() {
+                        capture.clear();
                     }
                 };
             });
@@ -610,6 +967,10 @@ pub fn run() {
                 event,
                 tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
             ) {
+                #[cfg(windows)]
+                if let Ok(mut capture) = window.state::<AppState>().capture.lock() {
+                    capture.clear();
+                }
                 if let Ok(mut permission) = window.state::<AppState>().permission.lock() {
                     let _ = revoke_permission(&mut permission);
                 }
@@ -624,7 +985,11 @@ pub fn run() {
             read_stored_auth,
             write_stored_auth,
             delete_stored_auth,
-            send_input_event
+            send_input_event,
+            accept_direct_capture,
+            next_desktop_frame,
+            clear_direct_capture,
+            local_device_name
         ])
         .run(tauri::generate_context!())
         .expect("failed to run RemoteAssist");

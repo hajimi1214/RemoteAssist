@@ -2,62 +2,35 @@
 
 ## Current milestone
 
-M12 — 0.9.0-alpha Android ARM64 controller APK and responsive touch controls. Reviewed 2026-11-20.
+M13 — 0.10.0-alpha same-account device access, native Windows capture, fullscreen touch controls and a 4K60 target. Reviewed 2026-11-20.
 
 ## Completed
 
-- Added an Android controller for Windows sessions, built a development-signed universal ARM64 APK, and verified its signature. The APK is in the generated Android build folder; Android SDK, local APKs and build keys remain outside Git. Configure the real HTTPS signaling address in the phone app. The connected Windows client must be version 0.9 or later for Unicode text input.
-- Android control supports mapped tap/cursor touch, optional left-button drag, two-finger wheel, right click, wheel controls, navigation key pairs and a bounded Unicode text send. Input remains disabled until explicitly enabled locally and approved at the Windows host. Stopping, page-backgrounding, rotation and connection loss release input.
-- Added an Android-only settings area for the HTTPS service origin. Credentials are memory-only on Android; server URLs cannot include credentials, path, query or fragment. The app includes no host screen capture controls.
-- Unified guest/signed-in workspace illustrations, navigation icons, card surfaces, action affordances, empty-state styling and quieter scrollbars. The shared illustration uses HTML/CSS and existing icons; no image asset or dependency was added.
-- Login now focuses the first field, retains password focus when the eye is clicked, and restores appropriate focus when switching modes. Dialog teardown does not trigger validation. Feedback preview/edit switches focus to the relevant text area.
-- Device search announces result counts and offers a clear-search action; refresh/save/request operations have distinct progress wording. Floating-label spacing now scales with text size. Details: docs/ui-polish-0.8.md.
-- Opens into a guest workspace. Protected actions open a closable login dialog, and successful login returns to the chosen workflow without starting capture or control. Pending login cancellation, credential restoration races and account-switch UI cleanup are handled.
-- Replaced native system decorations with a custom draggable window bar and working minimize/maximize/restore/close controls. The frame keeps window controls outside content scrolling; restored windows respect the OS work area.
-- Adapted every main page and modal for desktop, narrow and larger-text layouts. Device lists scroll inside their card; dialog close controls remain outside their scrolling body. Added a local feedback report with an explicit preview/copy workflow and honest unsent status.
-- Server-enforced login is now required to create or join an assistance session; old clients must be upgraded. Invalid requests do not mutate sessions, and host approval is still required.
-- Improved bounded mouse delivery through short backpressure and gradual quality adaptation from measured sender queue delay. No automatic reconnect/control resumption added. Details and official sources: docs/guest-workspace-0.8.md and docs/transport-refinement.md.
-- Desktop launch now maximizes the native window. Login and both registration steps fit 1280×720, 1280×700 and 1100×660 CSS viewports without page or form-panel scrolling. The compact desktop dashboard also fits these viewports; longer device/activity lists scroll inside their cards. Narrow screens and larger text retain accessible scrolling.
-- Added reusable floating labels, persistent help, blur/submit validation, first-error focus, password visibility and registration strength feedback. Registration uses two steps to keep controls visible. Device search/notes use the same fields; themes and three zoom choices use native radio groups.
-- The existing eight-digit connection protocol now has eight separate boxes with auto-advance, backward deletion, arrows and fullwidth/spaced paste. A six-digit SMS service is not part of this project.
-- Added server-enforced user/admin roles, a protected read-only admin status endpoint, and a local password-hash seed tool. The requested local administrator was created and verified through API and browser login. Seed loading is restricted to loopback plus in-memory storage; public registration remains user-only with its existing minimum password policy. No credential is committed.
-- The development script now runs Server, Desktop or Browser explicitly in the foreground; the existing ignored local seed is loaded by Server mode. See docs/forms-and-desktop-fit.md for validation and limitations.
-- Refined the VelaMost-inspired light blue/white dashboard, navy typography, device illustration, workflow tiles and quality selection cards. Dark/larger-text/narrow layouts remain.
-- Replaced the session placeholder with real local summaries: direction, start/connection/end times, outcome and route. Failed/cancelled attempts remain distinct from established sessions.
-- Summaries default to current-login memory. User-enabled per-account persistence keeps at most 50 records from the latest 30 days; no server IDs/codes/tokens/addresses/device names/frames/input content are saved.
-- Summary validation rejects invalid dates, duplicates and unknown fields; termination is idempotent. Logout cleanup writes only the original account's opted-in store. Storage errors cannot block control shutdown.
-- Diagnostic status hints distinguish loss, buffering, processing pressure and high RTT. RTT/bitrate trend samples are bounded and preserve missing-data gaps.
-- Zero available bandwidth now correctly triggers gradual adaptation. release-all advances the pointer sequence barrier so older unordered movement is rejected after input is released.
-- No extra package, hidden behavior or automatic control resumption added.
-- Details: docs/workspace-refinement-0.7.md and docs/validation-0.7.md.
+- Same-account device selection replaces connection codes, repeated host confirmation and screen picking, as explicitly requested by the user. The Windows client stays visible and logged in, identifies an active controller, and offers immediate stop/pause. No hidden service, autostart, UAC bypass or remote shell is added.
+- Server-enforced account/device ownership, online/revocation checks, one-time activation, bounded pending sessions and active-session revalidation prevent cross-account access, including by another account's administrator.
+- Native acceptance independently checks the exact session with the service before opening capture/input. DXGI selects the primary display, binary IPC carries one frame at a time, and a reused GPU texture converts BGRA to WebRTC video. Scoped request cancellation, bounded queues and the native lease/watchdog stop stale capture/input.
+- The device workspace uses a side list and desktop-entry card. The viewer opens across the viewport with floating tools; fit shows the complete image, while fill preserves ratio and crops excess. Android uses transient-swipe immersive system bars.
+- Direct sessions enable input after actual video/connection readiness. Resize and quality changes release held input without silently disabling operation. Backgrounding releases input. Rejected input has explicit bounded feedback.
+- Sharp targets native source size up to 3840×2160 / 60fps with source-dependent 16–40Mbps ceilings. Actual FPS/bitrate/RTT/loss/drop statistics remain separate. Mouse pacing targets 90Hz with expiry/backpressure bounds.
+- Android ARM64 debug APK and Windows portable/NSIS packaging are supported. Runtime service configuration avoids a baked-in example domain. The optional LAN helper uses short-lived IP certificates and exact-IP debug trust, with no OS CA/firewall changes.
 
 ## Verification
 
-- Android milestone: 54 frontend tests and TypeScript/Vite build PASS; Windows Rust 6 tests, Go tests/vet, ARM64 Rust cross-compile PASS. The universal ARM64 debug APK passed `apksigner verify` (v2), is about 29 MB, SHA256 `5FB69FC597092DDBB50CA54771CD4701B01EF7B3D95657C448B89759066DEF68`. See docs/android-controller.md for the exact path and server pairing steps.
-- Browser local synthetic WebRTC loopback: video display, click/right-click, wheel, Unicode text, paired Enter key, explicit stop and full-screen fallback PASS. It only delivered events to an in-memory receiver and did not touch the Windows desktop.
-- ADB reports no Android device or emulator. APK installation, actual Android WebView/IME, physical orientation changes, two-machine connection, production signing and real latency are NOT VERIFIED.
-- UI follow-up: 48 frontend tests, production build and diff checks PASS. Browser guest/signed-in desktop height checks, all five pages at 320px with dark/larger text, login focus/blur, password visibility focus, search/clear/refresh and feedback focus checks PASS. Fresh browser console has no errors. Actual maximized native workspace displays the new design and all window controls.
-- scripts/test.ps1: PASS — 48 frontend tests/build, Go tests/service build, Rust check and 5 native tests. Go vet: PASS.
-- 0.8 browser checks: guest navigation, dismissible authentication, preserved login destination, local feedback generation/copy and 320px dark/larger-text checks across all five main pages PASS. Actual native maximize/minimize/restore/close controls PASS; application reopened with the development launcher.
-- Live service create/join without login returns 401. Server and desktop launcher modes ran successfully; no background helper was added.
-- Browser: PASS for floating-label retention, help visibility, blur-only field errors, password eye/strength, two-step registration navigation, code advance/backspace/paste, first-invalid-code focus, native zoom radio keyboard selection and administrator status. The 320px dark/larger-text layout has no horizontal overflow. No browser console errors observed.
-- Native window: PASS for visible launch and maximized guest workspace on this Windows desktop. Software and the local loopback service were left running. This does not validate multi-display capture or input calibration.
-- PowerShell development launcher: syntax and command structure PASS; Server/Desktop modes ran successfully. Browser-only mode was not separately launched.
-- npm audit: PASS, zero reported vulnerabilities. Diff whitespace checks: PASS.
-- Browser: PASS for actual local invalid-attempt summaries, opt-in persistence, logout/login retention, active-session logout completion, filtering and clear-confirmation cancellation.
-- Browser: PASS for radio keyboard navigation, 320px no-overflow checks, light desktop and dark larger-text layout.
-- Real browser WebRTC loopback: PASS. Actual stats populate the bounded trends and accessible labels.
-- Previous Windows portable EXE/NSIS 0.7.0-alpha: PASS, built with example HTTPS endpoint. A 0.8 installer has not been packaged; the opened software is the local development build.
+PASS:
 
-## Remaining limits
+- Frontend regressions/build, Go service tests/vet/build and Rust check/8 normal tests. One real-capture test is ignored by default and was explicitly run separately.
+- Real DXGI primary display smoke: 2560×1600 BGRA8, 3 actual frames / 49,152,048 bytes, initialization plus capture 395ms. This is not a throughput benchmark. An initial unsupported-format result was diagnosed before the final explicit-BGRA implementation passed.
+- Browser integration through the real HTTP/WebSocket service with two same-account devices and a synthetic 2560×1600 stream: direct entry, automatic input/fullscreen, right-click/Unicode/Enter delivery to memory, pause/resume and disconnect. It did not emit OS input.
+- Fullscreen equals the viewport at 1280×720, 820×393, 393×820 and 320×640. Device layouts also cover 1024×768 without horizontal overflow. Hit testing exposed/fixed a legacy sticky-toolbar overlap blocking lower touch controls.
+- LAN proxy Go tests/vet and certificate tests. The earlier physical 0.9 tablet session displayed the Windows desktop, and the user reported the touch/quality problems addressed here.
+- Android signature verification and Windows portable/NSIS generation; artifact hashes and final counts are recorded in docs/direct-desktop-0.10.md.
 
-- Actual Windows capture/input/consent, cross-DPI and secondary-display calibration, public TURN, second-machine installation and hardware codec paths remain unverified.
-- The administrator is a local preview account. The seed recreates it with a new user ID after a memory-server restart; ordinary accounts, devices and login sessions are not durable. Live PostgreSQL role-migration execution and production administrator provisioning remain unverified/unimplemented respectively.
-- Local summaries are convenience metadata, not a server audit log or cross-device history. Opted-in metadata can be inspected by users with profile access.
-- Source-reviewed account isolation and storage-error behavior are not a complete browser fault-injection/privacy audit.
-- Active sessions remain one-process; cloud/PostgreSQL/live container validation and degraded-network benchmarks remain pending.
-- Example-domain installer must be rebuilt with the actual HTTPS signaling URL; both endpoints should use the current client version.
+NOT VERIFIED:
 
-## Next milestone
+- Sustained native 4K60, hardware encoder selection and touch-to-photon latency. Raw IPC and browser encoding can limit throughput; this desktop's source is 2560×1600.
+- The latest 0.10 build on the physical tablet (USB currently disconnected), real IME/immersive behavior, public TURN and two-machine weak-network performance.
+- Production Android signing, installation on a second Windows PC, cloud deployment and live PostgreSQL migration.
 
-M13 — install the APK on a real phone/tablet, verify IME and two-machine control, then test weak-network latency and public TURN.
+## Next acceptance
+
+Install matching 0.10 clients against the upgraded service, reconnect the tablet and measure native capture/encode/decode FPS and interaction latency. Details: docs/direct-desktop-0.10.md, docs/direct-device-protocol.md and docs/media-0.10.md.

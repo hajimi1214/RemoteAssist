@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { RefObject, ReactNode, KeyboardEvent, PointerEvent } from "react";
 import { MobileControls } from "./MobileControls";
+import { filledVideoLayout } from "./mobileInput";
 import type { MobileAction } from "./mobileInput";
 import { remoteLayout } from "./ux";
 import type { VideoTelemetry } from "./videoTelemetry";
@@ -98,9 +99,9 @@ export function StatusMessage({ children, error = false }: { children: ReactNode
   return <div className={`${error ? "error-box" : "info-box"} status-message`} role={error ? "alert" : "status"}><Icon name={error ? "alert" : "info"}/><div>{children}</div></div>;
 }
 
-export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, onWheel, onRelease, onDisconnect, onMobileAction, textSupported }: {
-  onMobileAction: (action: MobileAction) => boolean; textSupported: boolean;
-  videoRef: RefObject<HTMLVideoElement | null>; connected: boolean; status: string;
+export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, onWheel, onRelease, onDisconnect, onMobileAction, textSupported, autoControl = false, autoFullscreen = autoControl, deviceName = "远程桌面", telemetry = null, latency = null }: {
+  onMobileAction: (action: MobileAction) => boolean; textSupported: boolean; autoControl?: boolean; autoFullscreen?: boolean; deviceName?: string;
+  videoRef: RefObject<HTMLVideoElement | null>; connected: boolean; status: string; telemetry?: VideoTelemetry | null; latency?: number | null;
   onPointer: (type: "mouse_move" | "mouse_down" | "mouse_up", ev: PointerEvent<HTMLVideoElement>) => void;
   onKey: (type: "key_down" | "key_up", ev: KeyboardEvent<HTMLVideoElement>) => void;
   onWheel: (ev: WheelEvent) => void; onRelease: () => void; onDisconnect: () => void;
@@ -108,93 +109,120 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
   const surface = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const inputToggle = useRef<HTMLButtonElement>(null);
+  const autoOpened = useRef(false);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [source, setSource] = useState({ width: 0, height: 0 });
-  const [mode, setMode] = useState<"fit" | "100" | "150">("fit");
+  const [mode, setMode] = useState<"fit" | "fill" | "100" | "150">("fit");
   const [fullscreen, setFullscreen] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [inputEnabled, setInputEnabled] = useState(false);
+  const [manualPaused, setManualPaused] = useState(false);
+  const [backgroundPaused, setBackgroundPaused] = useState(false);
   const [error, setError] = useState("");
   const helpId = useId();
   const releaseRef = useRef(onRelease); releaseRef.current = onRelease;
-  const wheelRef=useRef(onWheel); wheelRef.current=onWheel;
-  const inputRef=useRef(inputEnabled); inputRef.current=inputEnabled;
+  const wheelRef = useRef(onWheel); wheelRef.current = onWheel;
+  const inputRef = useRef(inputEnabled); inputRef.current = inputEnabled;
+  const live = useRef({connected,autoControl,manualPaused,source}); live.current={connected,autoControl,manualPaused,source};
+  const hasVideo = connected && source.width > 0 && source.height > 0;
+  const immersive = fullscreen || expanded;
 
-  useEffect(()=>{
+  useEffect(() => {
     const video=videoRef.current;
-    const wheel=(ev:WheelEvent)=>{if(inputRef.current){ev.preventDefault();wheelRef.current(ev);}};
+    const wheel=(event:WheelEvent)=>{if(inputRef.current){event.preventDefault();wheelRef.current(event);}};
     video?.addEventListener("wheel",wheel,{passive:false});
     return()=>video?.removeEventListener("wheel",wheel);
   },[videoRef]);
-
   useEffect(() => {
-    const element = viewport.current;
-    if (!element) return;
-    const observer = new ResizeObserver(([entry]) => {
-      // Toolbar/IME changes can resize the video area without changing its source.
-      // Release held input, but keep the explicit control toggle stable.
+    const element=viewport.current;if(!element)return;
+    const observer=new ResizeObserver(([entry])=>{
       releaseRef.current();
-      setSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+      setSize(previous=>previous.width===entry.contentRect.width&&previous.height===entry.contentRect.height?previous:{width:entry.contentRect.width,height:entry.contentRect.height});
     });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
+    observer.observe(element);return()=>observer.disconnect();
+  },[]);
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    const update = () => { releaseRef.current(); setInputEnabled(false); setSource({ width: video.videoWidth, height: video.videoHeight }); };
-    video.addEventListener("resize", update); video.addEventListener("loadedmetadata", update); update();
-    return () => { video.removeEventListener("resize", update); video.removeEventListener("loadedmetadata", update); };
-  }, [videoRef]);
+    const video=videoRef.current;if(!video)return;
+    const update=()=>{const next={width:video.videoWidth,height:video.videoHeight};setSource(previous=>{
+      if(previous.width===next.width&&previous.height===next.height)return previous;
+      releaseRef.current();return next;
+    });};
+    video.addEventListener("resize",update);video.addEventListener("loadedmetadata",update);update();
+    return()=>{video.removeEventListener("resize",update);video.removeEventListener("loadedmetadata",update);};
+  },[videoRef]);
   useEffect(() => {
-    const update = () => { setFullscreen(document.fullscreenElement === surface.current); releaseRef.current(); setInputEnabled(false); };
-    document.addEventListener("fullscreenchange", update);
-    return () => document.removeEventListener("fullscreenchange", update);
-  }, []);
-  useEffect(() => { if (!connected) { setSource({width:0,height:0}); setInputEnabled(false); } }, [connected]);
-
+    const change=()=>{setFullscreen(document.fullscreenElement===surface.current);releaseRef.current();};
+    document.addEventListener("fullscreenchange",change);return()=>document.removeEventListener("fullscreenchange",change);
+  },[]);
   useEffect(() => {
-    const suspend = () => { releaseRef.current(); setInputEnabled(false); };
-    const hidden = () => { if (document.hidden) suspend(); };
-    const resize = () => { if (!surface.current?.querySelector(".mobile-keyboard-panel")) suspend(); else releaseRef.current(); };
-    window.addEventListener("blur", suspend); document.addEventListener("visibilitychange", hidden); window.addEventListener("orientationchange", suspend);window.addEventListener("resize",resize);
-    return () => { window.removeEventListener("blur", suspend); document.removeEventListener("visibilitychange", hidden);window.removeEventListener("orientationchange", suspend);window.removeEventListener("resize",resize); };
-  }, []);
-  const layout = remoteLayout(size, source, mode);
-  const hasVideo = connected && source.width > 0;
-  function suspendInput() { onRelease(); setInputEnabled(false); }
-  function key(type: "key_down" | "key_up", ev: KeyboardEvent<HTMLVideoElement>) {
-    if (ev.key === "Escape" || ev.key === "Tab") { suspendInput(); if(ev.key==="Escape") inputToggle.current?.focus(); return; }
-    if (inputEnabled) onKey(type, ev);
-  }
-  async function toggleFullscreen() {
-    suspendInput(); setError("");
-    if (expanded) { setExpanded(false); return; }
-    try { if (document.fullscreenElement === surface.current) await document.exitFullscreen(); else await surface.current?.requestFullscreen(); }
-    catch { setExpanded(true); }
-  }
-  useEffect(()=>{if(!expanded)return;const escape=(event:globalThis.KeyboardEvent)=>{if(event.key==="Escape"){releaseRef.current();setInputEnabled(false);setExpanded(false);}};document.addEventListener("keydown",escape);return()=>document.removeEventListener("keydown",escape);},[expanded]);
-  return <div ref={surface} className={`remote-screen${inputEnabled?" input-active":""}${connected?" session-present":""}${expanded?" expanded-screen":""}`}>
-    <div className="screen-toolbar" aria-label="远程画面工具栏">
-      <div className="screen-title"><span className={`presence ${hasVideo ? "online" : "offline"}`}><i />{hasVideo ? "实时画面" : "等待画面"}</span><span>{hasVideo ? `${source.width} × ${source.height}` : "连接后自动适配"}</span></div>
-      <div className="screen-actions">
-        <fieldset className="zoom-options"><legend className="sr-only">画面缩放</legend>{([{value:"fit",label:"适应窗口"},{value:"100",label:"100%"},{value:"150",label:"150%"}] as const).map(option=><label key={option.value} className={mode===option.value?"selected":""}><input type="radio" name={`${helpId}-zoom`} value={option.value} checked={mode===option.value} onChange={()=>{suspendInput();setMode(option.value);}}/><span>{option.label}</span></label>)}</fieldset>
-        <button ref={inputToggle} className="secondary-action" disabled={!hasVideo} aria-pressed={inputEnabled} onPointerDown={(ev)=>ev.preventDefault()} onClick={() => { onRelease(); setInputEnabled(!inputEnabled); if (!inputEnabled) videoRef.current?.focus({preventScroll:true}); }}>{inputEnabled ? "停止操作" : "操作远程电脑"}</button>
-        <button className="icon-button" onClick={() => void toggleFullscreen()} aria-label={fullscreen || expanded ? "退出全屏" : "全屏显示"} title={fullscreen || expanded ? "退出全屏" : "全屏显示"}><Icon name="expand" /></button>
-        {connected && <button className="danger-action compact" onClick={onDisconnect}><Icon name="stop" />断开</button>}
-      </div>
+    if(!connected){autoOpened.current=false;setSource({width:0,height:0});setInputEnabled(false);setManualPaused(false);setBackgroundPaused(false);setExpanded(false);setToolsOpen(false);return;}
+    if(hasVideo&&autoFullscreen&&!autoOpened.current){autoOpened.current=true;setExpanded(true);setToolsOpen(false);if(autoControl)videoRef.current?.focus({preventScroll:true});}
+    if(hasVideo&&autoControl&&!manualPaused&&!backgroundPaused&&!document.hidden)setInputEnabled(true);
+    if(!hasVideo)setInputEnabled(false);
+  },[connected,hasVideo,autoControl,autoFullscreen,manualPaused,backgroundPaused]);
+  useEffect(() => {
+    const suspend=()=>{releaseRef.current();setInputEnabled(false);setBackgroundPaused(true);};
+    const resume=()=>{
+      if(document.hidden)return;
+      setBackgroundPaused(false);
+      const current=live.current;
+      if(current.connected&&current.source.width>0&&current.autoControl&&!current.manualPaused)setInputEnabled(true);
+    };
+    const visibility=()=>document.hidden?suspend():resume();
+    const geometry=()=>releaseRef.current();
+    window.addEventListener("blur",suspend);window.addEventListener("focus",resume);document.addEventListener("visibilitychange",visibility);window.addEventListener("orientationchange",geometry);
+    return()=>{window.removeEventListener("blur",suspend);window.removeEventListener("focus",resume);document.removeEventListener("visibilitychange",visibility);window.removeEventListener("orientationchange",geometry);};
+  },[]);
+  function suspendInput(){onRelease();setManualPaused(true);setInputEnabled(false);}
+  function toggleInput(){onRelease();if(inputEnabled){suspendInput();return;}setManualPaused(false);setBackgroundPaused(false);setInputEnabled(hasVideo);videoRef.current?.focus({preventScroll:true});}
+  async function exitFullscreen(){onRelease();setExpanded(false);if(document.fullscreenElement===surface.current)await document.exitFullscreen().catch(()=>{});}
+  async function enterFullscreen(){onRelease();setExpanded(true);setToolsOpen(false);setError("");try{await surface.current?.requestFullscreen();}catch{/* The fixed application surface fills WebViews without native fullscreen. */}}
+  useEffect(()=>{
+    const escape=(event:globalThis.KeyboardEvent)=>{if(event.key!=="Escape"||!live.current.connected)return;event.preventDefault();event.stopPropagation();releaseRef.current();setInputEnabled(false);setManualPaused(true);setExpanded(false);setToolsOpen(true);if(document.fullscreenElement===surface.current)void document.exitFullscreen().catch(()=>{});};
+    document.addEventListener("keydown",escape,true);return()=>document.removeEventListener("keydown",escape,true);
+  },[]);
+  function key(type:"key_down"|"key_up",event:KeyboardEvent<HTMLVideoElement>){if(event.key!=="Escape"&&inputEnabled)onKey(type,event);}
+  const layout=mode==="fill"?filledVideoLayout(size,source):remoteLayout(size,source,mode);
+  const layoutReset=`${size.width}:${size.height}:${source.width}:${source.height}:${mode}:${immersive}`;
+  const measured=(value:number|null|undefined,unit:string,decimals=0)=>typeof value==="number"&&Number.isFinite(value)&&value>=0?`${Number(value.toFixed(decimals))} ${unit}`:"待测";
+  const measuredRtt=telemetry?.rttMs??latency;
+  const actualWidth=telemetry?.width??source.width,actualHeight=telemetry?.height??source.height;
+  const actualResolution=actualWidth>0&&actualHeight>0?`${actualWidth} × ${actualHeight}`:"待测";
+  return <div ref={surface} className={`remote-screen modern-screen${inputEnabled?" input-active":""}${connected?" session-present":""}${expanded?" expanded-screen":""}${toolsOpen?" tools-open":""}`}>
+    <div className="screen-floating-bar" aria-label="远程桌面快捷操作">
+      <button className="screen-menu-toggle" aria-expanded={toolsOpen} aria-controls={`${helpId}-tools`} onClick={()=>setToolsOpen(!toolsOpen)}><Icon name="settings"/><span>{toolsOpen?"收起工具":"工具"}</span></button>
+      <span className="screen-floating-name" title={deviceName}><i className={inputEnabled?"control-ready":""}/><span>{deviceName}<small>{measured(telemetry?.fps,"fps",1)} · {measured(measuredRtt,"ms")}</small></span></span>
+      <button className="screen-floating-exit" aria-label={immersive?"退出全屏":"全屏显示"} title={immersive?"退出全屏":"全屏显示"} onClick={()=>void (immersive?exitFullscreen():enterFullscreen())}><Icon name="expand"/></button>
+      {connected&&<button className="screen-floating-disconnect" onClick={()=>{onRelease();onDisconnect();}}><Icon name="stop"/><span>断开</span></button>}
     </div>
-    <div ref={viewport} className={`remote-viewport ${mode === "fit" ? "fit" : "zoomed"}`}>
-      <div className="video-space" style={hasVideo ? { width:Math.max(size.width,layout.width), height:Math.max(size.height,layout.height) } : undefined}>
-        <video ref={videoRef} autoPlay playsInline tabIndex={hasVideo ? 0 : -1} aria-label="远程桌面画面" aria-describedby={helpId}
-          style={hasVideo ? {width:layout.width,height:layout.height} : {width:"100%",height:"100%"}}
-          onPointerMove={(ev) => { if (inputEnabled && ev.pointerType !== "touch" && ev.pointerType !== "pen") onPointer("mouse_move", ev); }} onPointerDown={(ev) => { if (inputEnabled && ev.pointerType !== "touch" && ev.pointerType !== "pen") onPointer("mouse_down", ev); }} onPointerUp={(ev) => { if (inputEnabled && ev.pointerType !== "touch" && ev.pointerType !== "pen") onPointer("mouse_up", ev); }}
-          onPointerCancel={suspendInput} onBlur={event=>{if(!surface.current?.contains(event.relatedTarget as Node | null))suspendInput();}} onContextMenu={(ev) => { if (inputEnabled) ev.preventDefault(); }} onKeyDown={(ev) => key("key_down", ev)} onKeyUp={(ev) => key("key_up", ev)} />
+    <div ref={viewport} className={`remote-viewport ${mode==="fit"?"fit":mode==="fill"?"fill":"zoomed"}`}>
+      <div className="video-space" style={hasVideo?{width:mode==="fill"?size.width:Math.max(size.width,layout.width),height:mode==="fill"?size.height:Math.max(size.height,layout.height)}:undefined}>
+        <video ref={videoRef} autoPlay playsInline tabIndex={hasVideo?0:-1} aria-label="远程桌面画面" aria-describedby={helpId}
+          style={hasVideo?{width:layout.width,height:layout.height}:{width:"100%",height:"100%"}}
+          onPointerMove={event=>{if(inputEnabled&&event.pointerType!=="touch"&&event.pointerType!=="pen")onPointer("mouse_move",event);}}
+          onPointerDown={event=>{setToolsOpen(false);if(inputEnabled&&event.pointerType!=="touch"&&event.pointerType!=="pen")onPointer("mouse_down",event);}}
+          onPointerUp={event=>{if(inputEnabled&&event.pointerType!=="touch"&&event.pointerType!=="pen")onPointer("mouse_up",event);}}
+          onPointerCancel={()=>onRelease()} onBlur={()=>onRelease()} onContextMenu={event=>{if(inputEnabled)event.preventDefault();}} onKeyDown={event=>key("key_down",event)} onKeyUp={event=>key("key_up",event)}/>
       </div>
-      {!hasVideo && <div className="screen-empty"><span className="screen-empty-icon"><Icon name="monitor" /></span><strong>{connected ? "等待对方授权与画面" : "远程画面将在这里显示"}</strong><p>{status}</p><span>适应窗口 · 原始比例 · 全屏查看</span></div>}
+      {!hasVideo&&<div className="screen-empty"><span className="screen-empty-icon"><Icon name="monitor"/></span><strong>{connected?"正在准备电脑画面":"远程画面将在这里显示"}</strong><p>{status}</p></div>}
     </div>
-    <MobileControls videoRef={videoRef} enabled={inputEnabled} available={hasVideo} textSupported={textSupported} onAction={action=>inputEnabled&&hasVideo?onMobileAction(action):false} onRelease={onRelease} onSuspend={suspendInput}/>
-    <div id={helpId} className="screen-help"><Icon name="shield" /><span>{inputEnabled ? "正在操作远程电脑。按 Esc 或 Tab 释放输入并返回本地。" : "当前仅查看画面。对方授权后，点击「操作远程电脑」开始输入。"}</span></div>
-    {error && <StatusMessage error>{error}</StatusMessage>}
+    <div id={`${helpId}-tools`} className="screen-tools-panel" hidden={!toolsOpen}>
+      <div className="screen-toolbar" aria-label="远程画面工具栏">
+        <div className="screen-title"><span>{deviceName}</span><span>{hasVideo?actualResolution:"等待画面"}</span></div>
+        <dl className="screen-live-metrics" aria-label="实际连接与画面统计">
+          <div><dt>实际分辨率</dt><dd>{actualResolution}</dd></div><div><dt>实际帧率</dt><dd>{measured(telemetry?.fps,"fps",1)}</dd></div>
+          <div><dt>实际码率</dt><dd>{measured(telemetry?.bitrateKbps,"kbps")}</dd></div><div><dt>网络往返</dt><dd>{measured(measuredRtt,"ms")}</dd></div>
+          <div><dt>间隔丢弃帧</dt><dd>{measured(telemetry?.framesDropped,"帧")}</dd></div><div><dt>间隔丢包率</dt><dd>{measured(telemetry?.packetLossPercent,"%",1)}</dd></div>
+        </dl><p className="screen-stat-note">最近采样的实测值；静止画面可能帧率较低。网络往返不等于操作到显示的总延迟。</p>
+        <fieldset className="zoom-options"><legend>画面显示</legend>{([{value:"fit",label:"完整画面"},{value:"fill",label:"铺满裁边"},{value:"100",label:"100%"},{value:"150",label:"150%"}]as const).map(option=><label key={option.value} className={mode===option.value?"selected":""}><input type="radio" name={`${helpId}-zoom`} value={option.value} checked={mode===option.value} onChange={()=>{onRelease();setMode(option.value);}}/><span>{option.label}</span></label>)}</fieldset>
+        {mode==="fill"&&<p className="screen-mode-help">保持画面比例，屏幕边缘会裁切；切回“完整画面”可显示整个桌面。</p>}
+        <button ref={inputToggle} className="secondary-action screen-input-toggle" disabled={!hasVideo} aria-pressed={inputEnabled} onPointerDown={event=>{if(event.button===0)event.preventDefault();}} onClick={toggleInput}>{inputEnabled?"暂停操作":"恢复操作"}</button>
+      </div>
+      <MobileControls videoRef={videoRef} enabled={inputEnabled} available={hasVideo} textSupported={textSupported} open={toolsOpen} resetKey={layoutReset} onAction={action=>inputEnabled&&hasVideo?onMobileAction(action):false} onRelease={onRelease} onSuspend={suspendInput}/>
+      <div className="screen-help"><Icon name="shield"/><span>{backgroundPaused?"应用已离开前台，输入已释放。":inputEnabled?"正在操作电脑。点击画面直接控制；Esc 返回窗口并暂停操作。":"输入已暂停，点击“恢复操作”继续。"}</span></div>
+      {error&&<StatusMessage error>{error}</StatusMessage>}
+    </div>
+    <p id={helpId} className="sr-only">{inputEnabled?"远程输入已开启，工具菜单可暂停操作和调整显示。":"远程输入未开启。"}</p>
   </div>;
 }

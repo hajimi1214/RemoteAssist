@@ -78,12 +78,21 @@ export interface AssistRequest {
   status: string;
   createdAt: string;
 }
+export interface DirectSession extends JoinSession { hostDeviceId:string; controllerDeviceId:string }
+export interface DirectPending {id:string;hostToken:string;expiresAt:string;controllerDeviceName:string;hostDeviceId:string;controllerDeviceId:string}
 
 const defaultBaseURL = configuredServer() || import.meta.env.VITE_SIGNALING_URL || (import.meta.env.DEV && !androidClient ? "http://localhost:8080" : "");
 
 export class SignalingClient {
   private refreshFlight?: { token: string; result: Promise<AuthResult> };
   constructor(private readonly baseURL = defaultBaseURL.replace(/\/$/, "")) {}
+  serviceURL():string { return this.getBaseURL(); }
+  async connectDevice(accessToken:string, hostDeviceId:string, controllerDeviceId:string):Promise<DirectSession> {
+    return this.request(`/api/v1/devices/${encodeURIComponent(hostDeviceId)}/connect`,{method:"POST",body:JSON.stringify({controllerDeviceId})},accessToken);
+  }
+  async incomingDevices(accessToken:string,hostDeviceId:string):Promise<DirectPending[]> {
+    const response=await this.request<{sessions:DirectPending[]}>(`/api/v1/devices/${encodeURIComponent(hostDeviceId)}/direct-sessions`,{},accessToken);return response.sessions??[];
+  }
 
   async register(username: string, email: string, password: string, signal?: AbortSignal): Promise<AuthResult> {
     return this.request<AuthResult>("/api/v1/auth/register", {

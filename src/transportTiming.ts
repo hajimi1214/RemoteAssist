@@ -2,6 +2,7 @@ export const HEARTBEAT_INTERVAL_MS = 2_000;
 export const HEARTBEAT_TIMEOUT_MS = 8_000;
 export const NEGOTIATION_TIMEOUT_MS = 25_000;
 export const POINTER_MAX_AGE_MS = 150;
+export const POINTER_INTERVAL_MS = 1000 / 90;
 
 // Monotonic time and individually correlated probes support RTTs longer than
 // one probe interval; a late pong must not be compared with the newest ping.
@@ -49,7 +50,7 @@ export class LatestPointer<T> {
   private readonly cancel: (id: ReturnType<typeof setTimeout>) => void;
   constructor(
     send: (value: T) => boolean | void,
-    intervalMs = 20,
+    intervalMs = POINTER_INTERVAL_MS,
     now: () => number = () => performance.now(),
     schedule: (fn: () => void, ms: number) => ReturnType<typeof setTimeout> = (fn,ms)=>setTimeout(fn,ms),
     cancel: (id: ReturnType<typeof setTimeout>) => void = (id)=>clearTimeout(id)

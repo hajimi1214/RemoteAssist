@@ -1,6 +1,6 @@
 [package]
 name = "remoteassist"
-version = "0.9.0-alpha"
+version = "0.10.0-alpha"
 description = "Visible Windows remote assistance client"
 edition = "2021"
 
@@ -18,4 +18,6 @@ tauri = { version = "2.12.7", features = [] }
 thiserror = "2.0"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62.2", features = ["Win32_Security_Credentials", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62.2", features = ["Win32_Security_Credentials", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "native-tls"] }
+chrono = { version = "0.4.45", default-features = false, features = ["std"] }

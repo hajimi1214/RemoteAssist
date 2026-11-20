@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TouchController, normalizeServerAddress, validRemoteText } from "./mobileInput.ts";
+import { TouchController, filledVideoLayout, normalizeServerAddress, validRemoteText } from "./mobileInput.ts";
 const p=(id=1,x=20,y=20,at=0)=>({id,x:x/100,y:y/100,clientX:x,clientY:y,at});
 test("touch taps click only on release, movement does not accidentally click",()=>{
   const t=new TouchController(); assert.equal(t.down(p(),false)[0].type,"mouse_move");
@@ -22,8 +22,18 @@ test("two-finger scroll cannot turn the remaining finger into a click",()=>{
   t.down(p(1,20,20,200),false);t.down(p(2,40,20,200),false);assert.equal(t.move(p(2,40,50,230))[0].type,"mouse_wheel");
 });
 test("long press and distant up without move do not activate desktop",()=>{
-  const t=new TouchController();t.down(p(),false);assert.deepEqual(t.up(p(1,20,20,800)),[]);
+  const t=new TouchController();t.down(p(),false);assert.deepEqual(t.up(p(1,20,20,1000)),[]);
   t.down(p(),false);assert.deepEqual(t.up(p(1,80,80,100)),[]);
+});
+test("finger jitter stays a tap but interrupted pointer capture cannot replay it",()=>{
+  const t=new TouchController();t.down(p(),false);assert.ok(t.hasPointer(1));t.move(p(1,29,28,100));
+  assert.deepEqual(t.up(p(1,29,28,200)).map(action=>action.type),["mouse_down","mouse_up"]);assert.equal(t.hasPointer(1),false);
+  t.down(p(),true);t.cancel();assert.deepEqual(t.up(p(1,20,20,200)),[]);
+});
+test("filled video layout preserves source ratio while covering the viewport",()=>{
+  const layout=filledVideoLayout({width:1200,height:800},{width:1920,height:1080});
+  assert.equal(layout.height,800);assert.ok(layout.width>=1200);assert.equal(layout.width/layout.height,1920/1080);
+  assert.deepEqual(filledVideoLayout({width:0,height:800},{width:1920,height:1080}),{width:0,height:0,scale:1});
 });
 test("Unicode text accepts bounded composed input and rejects malformed/control data",()=>{
   assert.ok(validRemoteText("中文 🙂\nhello\tworld"));assert.ok(validRemoteText("a".repeat(128)));

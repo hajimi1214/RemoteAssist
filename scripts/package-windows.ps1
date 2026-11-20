@@ -1,10 +1,12 @@
 param(
-  [Parameter(Mandatory = $true)]
-  [ValidatePattern('^https://')]
-  [string]$SignalingUrl
+  [string]$SignalingUrl = ""
 )
 
 $ErrorActionPreference = "Stop"
+if ($SignalingUrl) {
+  $serviceUri = $null
+  if (![Uri]::TryCreate($SignalingUrl, [UriKind]::Absolute, [ref]$serviceUri) -or $serviceUri.Scheme -ne "https" -or $serviceUri.UserInfo -or $serviceUri.Query -or $serviceUri.Fragment -or $serviceUri.AbsolutePath -ne "/") { throw "SignalingUrl must be an HTTPS service origin without credentials, paths or parameters." }
+}
 
 $root = Split-Path -Parent $PSScriptRoot
 $tauriConfig = Get-Content (Join-Path $root "src-tauri\tauri.conf.json") -Raw | ConvertFrom-Json

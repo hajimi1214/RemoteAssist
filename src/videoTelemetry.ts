@@ -18,6 +18,11 @@ export interface VideoTelemetry {
   jitterBufferMs?: number;
   framesDropped?: number;
   sendQueueMs?: number;
+  /** Configured upper bounds, distinct from observed FPS/throughput. */
+  targetFps?: number;
+  targetBitrateKbps?: number;
+  /** Browser encoder's current target estimate, when exposed by getStats. */
+  encoderTargetKbps?: number;
 }
 
 interface Counters { timestamp: number; bytes: number; frames?: number; received?: number; lost?: number; processingTime?: number; bufferDelay?: number; bufferCount?: number; dropped?: number; sendDelay?: number; sent?: number }
@@ -33,12 +38,13 @@ export class VideoStatsSampler {
     const result: VideoTelemetry = { direction, route: connectionRoute(stats) };
     const network = connectionSample(stats);
     result.rttMs = numeric(network.rttMs);
+    if(direction==="send")result.qualityLimitation=network.qualityLimitationReason;
     const next = new Map<string, Counters>();
     let bitrate = 0; let measuredBitrate = false;
     let fps = 0; let measuredFps = false;
     let lost = 0; let received = 0; let measuredLoss = false;
     let processingTime=0; let processedFrames=0; let bufferDelay=0; let bufferCount=0; let dropped=0; let measuredDropped=false;
-    let sendDelay=0;let sent=0;
+    let sendDelay=0;let sent=0;let encoderTarget=0;let measuredTarget=false;
     stats.forEach((report) => {
       if (report.type !== (direction === "send" ? "outbound-rtp" : "inbound-rtp") || (report.kind ?? report.mediaType) !== "video") return;
       const bytes = numeric(direction === "send" ? report.bytesSent : report.bytesReceived);
@@ -59,7 +65,7 @@ export class VideoStatsSampler {
         bitrate += (bytes-before.bytes)*8/elapsed;
         measuredBitrate = true;
         if (current.frames != null && before.frames != null && current.frames >= before.frames) {
-          fps += (current.frames-before.frames)*1000/elapsed; measuredFps = true;
+          fps = Math.max(fps,(current.frames-before.frames)*1000/elapsed); measuredFps = true;
           if(current.processingTime!=null&&before.processingTime!=null&&current.processingTime>=before.processingTime&&current.frames>before.frames){
             processingTime+=current.processingTime-before.processingTime; processedFrames+=current.frames-before.frames;
           }
@@ -79,7 +85,7 @@ export class VideoStatsSampler {
       if (typeof codec?.mimeType === "string") result.codec=codec.mimeType.replace(/^video\//i,"").slice(0,24);
       const jitter=numeric(report.jitter); if(jitter!=null) result.jitterMs=jitter*1000;
       const freezes=numeric(report.freezeCount); if(freezes!=null) result.freezes=freezes;
-      if (typeof report.qualityLimitationReason === "string") result.qualityLimitation=report.qualityLimitationReason;
+      const target=numeric(report.targetBitrate);if(target!=null){encoderTarget+=target;measuredTarget=true;}
     });
     this.previous=next;
     if(measuredBitrate)result.bitrateKbps=Math.round(bitrate);
@@ -89,6 +95,7 @@ export class VideoStatsSampler {
     if(bufferCount>0)result.jitterBufferMs=Math.round(bufferDelay*10000/bufferCount)/10;
     if(measuredDropped)result.framesDropped=dropped;
     if(sent>0)result.sendQueueMs=Math.round(sendDelay*10000/sent)/10;
+    if(measuredTarget)result.encoderTargetKbps=Math.round(encoderTarget/1000);
     return result;
   }
 }

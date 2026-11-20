@@ -4,6 +4,7 @@ import { App } from "./App";
 import "./styles.css";
 import "./workspaceChrome.css";
 import "./mobile.css";
+import "./deviceWorkspace.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

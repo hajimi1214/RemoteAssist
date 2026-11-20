@@ -5,9 +5,10 @@ import { TouchController, validRemoteText } from "./mobileInput";
 import type { MobileAction, TouchPoint } from "./mobileInput";
 import { androidClient } from "./platform";
 
-export function MobileControls({ videoRef, enabled, available, textSupported, onAction, onRelease, onSuspend }: {
+export function MobileControls({ videoRef, enabled, available, textSupported, onAction, onRelease, onSuspend, open = true, resetKey = "" }: {
   videoRef: RefObject<HTMLVideoElement | null>; enabled: boolean; available: boolean; textSupported: boolean;
   onAction: (action: MobileAction) => boolean; onRelease: () => void; onSuspend: () => void;
+  open?: boolean; resetKey?: string;
 }) {
   const [visible, setVisible] = useState(androidClient || navigator.maxTouchPoints > 0);
   const [drag, setDrag] = useState(false);
@@ -21,6 +22,8 @@ export function MobileControls({ videoRef, enabled, available, textSupported, on
   useEffect(() => {
     if (!enabled) { gesture.current.cancel(); setDrag(false); setKeyboard(false); setText(""); }
   }, [enabled]);
+  useEffect(() => { gesture.current.cancel(); live.current.onRelease(); }, [resetKey]);
+  useEffect(() => { if(!open){setKeyboard(false);setText("");setMessage("");} },[open]);
   useEffect(() => {
     const video = videoRef.current; if (!video) return;
     const point = (event: PointerEvent): TouchPoint | null => {
@@ -36,14 +39,15 @@ export function MobileControls({ videoRef, enabled, available, textSupported, on
       const p = point(event);
       if (!p) { if (kind === "up") { gesture.current.cancel(); live.current.onRelease(); } return; }
       lastPoint.current = { x: p.x, y: p.y };
-      if (kind === "down") { video.setPointerCapture(event.pointerId); send(gesture.current.down(p, live.current.drag)); }
+      if (kind === "down") { try { video.setPointerCapture(event.pointerId); } catch { gesture.current.cancel();live.current.onRelease();return; } send(gesture.current.down(p, live.current.drag)); }
       else if (kind === "move") send(gesture.current.move(p));
       else { send(gesture.current.up(p)); if(video.hasPointerCapture(event.pointerId))video.releasePointerCapture(event.pointerId); }
     };
     const down = (event: PointerEvent) => handle("down", event), move = (event: PointerEvent) => handle("move", event), up = (event: PointerEvent) => handle("up", event);
     const cancel = () => { gesture.current.cancel(); live.current.onRelease(); };
-    video.addEventListener("pointerdown", down); video.addEventListener("pointermove", move); video.addEventListener("pointerup", up); video.addEventListener("pointercancel", cancel);
-    return () => { cancel(); video.removeEventListener("pointerdown",down);video.removeEventListener("pointermove",move);video.removeEventListener("pointerup",up);video.removeEventListener("pointercancel",cancel); };
+    const lost = (event:PointerEvent) => { if(gesture.current.hasPointer(event.pointerId))cancel(); };
+    video.addEventListener("pointerdown", down); video.addEventListener("pointermove", move); video.addEventListener("pointerup", up); video.addEventListener("pointercancel", cancel);video.addEventListener("lostpointercapture",lost);
+    return () => { cancel(); video.removeEventListener("pointerdown",down);video.removeEventListener("pointermove",move);video.removeEventListener("pointerup",up);video.removeEventListener("pointercancel",cancel);video.removeEventListener("lostpointercapture",lost); };
   }, [videoRef]);
   const key = (key: string, code: string) => {
     if (!enabled) return;
@@ -64,7 +68,7 @@ export function MobileControls({ videoRef, enabled, available, textSupported, on
       <button disabled={!enabled} aria-expanded={keyboard} onClick={() => { onRelease(); setKeyboard(!keyboard); if(!keyboard)requestAnimationFrame(()=>textRef.current?.focus()); }}>键盘 / 文字</button>
       <button className="touch-stop" disabled={!enabled} onClick={onSuspend}>停止操作</button>
     </div>
-    <p className="touch-instructions">{enabled ? "轻点点击 · 单指移动光标 · 双指上下滚动。开启拖拽后，可拖动窗口或选择内容。" : available ? "先点击「操作远程电脑」。查看模式下可拖动画面，或选择缩放比例查看细节。" : "电脑端同意并出现画面后，才能开启触屏操作。"}</p>
+    <p className="touch-instructions">{enabled ? "轻点点击 · 单指移动光标 · 双指上下滚动。开启拖拽后，可拖动窗口或选择内容。" : available ? "输入已暂停，点击“恢复操作”继续。" : "设备连接并出现画面后，即可触屏操作。"}</p>
     {keyboard && enabled && <div className="mobile-keyboard-panel">
       <div className="mobile-key-row">{[{key:"Escape",code:"Escape",label:"Esc"},{key:"Tab",code:"Tab",label:"Tab"},{key:"Backspace",code:"Backspace",label:"退格"},{key:"Enter",code:"Enter",label:"回车"},{key:"ArrowLeft",code:"ArrowLeft",label:"←"},{key:"ArrowRight",code:"ArrowRight",label:"→"},{key:"ArrowUp",code:"ArrowUp",label:"↑"},{key:"ArrowDown",code:"ArrowDown",label:"↓"}].map(item=><button key={item.code} aria-label={`发送${item.key}`} onClick={()=>key(item.key,item.code)}>{item.label}</button>)}</div>
       <label htmlFor="remote-text-draft">发送到电脑当前输入位置</label><textarea ref={textRef} id="remote-text-draft" value={text} maxLength={128} disabled={!textSupported} autoComplete="off" autoCorrect="off" spellCheck={false} rows={2} onChange={event=>{setText(event.target.value.replace(/\r\n?/g,"\n"));setMessage("");}} aria-describedby="remote-text-help"/>

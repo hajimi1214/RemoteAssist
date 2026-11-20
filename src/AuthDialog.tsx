@@ -75,13 +75,13 @@ export function AuthDialog({ mode, error, onError, onMode, onAuth, signaling, on
           </FloatingField>
           {mode === "register" && <FloatingField label="确认密码" help="再次输入相同密码，避免输入错误。" name="confirm" required type={showPassword ? "text" : "password"} autoComplete="new-password" value={form.confirm} onChange={ev => changeField("confirm", ev.target.value)} onBlur={() => blurField("confirm")} error={fieldErrors.confirm} disabled={busy} />}
           {secureCredentialStorage ? <label className="check-row"><input type="checkbox" checked={remember} onChange={(ev) => setRemember(ev.target.checked)} disabled={busy} />在这台电脑上记住登录</label> : <p className="field-hint">登录仅保留在本次运行，关闭后需重新登录。</p>}
-          {mode === "register" && <div><label className="check-row"><input name="consent" required type="checkbox" checked={form.consent} onChange={ev => changeField("consent", ev.target.checked)} onBlur={() => blurField("consent")} aria-invalid={fieldErrors.consent ? true : undefined} aria-describedby={fieldErrors.consent ? "auth-consent-error" : undefined} disabled={busy} />我只在设备所有者明确授权后使用远程协助。</label>{fieldErrors.consent && <p id="auth-consent-error" className="field-error" role="alert">{fieldErrors.consent}</p>}</div>}
+          {mode === "register" && <div><label className="check-row"><input name="consent" required type="checkbox" checked={form.consent} onChange={ev => changeField("consent", ev.target.checked)} onBlur={() => blurField("consent")} aria-invalid={fieldErrors.consent ? true : undefined} aria-describedby={fieldErrors.consent ? "auth-consent-error" : undefined} disabled={busy} />我了解同账号设备可直接连接，并仅操作我有权使用的设备。</label>{fieldErrors.consent && <p id="auth-consent-error" className="field-error" role="alert">{fieldErrors.consent}</p>}</div>}
           </>}
           {error && <StatusMessage error>{error}</StatusMessage>}
           <button className="primary-action wide-action" type="submit" disabled={busy} onPointerDown={ev=>{if(ev.button===0)ev.preventDefault();}}>{busy ? "正在连接…" : mode === "signin" ? "登录" : registerStep === 0 ? "下一步：设置密码" : "创建账号"}{busy ? <ButtonSpinner/> : <Icon name="arrow"/>}</button>
           <p className="auth-switch">{mode === "register" && registerStep === 1 && <button type="button" className="link-button" disabled={busy} onClick={() => { setRegisterStep(0); setFieldErrors({}); setFocusField("username"); }}>上一步</button>}{mode === "signin" ? "还没有账号？" : "已经有账号？"}<button type="button" className="link-button" disabled={busy} onClick={changeMode}>{mode === "signin" ? "创建账号" : "返回登录"}</button></p>
         </form>
     </div>
-    <p className="login-reassurance"><Icon name="shield"/>每次远程控制仍需对方同意。</p>
+    <p className="login-reassurance"><Icon name="shield"/>同账号设备直接连接，随时停止远程访问。</p>
   </ModalFrame>;
 }

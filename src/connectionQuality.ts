@@ -1,5 +1,7 @@
 export type VideoQuality = "Economy" | "Constrained" | "Balanced" | "Sharp";
 export type VideoPreference = "auto" | "text" | "motion";
+export interface VideoSourceSize { width?: number; height?: number }
+export const videoTarget = { width: 3840, height: 2160, maxFramerate: 60 } as const;
 
 export interface ConnectionSample {
   rttMs?: number;
@@ -10,30 +12,41 @@ export interface ConnectionSample {
 }
 
 export const videoProfiles = {
-  Economy: { maxBitrate: 650_000, maxFramerate: 12, scaleResolutionDownBy: 2 },
-  Constrained: { maxBitrate: 1_100_000, maxFramerate: 12, scaleResolutionDownBy: 1 },
-  Balanced: { maxBitrate: 1_800_000, maxFramerate: 20, scaleResolutionDownBy: 1 },
-  Sharp: { maxBitrate: 4_000_000, maxFramerate: 30, scaleResolutionDownBy: 1 }
+  Economy: { maxBitrate: 1_000_000, maxFramerate: 15, scaleResolutionDownBy: 2 },
+  Constrained: { maxBitrate: 3_000_000, maxFramerate: 30, scaleResolutionDownBy: 1 },
+  Balanced: { maxBitrate: 8_000_000, maxFramerate: 60, scaleResolutionDownBy: 1 },
+  Sharp: { maxBitrate: 16_000_000, maxFramerate: 60, scaleResolutionDownBy: 1 }
 } satisfies Record<VideoQuality, Pick<RTCRtpEncodingParameters, "maxBitrate" | "maxFramerate" | "scaleResolutionDownBy">>;
 
 const qualityLevels: VideoQuality[] = ["Economy", "Constrained", "Balanced", "Sharp"];
 const qualityRank: Record<VideoQuality, number> = { Economy: 0, Constrained: 1, Balanced: 2, Sharp: 3 };
 
-export function videoEncoding(quality: VideoQuality, preference: VideoPreference) {
+export function videoEncoding(quality: VideoQuality, preference: VideoPreference, source: VideoSourceSize = {}) {
   const profile = { ...videoProfiles[quality] };
+  const width = finiteNonnegative(source.width), height = finiteNonnegative(source.height);
   if (preference === "text") profile.maxFramerate = Math.min(profile.maxFramerate, 15);
   if (preference === "motion" && quality === "Constrained") {
-    profile.maxFramerate = 20;
-    profile.scaleResolutionDownBy = 1.5;
+    profile.maxFramerate = 45;
+    profile.scaleResolutionDownBy = Math.max(profile.scaleResolutionDownBy, 1.5);
+  }
+  if (width && height) {
+    // Budget the actual encoded pixels. Never upscale a smaller host screen.
+    const targetScale = Math.max(1, width / videoTarget.width, height / videoTarget.height);
+    profile.scaleResolutionDownBy = Math.max(profile.scaleResolutionDownBy, targetScale);
+    const encodedPixels = width * height / (profile.scaleResolutionDownBy ** 2);
+    const factor = Math.min(2.5, Math.max(.5, encodedPixels / (1920 * 1080)));
+    profile.maxBitrate = Math.round(profile.maxBitrate * factor);
   }
   return profile;
 }
 
 // Hysteresis avoids resolution flicker when bandwidth oscillates near a threshold.
 export class AdaptiveVideoPolicy {
-  current: VideoQuality = "Balanced";
+  current: VideoQuality;
   private candidate?: VideoQuality;
   private samples = 0;
+
+  constructor(initial: VideoQuality = "Balanced") { this.current = initial; }
 
   observe(sample: ConnectionSample): VideoQuality {
     const bandwidth = finiteNonnegative(sample.availableOutgoingBitrate);

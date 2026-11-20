@@ -222,6 +222,42 @@ func (s *Service) Heartbeat(ctx context.Context, accessToken, deviceID string) (
 	return device, nil
 }
 
+// LiveDevicePair rechecks a stored direct-session owner and both devices. It is
+// also used for signaling sockets so a token cannot outlive device revocation
+// or an account being disabled. Device IDs are never accepted across accounts.
+func (s *Service) LiveDevicePair(ctx context.Context, userID, hostDeviceID, controllerDeviceID string) (Device, Device, error) {
+	user, err := s.store.GetUserByID(ctx, userID)
+	if err != nil || user.DisabledAt != nil {
+		return Device{}, Device{}, ErrUnauthorized
+	}
+	if hostDeviceID == "" || controllerDeviceID == "" || hostDeviceID == controllerDeviceID {
+		return Device{}, Device{}, ErrInvalidInput
+	}
+	devices, err := s.store.ListDevices(ctx, userID)
+	if err != nil {
+		return Device{}, Device{}, err
+	}
+	var host, controller *Device
+	for i := range devices {
+		if devices[i].ID == hostDeviceID && devices[i].RevokedAt == nil {
+			host = &devices[i]
+		}
+		if devices[i].ID == controllerDeviceID && devices[i].RevokedAt == nil {
+			controller = &devices[i]
+		}
+	}
+	if host == nil || controller == nil {
+		return Device{}, Device{}, ErrNotFound
+	}
+	now := s.cfg.Now()
+	if !s.isOnline(*host, now) || !s.isOnline(*controller, now) {
+		return Device{}, Device{}, ErrConflict
+	}
+	host.Online = true
+	controller.Online = true
+	return *host, *controller, nil
+}
+
 func (s *Service) issueTokens(ctx context.Context, user User) (AuthResult, error) {
 	now := s.cfg.Now()
 	access, err := NewAccessToken(user, s.cfg.AccessSecret, s.cfg.AccessTTL, now)

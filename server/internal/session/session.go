@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -52,14 +53,17 @@ type Store struct {
 }
 
 type Session struct {
-	ID              string    `json:"id"`
-	Code            string    `json:"code"`
-	State           State     `json:"state"`
-	HostToken       string    `json:"-"`
-	ControllerToken string    `json:"-"`
-	CreatedAt       time.Time `json:"createdAt"`
-	ExpiresAt       time.Time `json:"expiresAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
+	ID                 string    `json:"id"`
+	Code               string    `json:"code"`
+	State              State     `json:"state"`
+	HostToken          string    `json:"-"`
+	ControllerToken    string    `json:"-"`
+	CreatedAt          time.Time `json:"createdAt"`
+	ExpiresAt          time.Time `json:"expiresAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
+	OwnerUserID        string    `json:"-"`
+	HostDeviceID       string    `json:"hostDeviceId,omitempty"`
+	ControllerDeviceID string    `json:"controllerDeviceId,omitempty"`
 }
 
 func NewStore(cfg StoreConfig) *Store {
@@ -158,6 +162,99 @@ func (s *Store) Join(code string) (*Session, string, error) {
 	return clone(current), token, nil
 }
 
+// CreateDeviceSession creates a code-free session after the HTTP layer has
+// authenticated ownership of both live devices. Host activation is still an
+// explicit protocol transition, so no offer is forwarded before capture starts.
+func (s *Store) CreateDeviceSession(userID, hostDeviceID, controllerDeviceID string) (*Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if userID == "" || hostDeviceID == "" || controllerDeviceID == "" || hostDeviceID == controllerDeviceID {
+		return nil, ErrInvalidState
+	}
+	s.cleanupLocked()
+	for _, current := range s.byID {
+		if current.HostDeviceID == hostDeviceID && !isTerminalState(current.State) {
+			return nil, ErrInvalidState
+		}
+	}
+	if len(s.byID) >= s.maxSessions {
+		return nil, ErrCapacity
+	}
+	id, err := randomToken(18)
+	if err != nil {
+		return nil, err
+	}
+	hostToken, err := randomToken(32)
+	if err != nil {
+		return nil, err
+	}
+	controllerToken, err := randomToken(32)
+	if err != nil {
+		return nil, err
+	}
+	now := s.now()
+	waitTTL := min(s.codeTTL, time.Minute)
+	created := &Session{ID: id, State: StateWaitingForHostApproval, HostToken: hostToken, ControllerToken: controllerToken, CreatedAt: now, UpdatedAt: now, ExpiresAt: now.Add(waitTTL), OwnerUserID: userID, HostDeviceID: hostDeviceID, ControllerDeviceID: controllerDeviceID}
+	s.byID[id] = created
+	return clone(created), nil
+}
+
+func (s *Store) PendingDeviceSessions(userID, hostDeviceID string) []*Session {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cleanupLocked()
+	out := make([]*Session, 0)
+	for _, current := range s.byID {
+		if current.OwnerUserID == userID && current.HostDeviceID == hostDeviceID && current.State == StateWaitingForHostApproval {
+			out = append(out, clone(current))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out
+}
+
+func (s *Store) AcceptDeviceSession(id, userID, hostDeviceID, hostToken string) (*Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, err := s.getActiveLocked(id)
+	if err != nil {
+		return nil, err
+	}
+	if current.OwnerUserID == "" || current.OwnerUserID != userID || current.HostDeviceID != hostDeviceID {
+		return nil, ErrNotFound
+	}
+	if !constantTokenMatch(hostToken, current.HostToken) {
+		return nil, ErrInvalidToken
+	}
+	if current.State != StateWaitingForHostApproval {
+		return nil, ErrInvalidState
+	}
+	if !s.now().Before(current.CreatedAt.Add(s.activeTTL)) {
+		return nil, ErrExpired
+	}
+	current.State = StateAuthorizedActive
+	current.UpdatedAt = s.now()
+	current.ExpiresAt = current.CreatedAt.Add(s.activeTTL)
+	return clone(current), nil
+}
+
+// InvalidateDeviceSessions is called after revocation. Capability tokens are
+// removed before the HTTP layer closes the corresponding signaling sockets.
+func (s *Store) InvalidateDeviceSessions(deviceID string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var ids []string
+	for _, current := range s.byID {
+		if current.OwnerUserID != "" && (current.HostDeviceID == deviceID || current.ControllerDeviceID == deviceID) && !isTerminalState(current.State) {
+			current.State = StateDisconnected
+			current.UpdatedAt = s.now()
+			s.clearSessionTokensLocked(current)
+			ids = append(ids, current.ID)
+		}
+	}
+	return ids
+}
+
 func (s *Store) Approve(id, hostToken string) (*Session, error) {
 	return s.transitionWithHostToken(id, hostToken, StateWaitingForHostApproval, StateAuthorizedActive)
 }
@@ -225,6 +322,9 @@ func (s *Store) transitionWithHostToken(id, hostToken string, from, to State) (*
 	}
 	if !constantTokenMatch(hostToken, current.HostToken) {
 		return nil, ErrInvalidToken
+	}
+	if current.OwnerUserID != "" && to == StateAuthorizedActive {
+		return nil, ErrInvalidState
 	}
 	if current.State != from {
 		return nil, ErrInvalidState

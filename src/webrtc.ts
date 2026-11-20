@@ -20,6 +20,7 @@ export interface PeerCallbacks {
   onQuality?: (quality: VideoQuality | "Browser managed") => void;
   onTelemetry?: (sample: VideoTelemetry) => void;
   onTextSupport?: (supported: boolean) => void;
+  onInputStatus?: (status: { reason: "limited" | "rejected"; rejected: number }) => void;
   onFailure?: (reason: string) => void;
 }
 export interface PeerOptions {
@@ -155,7 +156,9 @@ export class HostPeer extends SessionPeer {
   private lastHeartbeat=0;
   private preference: VideoPreference;
   private appliedProfile="";
-  private readonly policy=new AdaptiveVideoPolicy();
+  private readonly policy=new AdaptiveVideoPolicy("Sharp");
+  private lastInputWarning=-Infinity;
+  private rejectedInputs=0;
 
   constructor(sessionId:string,hostToken:string,ws:WebSocket,iceServers:IceServer[],callbacks:PeerCallbacks={},options:PeerOptions={}){
     super(sessionId,hostToken,ws,iceServers,callbacks,options);this.preference=options.preference??"auto";
@@ -163,7 +166,8 @@ export class HostPeer extends SessionPeer {
   setPreference(preference: VideoPreference) {
     this.preference=preference;
     this.appliedProfile="";
-    if(this.videoTrack)this.videoTrack.contentHint=preference==="motion"?"motion":"text";
+    if(this.videoTrack)this.videoTrack.contentHint=preference==="motion"?"motion":preference==="text"?"text":"detail";
+    void this.applyVideoProfile();
   }
   async start(stream:MediaStream,gate:InputEventGate):Promise<void>{
     if(this.closed||this.pc)return;
@@ -174,8 +178,11 @@ export class HostPeer extends SessionPeer {
       if(!stream.getVideoTracks().some(track=>track.readyState==="live"))throw new Error("capture_ended");
       this.pc=new RTCPeerConnection({iceServers:servers,bundlePolicy:"max-bundle"});
       stream.getTracks().forEach(track=>{
-        const sender=this.pc!.addTrack(track,stream);
-        if(track.kind==="video"){this.videoSender=sender;this.videoTrack=track;track.contentHint=this.preference==="motion"?"motion":"text";}
+        if(track.kind==="video"){
+          this.videoTrack=track;track.contentHint=this.preference==="motion"?"motion":this.preference==="text"?"text":"detail";
+          // Seed encoding ceilings in the first offer, not several seconds after media starts.
+          this.videoSender=this.pc!.addTransceiver(track,{direction:"sendonly",streams:[stream],sendEncodings:[videoEncoding(this.policy.current,this.preference,track.getSettings())]}).sender;
+        } else this.pc!.addTrack(track,stream);
       });
       this.inputChannel=this.pc.createDataChannel("input",{ordered:true});
       this.pointerChannel=this.pc.createDataChannel("pointer",{ordered:false,maxRetransmits:0});
@@ -188,7 +195,7 @@ export class HostPeer extends SessionPeer {
       };
       this.pointerChannel.onmessage=(ev)=>{
         const msg=parseMessage(ev.data);
-        if(msg?.type==="mouse_move")void gate.accept(msg).catch(()=>undefined);
+        if(msg?.type==="mouse_move")void gate.accept(msg).catch(error=>this.reportInputRejection(error));
       };
       this.inputChannel.onmessage=(ev)=>{
         const msg=parseMessage(ev.data);if(!msg)return;
@@ -198,16 +205,19 @@ export class HostPeer extends SessionPeer {
             this.lastHeartbeat=performance.now();
             this.sendReliable({type:"pong",sessionToken:msg.sessionToken,ts:msg.ts,probeId:msg.probeId,textInputVersion:1});
           }
-        }).catch(()=>{
+        }).catch(error=>{
           // A failed authenticated keepalive means the native authorization lease
           // cannot be maintained; do not leave a seemingly usable session running.
           if(msg.type==="ping"&&!this.closed)this.fail("input_authorization_lost");
+          else this.reportInputRejection(error);
         });
       };
       this.installPeerHandlers();
       const offer=await this.pc.createOffer();
       if(this.closed)return;
       await this.pc.setLocalDescription(offer);
+      if(this.closed)return;
+      await this.applyVideoProfile();
       if(this.closed)return;
       this.sendSignal("offer",offer);
       this.startQualityMonitor();
@@ -219,7 +229,7 @@ export class HostPeer extends SessionPeer {
     if(msg.type==="answer"){
       if(!this.pc)return;
       await this.pc.setRemoteDescription(msg.payload as RTCSessionDescriptionInit);
-      if(!this.closed)await this.remoteIce.flush(this.pc);
+      if(!this.closed){await this.remoteIce.flush(this.pc);await this.applyVideoProfile();}
     }else if(msg.type==="ice"&&msg.payload){
       await this.remoteIce.accept(this.pc,msg.payload as RTCIceCandidateInit);
     }
@@ -229,6 +239,41 @@ export class HostPeer extends SessionPeer {
     if(this.heartbeatTimer!=null)window.clearInterval(this.heartbeatTimer);
     super.close();
   }
+  private reportInputRejection(error:unknown){
+    if(this.closed)return;
+    const reason=typeof error==="string"?error:error instanceof Error?error.message:"";
+    // Delayed unordered motion is expected at sequence barriers, not an input failure.
+    if(reason==="stale_pointer_event")return;
+    if(["input_not_authorized","input_authorization_lost","invalid_session_token","send_input_failed"].includes(reason)){this.fail(reason==="send_input_failed"?"input_delivery_failed":"input_authorization_lost");return;}
+    this.rejectedInputs++;
+    if(performance.now()-this.lastInputWarning<1000)return;
+    this.lastInputWarning=performance.now();
+    const status={reason:reason==="input_rate_limited"?"limited" as const:"rejected" as const,rejected:this.rejectedInputs};
+    this.callbacks.onInputStatus?.(status);
+    // No input payload, key, coordinate, token value, or native exception text is reported.
+    this.sendReliable({type:"input_status",sessionId:this.sessionId,...status});
+  }
+  private applyingProfile?:Promise<void>;
+  private async applyVideoProfile(){
+    if(this.applyingProfile)return this.applyingProfile;
+    this.applyingProfile=this.updateVideoProfile().finally(()=>{this.applyingProfile=undefined;});
+    return this.applyingProfile;
+  }
+  private async updateVideoProfile(){
+    if(this.closed||!this.videoSender||!this.videoTrack)return;
+    const quality=this.policy.current;
+    const settings=this.videoTrack.getSettings();
+    const key=[quality,this.preference,settings.width,settings.height].join(":");
+    if(key===this.appliedProfile)return;
+    try{
+      const parameters=this.videoSender.getParameters();
+      if(!parameters.encodings?.length){this.callbacks.onQuality?.("Browser managed");return;}
+      Object.assign(parameters.encodings[0],videoEncoding(quality,this.preference,settings));
+      parameters.degradationPreference=this.preference==="motion"?"maintain-framerate":"maintain-resolution";
+      await this.videoSender.setParameters(parameters);
+      if(!this.closed){this.appliedProfile=key;this.callbacks.onQuality?.(quality);}
+    }catch{if(!this.closed)this.callbacks.onQuality?.("Browser managed");}
+  }
   private startQualityMonitor(){
     const sample=async()=>{
       if(this.closed||!this.pc||!this.videoSender)return;
@@ -237,24 +282,16 @@ export class HostPeer extends SessionPeer {
           const stats=await this.pc.getStats();if(this.closed)return;
           this.callbacks.onRelayStatus?.(connectionRoute(stats));
           const telemetry=this.statsSampler.sample(stats,"send");
+          const target=videoEncoding(this.policy.current,this.preference,this.videoTrack?.getSettings());
+          telemetry.targetFps=target.maxFramerate;telemetry.targetBitrateKbps=Math.round(target.maxBitrate/1000);
           this.callbacks.onTelemetry?.(telemetry);
-          const quality=this.policy.observe({...connectionSample(stats),sendQueueMs:telemetry.sendQueueMs});
-          const key=quality+":"+this.preference;
-          if(key!==this.appliedProfile){
-            const parameters=this.videoSender.getParameters();
-            if(parameters.encodings?.length){
-              Object.assign(parameters.encodings[0],videoEncoding(quality,this.preference));
-              parameters.degradationPreference=this.preference==="motion"?"maintain-framerate":"maintain-resolution";
-              await this.videoSender.setParameters(parameters);
-              if(this.closed)return;
-              this.appliedProfile=key;this.callbacks.onQuality?.(quality);
-            }else this.callbacks.onQuality?.("Browser managed");
-          }
+          this.policy.observe({...connectionSample(stats),sendQueueMs:telemetry.sendQueueMs});
+          await this.applyVideoProfile();
         }
       }catch{
         if(!this.closed)this.callbacks.onQuality?.("Browser managed");
       }finally{
-        if(!this.closed)this.qualityTimer=window.setTimeout(()=>void sample(),3_000);
+        if(!this.closed)this.qualityTimer=window.setTimeout(()=>void sample(),1_500);
       }
     };
     void sample();
@@ -276,13 +313,22 @@ export class ControllerPeer extends SessionPeer {
       if(this.closed)return;
       this.pc=new RTCPeerConnection({iceServers:servers,bundlePolicy:"max-bundle"});
       this.installPeerHandlers();
-      this.pc.ontrack=(ev)=>this.callbacks.onRemoteStream?.(ev.streams[0]??new MediaStream([ev.track]));
+      this.pc.ontrack=(ev)=>{
+        // This is a preferred hold time, not a guaranteed playout delay. Unsupported browsers keep their default.
+        const receiver=ev.receiver as RTCRtpReceiver & { jitterBufferTarget?:number|null };
+        if("jitterBufferTarget" in receiver)try{receiver.jitterBufferTarget=30;}catch{/* Optional decoder hint. */}
+        this.callbacks.onRemoteStream?.(ev.streams[0]??new MediaStream([ev.track]));
+      };
       this.pc.ondatachannel=(ev)=>{
         if(ev.channel.label==="pointer"&&!this.pointerChannel){this.pointerChannel=ev.channel;this.watchPointerBuffer(ev.channel);return;}
         if(ev.channel.label!=="input"||this.inputChannel){ev.channel.close();return;}
         this.inputChannel=ev.channel;this.installInputFailureHandlers();this.watchPointerBuffer(ev.channel);
         this.inputChannel.onmessage=(message)=>{
           const parsed=parseMessage(message.data);
+          if(parsed?.type==="input_status"&&parsed.sessionId===this.sessionId){
+            if((parsed.reason==="limited"||parsed.reason==="rejected")&&Number.isSafeInteger(parsed.rejected)&&(parsed.rejected as number)>=0)this.callbacks.onInputStatus?.({reason:parsed.reason,rejected:parsed.rejected as number});
+            return;
+          }
           if(parsed?.type!=="pong"||parsed.sessionToken!==this.sessionToken||!this.heartbeat)return;
           this.callbacks.onTextSupport?.(parsed.textInputVersion===1);
           const rtt=this.heartbeat.acknowledge(parsed.probeId,performance.now());

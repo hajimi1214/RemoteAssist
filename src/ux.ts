@@ -4,8 +4,8 @@ export type Theme = "system" | "light" | "dark";
 
 export const pages: Record<View, { title: string; description: string }> = {
   Dashboard: { title: "工作台", description: "设备、连接和协助入口，都在这里。" },
-  "My Devices": { title: "我的设备", description: "管理设备备注，向在线设备发送协助请求。" },
-  "Remote Assist": { title: "远程协助", description: "连接前获得同意，结束时立即停止共享与控制。" },
+  "My Devices": { title: "我的设备", description: "选择同账号在线电脑，直接进入桌面。" },
+  "Remote Assist": { title: "远程协助", description: "按原始分辨率连接电脑，随时结束。" },
   Sessions: { title: "会话记录", description: "在本机查看协助时间、结果与传输路径。" },
   Settings: { title: "偏好设置", description: "调整外观与阅读大小，查看账号和设备信息。" }
 };
@@ -42,7 +42,7 @@ export function friendlyError(error: unknown): string {
 
 export function connectionLabel(status: string): string {
   const labels: Record<string, string> = {
-    Idle: "尚未连接", Closed: "会话已关闭", connected: "已连接", connecting: "正在建立连接",
+    "Waiting for device":"等待设备就绪", Idle: "尚未连接", Closed: "会话已关闭", connected: "已连接", connecting: "正在建立连接",
     new: "等待连接", failed: "连接失败", disconnected: "连接已中断", closed: "会话已关闭",
     Disconnected: "已断开", "Connection failed": "连接失败", "Connection lost": "连接已中断",
     "Session ended": "会话已结束", "Session expired": "会话已到期", "Connection code expired": "连接码已到期",
