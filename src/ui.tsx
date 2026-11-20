@@ -39,7 +39,7 @@ export function ConnectionDiagnostics({sample}: {sample:VideoTelemetry|null}) {
   </dl><p>静止桌面可能几乎不产生新帧，低 fps 或低码率不一定代表连接故障。</p></details></section>;
 }
 
-export type IconName = "monitor" | "devices" | "shield" | "history" | "arrow" | "settings" | "grid" | "copy" | "expand" | "stop" | "check" | "sun" | "moon";
+export type IconName = "monitor" | "devices" | "shield" | "history" | "arrow" | "settings" | "grid" | "copy" | "expand" | "stop" | "check" | "sun" | "moon" | "info" | "alert" | "search";
 export function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, ReactNode> = {
     monitor: <><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></>,
@@ -54,7 +54,10 @@ export function Icon({ name }: { name: IconName }) {
     stop: <rect x="5" y="5" width="14" height="14" rx="2" />,
     check: <path d="m5 12 4 4L19 6" />,
     sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1" /></>,
-    moon: <path d="M20 15a9 9 0 0 1-11-11 9 9 0 1 0 11 11Z" />
+    moon: <path d="M20 15a9 9 0 0 1-11-11 9 9 0 1 0 11 11Z" />,
+    info: <><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/></>,
+    alert: <><path d="M10.3 4.4 2.8 17.5A2 2 0 0 0 4.5 20h15a2 2 0 0 0 1.7-2.5L13.7 4.4a2 2 0 0 0-3.4 0Z"/><path d="M12 9v5m0 3v.1"/></>,
+    search: <><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></>
   };
   return <svg className="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -62,6 +65,17 @@ export function Icon({ name }: { name: IconName }) {
 export function BrandMark() {
   return <svg className="brand-mark" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="3.5" y="5.5" width="25" height="20" rx="5" fill="currentColor" fillOpacity=".08" stroke="currentColor" strokeWidth="2.5" /><path d="M10 32.5h12M16 25.5v7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" /><circle cx="30.5" cy="29.5" r="6" fill="#7566e8" stroke="white" strokeWidth="2" /><path d="M27 9.5h3.5a5 5 0 0 1 5 5v6" stroke="#7566e8" strokeWidth="2.5" strokeLinecap="round" /></svg>;
 }
+
+export function ConnectionIllustration() {
+  return <div className="connection-art" aria-hidden="true">
+    <div className="connection-art-orbit"/>
+    <div className="illustrated-desktop"><div className="illustrated-toolbar"><span className="illustrated-dots"><i/><i/><i/></span><span>你的工作空间</span><Icon name="shield"/></div><div className="illustrated-content"><div className="illustrated-sidebar"><i/><i/><i/><i/></div><div className="illustrated-workspace"><div className="illustrated-heading"/><div className="illustrated-cards"><span><Icon name="monitor"/></span><span><Icon name="devices"/></span></div><div className="illustrated-lines"><i/><i/><i/></div></div></div></div>
+    <span className="illustrated-connector"><Icon name="arrow"/></span>
+    <div className="illustrated-endpoint"><span><Icon name="devices"/></span><div><strong>远方的设备</strong><small>一次邀请，让距离更近</small></div><Icon name="shield"/></div>
+  </div>;
+}
+
+export function ButtonSpinner() { return <span className="button-spinner" aria-hidden="true"/>; }
 
 export function ConfirmDialog({ title, description, confirmLabel, onConfirm, onCancel }: { title: string; description: string; confirmLabel: string; onConfirm: () => void; onCancel: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -79,7 +93,7 @@ export function ConfirmDialog({ title, description, confirmLabel, onConfirm, onC
 }
 
 export function StatusMessage({ children, error = false }: { children: ReactNode; error?: boolean }) {
-  return <div className={error ? "error-box" : "info-box"} role={error ? "alert" : "status"}>{children}</div>;
+  return <div className={`${error ? "error-box" : "info-box"} status-message`} role={error ? "alert" : "status"}><Icon name={error ? "alert" : "info"}/><div>{children}</div></div>;
 }
 
 export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, onWheel, onRelease, onDisconnect }: {

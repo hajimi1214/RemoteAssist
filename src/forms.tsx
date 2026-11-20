@@ -22,7 +22,7 @@ export function FloatingField({ label, help, error, trailing, children, id: supp
 }
 
 export function PasswordVisibility({ visible, onToggle, disabled }: { visible: boolean; onToggle: () => void; disabled?: boolean }) {
-  return <button type="button" className="password-visibility" onClick={onToggle} disabled={disabled} aria-label={visible ? "隐藏密码" : "显示密码"} aria-pressed={visible} title={visible ? "隐藏密码" : "显示密码"}>
+  return <button type="button" className="password-visibility" onPointerDown={event => { if (event.button === 0) event.preventDefault(); }} onClick={onToggle} disabled={disabled} aria-label={visible ? "隐藏密码" : "显示密码"} aria-pressed={visible} title={visible ? "隐藏密码" : "显示密码"}>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>{visible && <path d="m3 3 18 18"/>}</svg>
   </button>;
 }

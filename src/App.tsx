@@ -5,7 +5,8 @@ import { AssistRequest, AuthResult, Device, SignalingClient, SignalingHttpError,
 import { ControllerPeer, HostPeer, SignalMessage } from "./webrtc";
 
 import { Dashboard, MyDevices, SessionsPage, SettingsPage } from "./pages";
-import { BrandMark, ConfirmDialog, Icon, RemoteScreen, StatusMessage, ConnectionDiagnostics, QualityPreference } from "./ui";
+import { BrandMark, ButtonSpinner, ConfirmDialog, Icon, RemoteScreen, StatusMessage, ConnectionDiagnostics, QualityPreference } from "./ui";
+import type { IconName } from "./ui";
 import type { VideoPreference } from "./connectionQuality";
 import type { VideoTelemetry } from "./videoTelemetry";
 import { usePreferences } from "./preferences";
@@ -22,6 +23,7 @@ type AuthMode = "signin" | "register";
 
 const signaling = new SignalingClient();
 const appVersion = "0.8.0-alpha";
+const navigationIcons: Record<View, IconName> = { Dashboard:"grid", "My Devices":"devices", "Remote Assist":"monitor", Sessions:"history", Settings:"settings" };
 
 export function App() {
   const [auth, setAuth, authLoaded] = useStoredAuth();
@@ -199,11 +201,11 @@ export function App() {
         </button>
         <nav className="nav-menu" aria-label="主要导航">
           {(["Dashboard", "My Devices", "Remote Assist", "Sessions", "Settings"] as View[]).map((item) => (
-            <button key={item} aria-current={view===item?"page":undefined} className={view === item ? "nav-active" : ""} onClick={() => navigate(item)}>{pages[item].title}</button>
+            <button key={item} aria-current={view===item?"page":undefined} className={view === item ? "nav-active" : ""} onClick={() => navigate(item)}><Icon name={navigationIcons[item]}/><span>{pages[item].title}</span></button>
           ))}
         </nav>
         <div className="nav-actions">
-          {signedIn ? <><span className={`service-pill ${serviceStatus === "Connected" ? "is-online" : ""}`} role="status"><i />{serviceStatus==="Connected"?"服务在线":serviceStatus==="Connecting"?"正在连接":"服务离线"}</span><span className="user-chip">{user!.username.slice(0, 1).toUpperCase()}</span><button className="link-button" onClick={() => guard(()=>{void signOut();})}>退出登录</button></> : <><span className="guest-badge">{authLoaded ? "自由浏览" : "恢复登录中…"}</span><button className="primary-action nav-login" disabled={!authLoaded} onClick={() => requestLogin()}>登录<Icon name="arrow"/></button></>}
+          {signedIn ? <><span className={`service-pill ${serviceStatus === "Connected" ? "is-online" : ""}`} role="status"><i />{serviceStatus==="Connected"?"服务在线":serviceStatus==="Connecting"?"正在连接":"服务离线"}</span><span className="user-chip" title={user!.username} aria-label={`当前账号 ${user!.username}`}>{user!.username.slice(0, 1).toUpperCase()}</span><button className="link-button" onClick={() => guard(()=>{void signOut();})}>退出登录</button></> : <><span className="guest-badge"><Icon name="monitor"/>{authLoaded ? "自由浏览" : "恢复登录中…"}</span><button className="primary-action nav-login" disabled={!authLoaded} onClick={() => requestLogin()}>登录<Icon name="arrow"/></button></>}
         </div>
       </header>
       <section className="workspace" id="workspace">
@@ -570,7 +572,7 @@ function ControlComputer({ auth, onActivity, onRecord }: { auth: AuthResult; onA
     <section className="panel control-panel" id="control-panel" role="tabpanel" aria-labelledby="control-tab">
       <div className="panel-heading"><div><span className="eyebrow">CONNECT WITH A CODE</span><h2>连接另一台电脑</h2><p>请对方先共享主屏，再输入他们提供的 8 位连接码。</p></div><span className={`presence ${status==="connected"?"online":"offline"}`} role="status"><i />{connectionLabel(status)}</span></div>
       {error&&<StatusMessage error>{error}</StatusMessage>}
-      {!session && <form className="join-form" onSubmit={(ev) => { ev.preventDefault(); void connect(); }} aria-busy={busy}><ConnectionCode id="session-code" value={code} onChange={value=>{setCode(value);setCodeError("");}} onBlur={()=>setCodeError(code&&!/^\d{8}$/.test(code)?"请填写完整的 8 位数字连接码。":"")} error={codeError} disabled={busy}/><button className="primary-action" disabled={busy} onPointerDown={ev=>{if(ev.button===0)ev.preventDefault();}}>{busy?"正在连接…":"发起连接"}<Icon name="arrow" /></button></form>}
+      {!session && <form className="join-form" onSubmit={(ev) => { ev.preventDefault(); void connect(); }} aria-busy={busy}><ConnectionCode id="session-code" value={code} onChange={value=>{setCode(value);setCodeError("");}} onBlur={()=>setCodeError(code&&!/^\d{8}$/.test(code)?"请填写完整的 8 位数字连接码。":"")} error={codeError} disabled={busy}/><button className="primary-action" disabled={busy} onPointerDown={ev=>{if(ev.button===0)ev.preventDefault();}}>{busy ? <ButtonSpinner/> : <Icon name="arrow"/>}{busy?"正在连接…":"发起连接"}</button></form>}
       {busy&&<button className="secondary-action" onClick={()=>disconnect("Disconnected")}>取消连接</button>}
       <RemoteScreen videoRef={videoRef} connected={!!session} status={connectionLabel(status)} onPointer={sendPointer} onKey={sendKey} onWheel={sendWheel} onRelease={releaseInputs} onDisconnect={()=>disconnect("Stopped by controller")} />
       <dl className="connection-details"><div><dt>连接状态</dt><dd>{connectionLabel(status)}</dd></div><div><dt>传输路径</dt><dd>{relay==="P2P"?"设备直连":relay==="TURN Relay"?"中继连接":"等待连接"}</dd></div><div><dt>往返延迟</dt><dd>{latency == null ? "待测量" : `${latency} ms`}</dd></div></dl>

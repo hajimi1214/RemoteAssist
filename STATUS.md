@@ -2,10 +2,13 @@
 
 ## Current milestone
 
-M11 — 0.8.0-alpha guest workspace, native window controls, global adaptation and bounded transport refinements. Reviewed 2026-11-20.
+M11 follow-up — 0.8.0-alpha visual polish and form/feedback interaction refinement. Reviewed 2026-11-20.
 
 ## Completed
 
+- Unified guest/signed-in workspace illustrations, navigation icons, card surfaces, action affordances, empty-state styling and quieter scrollbars. The shared illustration uses HTML/CSS and existing icons; no image asset or dependency was added.
+- Login now focuses the first field, retains password focus when the eye is clicked, and restores appropriate focus when switching modes. Dialog teardown does not trigger validation. Feedback preview/edit switches focus to the relevant text area.
+- Device search announces result counts and offers a clear-search action; refresh/save/request operations have distinct progress wording. Floating-label spacing now scales with text size. Details: docs/ui-polish-0.8.md.
 - Opens into a guest workspace. Protected actions open a closable login dialog, and successful login returns to the chosen workflow without starting capture or control. Pending login cancellation, credential restoration races and account-switch UI cleanup are handled.
 - Replaced native system decorations with a custom draggable window bar and working minimize/maximize/restore/close controls. The frame keeps window controls outside content scrolling; restored windows respect the OS work area.
 - Adapted every main page and modal for desktop, narrow and larger-text layouts. Device lists scroll inside their card; dialog close controls remain outside their scrolling body. Added a local feedback report with an explicit preview/copy workflow and honest unsent status.
@@ -27,6 +30,7 @@ M11 — 0.8.0-alpha guest workspace, native window controls, global adaptation a
 
 ## Verification
 
+- UI follow-up: 48 frontend tests, production build and diff checks PASS. Browser guest/signed-in desktop height checks, all five pages at 320px with dark/larger text, login focus/blur, password visibility focus, search/clear/refresh and feedback focus checks PASS. Fresh browser console has no errors. Actual maximized native workspace displays the new design and all window controls.
 - scripts/test.ps1: PASS — 48 frontend tests/build, Go tests/service build, Rust check and 5 native tests. Go vet: PASS.
 - 0.8 browser checks: guest navigation, dismissible authentication, preserved login destination, local feedback generation/copy and 320px dark/larger-text checks across all five main pages PASS. Actual native maximize/minimize/restore/close controls PASS; application reopened with the development launcher.
 - Live service create/join without login returns 401. Server and desktop launcher modes ran successfully; no background helper was added.
