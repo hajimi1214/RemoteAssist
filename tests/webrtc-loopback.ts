@@ -107,7 +107,7 @@ button.onclick = async () => {
     const limitedGate = new InputEventGate(sessionToken, () => true, 1, async (command) => { safeReleases.push(command); });
     await limitedGate.accept({ type:"key_down", sessionToken, ts:Date.now(), payload:{key:"a",code:"KeyA"} });
     await limitedGate.accept({ type:"key_up", sessionToken, ts:Date.now(), payload:{key:"a",code:"KeyA"} });
-    await limitedGate.accept({ type:"release_all", sessionToken, ts:Date.now() });
+    await limitedGate.accept({ type:"release_all", sessionToken, ts:Date.now(),sequence:1 });
     check(safeReleases.length === 3 && safeReleases[2] === "release_remote_inputs", "release events bypass action-rate saturation");
     host.close(); controller.close();
     controller.sendInput({ type:"key_down", sessionToken, ts:Date.now(), payload:{key:"d",code:"KeyD"} });

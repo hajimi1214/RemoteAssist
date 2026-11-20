@@ -18,7 +18,7 @@ test("degrades after sustained congestion, recovers only after three good sample
 test("ignores unavailable telemetry and resets transient congestion", () => {
   const policy = new AdaptiveVideoPolicy();
   assert.equal(policy.observe({}), "Balanced");
-  assert.equal(policy.observe({ rttMs: NaN, availableOutgoingBitrate: 0 }), "Balanced");
+  assert.equal(policy.observe({ rttMs: NaN, availableOutgoingBitrate: NaN }), "Balanced");
   policy.observe({ availableOutgoingBitrate: 500_000 });
   policy.observe({ rttMs: 150, availableOutgoingBitrate: 3_000_000 });
   assert.equal(policy.observe({ availableOutgoingBitrate: 500_000 }), "Balanced");
@@ -51,6 +51,12 @@ test("missing samples break a congestion streak",()=>{
   const policy=new AdaptiveVideoPolicy();
   policy.observe({rttMs:650});policy.observe({});
   assert.equal(policy.observe({rttMs:650}),"Balanced");
+});
+
+test("zero available bandwidth is a congestion measurement, not missing telemetry",()=>{
+  const policy=new AdaptiveVideoPolicy();
+  for(let i=0;i<4;i++)policy.observe({availableOutgoingBitrate:0,rttMs:20});
+  assert.equal(policy.current,"Economy");
 });
 
 test("uses selected transport pair and detects relay on the local side", () => {

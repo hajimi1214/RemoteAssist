@@ -9,12 +9,15 @@ import { BrandMark, ConfirmDialog, Icon, RemoteScreen, StatusMessage, Connection
 import type { VideoPreference } from "./connectionQuality";
 import type { VideoTelemetry } from "./videoTelemetry";
 import { usePreferences } from "./preferences";
+import { useSessionJournal } from "./useSessionJournal";
+import { createSessionRecorder } from "./sessionJournal";
+import type { SessionSummary } from "./sessionJournal";
 import { pages, friendlyError, connectionLabel, normalizeConnectionCode, remainingTime, transportFailure } from "./ux";
 import type { View, AssistMode } from "./ux";
 type AuthMode = "signin" | "register";
 
 const signaling = new SignalingClient();
-const appVersion = "0.6.0-alpha";
+const appVersion = "0.7.0-alpha";
 
 export function App() {
   const [auth, setAuth, authLoaded] = useStoredAuth();
@@ -35,6 +38,7 @@ export function App() {
   const [requestBusy, setRequestBusy] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const preferences = usePreferences();
+  const journal=useSessionJournal(auth?.user.id);
   const viewRef=useRef(view); viewRef.current=view;
   const modeRef=useRef(assistMode); modeRef.current=assistMode;
   const authRef = useRef(auth);
@@ -221,6 +225,8 @@ export function App() {
             user={user}
             device={device}
             devices={devices}
+            recentSessions={journal.records}
+            onHistory={()=>navigate("Sessions")}
             onShare={() => navigate("Remote Assist","share")}
             onControl={() => navigate("Remote Assist","control")}
           />
@@ -229,8 +235,8 @@ export function App() {
           <MyDevices auth={auth} currentDevice={device} devices={devices} onDevices={setDevices} signaling={signaling} onRemoteAssist={(message) => { setNotice(message??""); navigate("Remote Assist","control"); }} />
         )}
         {view === "My Devices" && !device && <div className="panel empty-state"><Icon name="devices" /><h2>正在登记这台设备</h2><p>服务连接成功后会显示设备列表。</p></div>}
-        {view === "Remote Assist" && <RemoteAssist auth={auth} mode={assistMode} onMode={(mode)=>navigate("Remote Assist",mode)} onActivity={updateActivity} />}
-        {view === "Sessions" && <SessionsPage onStart={()=>navigate("Remote Assist","share")} />}
+        {view === "Remote Assist" && <RemoteAssist auth={auth} mode={assistMode} onMode={(mode)=>navigate("Remote Assist",mode)} onActivity={updateActivity} onRecord={summary=>journal.add(auth.user.id,summary)} />}
+        {view === "Sessions" && <SessionsPage records={journal.records} persist={journal.persist} storageError={journal.storageError} onPersistence={journal.setPersistence} onClear={journal.clear} onRetryStorage={journal.retryStorage} onStart={()=>navigate("Remote Assist","share")} />}
         {view === "Settings" && <SettingsPage user={user} device={device} version={appVersion} preferences={preferences} />}
       </section>
       <footer className="workspace-footer"><span>RemoteAssist {appVersion}</span><span>{sessionActive?"协助进行中 · 离开页面将结束连接":"清晰可见 · 每次授权 · 随时结束"}</span></footer>
@@ -239,19 +245,20 @@ export function App() {
   );
 }
 
-function RemoteAssist({ auth, mode: tab, onMode, onActivity }: { auth: AuthResult; mode: AssistMode; onMode: (mode: AssistMode) => void; onActivity: (active: boolean) => void }) {
+function RemoteAssist({ auth, mode: tab, onMode, onActivity, onRecord }: { auth: AuthResult; mode: AssistMode; onMode: (mode: AssistMode) => void; onActivity: (active: boolean) => void; onRecord:(summary:SessionSummary)=>void }) {
   return (
     <section className="remote-assist-page">
       <div className="segmented" role="tablist" aria-label="协助方式" onKeyDown={(ev)=>{if(["ArrowLeft","ArrowRight","Home","End"].includes(ev.key)){ev.preventDefault();const target=ev.key==="Home"?"share":ev.key==="End"?"control":ev.target===(document.getElementById("share-tab"))?"control":"share";document.getElementById(`${target}-tab`)?.focus();}}}>
         <button id="share-tab" role="tab" aria-controls="share-panel" tabIndex={tab==="share"?0:-1} aria-selected={tab === "share"} className={tab === "share" ? "nav-active" : ""} onClick={() => onMode("share")}><Icon name="monitor" />共享这台电脑</button>
         <button id="control-tab" role="tab" aria-controls="control-panel" tabIndex={tab==="control"?0:-1} aria-selected={tab === "control"} className={tab === "control" ? "nav-active" : ""} onClick={() => onMode("control")}><Icon name="devices" />连接另一台电脑</button>
       </div>
-      {tab === "share" ? <ShareComputer auth={auth} onActivity={onActivity} /> : <ControlComputer auth={auth} onActivity={onActivity} />}
+      {tab === "share" ? <ShareComputer auth={auth} onActivity={onActivity} onRecord={onRecord} /> : <ControlComputer auth={auth} onActivity={onActivity} onRecord={onRecord} />}
     </section>
   );
 }
 
-function ShareComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (active: boolean) => void }) {
+function ShareComputer({ auth, onActivity, onRecord }: { auth: AuthResult; onActivity: (active: boolean) => void; onRecord:(summary:SessionSummary)=>void }) {
+  const recorder=useRef<ReturnType<typeof createSessionRecorder>|null>(null);
   const latestAuth=useRef(auth);latestAuth.current=auth;
   const [status, setStatus] = useState("Idle");
   const [permission, setPermission] = useState("Not sharing");
@@ -302,6 +309,7 @@ function ShareComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (ac
       const created = await signaling.createShareSession();
       if (!sharingRef.current || generationRef.current !== generation) { await signaling.disconnect(created.id, created.hostToken).catch(() => undefined); return; }
       sessionRef.current = created;
+      recorder.current=createSessionRecorder("share",onRecord);
       setSession({ id: created.id, hostToken: created.hostToken });
       setExpiresAt(Date.parse(created.expiresAt)); setClock(Date.now());
       setPermission("Sharing selected screen/window, waiting for controller");
@@ -314,7 +322,7 @@ function ShareComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (ac
         try { msg = JSON.parse(ev.data) as SignalMessage; } catch { void stopSharing("Invalid signaling message"); return; }
         if (msg.sessionId !== created.id) return;
         if (msg.type === "ready") { window.clearTimeout(readyTimer.current); setCode(created.code); setBusy(false); return; }
-        if (["disconnect", "rejected", "expired"].includes(msg.type)) { void stopSharing("Session ended"); return; }
+        if (["disconnect", "rejected", "expired"].includes(msg.type)) { void stopSharing(msg.type==="expired"?"Session expired":msg.type==="rejected"?"Rejected":"Session ended"); return; }
         if (msg.type === "ping") {
           setPendingApproval(true);
           setStatus("Controller is waiting for authorization");
@@ -357,9 +365,9 @@ function ShareComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (ac
       setPermission("Remote input authorized");
       const gate = new InputEventGate(approved.controllerToken, () => sharingRef.current);
       const peer = new HostPeer(current.id, current.hostToken, wsRef.current!, [], {
-        onConnectionStatus: (status) => { setStatus(status); if (["failed","disconnected","signaling error"].includes(status)) void stopSharing("Connection lost"); },
+        onConnectionStatus: (status) => { setStatus(status);if(status==="connected")recorder.current?.connected(); if (["failed","disconnected","signaling error"].includes(status)) void stopSharing("Connection lost"); },
         onQuality: setQuality,
-        onTelemetry:setTelemetry,
+        onTelemetry:sample=>{setTelemetry(sample);recorder.current?.route(sample.route);},
         onFailure:(reason)=>setError(transportFailure(reason))
       },{preference,loadIceServers:()=>signaling.iceServers(latestAuth.current.accessToken)});
       hostPeerRef.current = peer;
@@ -370,6 +378,7 @@ function ShareComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (ac
   }
 
   async function stopSharing(reason = "Disconnected") {
+    recorder.current?.finish(reason);recorder.current=null;
     sharingRef.current = false;
     generationRef.current++;
     authorizingRef.current = false;
@@ -424,7 +433,8 @@ function ShareComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (ac
   );
 }
 
-function ControlComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (active: boolean) => void }) {
+function ControlComputer({ auth, onActivity, onRecord }: { auth: AuthResult; onActivity: (active: boolean) => void; onRecord:(summary:SessionSummary)=>void }) {
+  const recorder=useRef<ReturnType<typeof createSessionRecorder>|null>(null);
   const latestAuth=useRef(auth);latestAuth.current=auth;
   const [code, setCode] = useState("");
   const [status, setStatus] = useState("Idle");
@@ -447,6 +457,7 @@ function ControlComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (
     connectingRef.current = true;
     setBusy(true); setError(""); onActivity(true);
     const generation = ++generationRef.current;
+    recorder.current=createSessionRecorder("control",onRecord);
     try {
       const joined = await signaling.join(code);
       if (!connectingRef.current || generationRef.current !== generation) { await signaling.disconnect(joined.id, joined.controllerToken).catch(() => undefined); return; }
@@ -458,10 +469,10 @@ function ControlComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (
       wsRef.current = ws;
       const peer = new ControllerPeer(joined.id, joined.controllerToken, ws, [], {
         onRemoteStream: (stream) => { if (videoRef.current) videoRef.current.srcObject = stream; },
-        onConnectionStatus: (status) => { setStatus(status); if (["failed","disconnected","signaling error"].includes(status)) disconnect("Connection lost"); },
+        onConnectionStatus: (status) => { setStatus(status);if(status==="connected")recorder.current?.connected(); if (["failed","disconnected","signaling error"].includes(status)) disconnect("Connection lost"); },
         onRelayStatus: setRelay,
         onLatency: setLatency,
-        onTelemetry:setTelemetry,
+        onTelemetry:sample=>{setTelemetry(sample);recorder.current?.route(sample.route);},
         onFailure:(reason)=>setError(transportFailure(reason))
       },{loadIceServers:()=>signaling.iceServers(latestAuth.current.accessToken)});
       peerRef.current = peer;
@@ -475,7 +486,7 @@ function ControlComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (
           ws.send(JSON.stringify({ type: "ping", sessionId: joined.id, sessionToken: joined.controllerToken, ts: Date.now() }));
           return;
         }
-        if (["disconnect", "rejected", "expired"].includes(msg.type)) { disconnect("Session ended"); return; }
+        if (["disconnect", "rejected", "expired"].includes(msg.type)) { disconnect(msg.type==="expired"?"Session expired":msg.type==="rejected"?"Rejected":"Session ended"); return; }
         void peer.handleSignal(msg);
       };
       ws.onclose = () => disconnect("Disconnected");
@@ -515,6 +526,7 @@ function ControlComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (
   }
 
   function disconnect(reason = "Disconnected") {
+    recorder.current?.finish(reason);recorder.current=null;
     connectingRef.current = false;
     window.clearTimeout(readyTimer.current); readyTimer.current=undefined;
     generationRef.current++;

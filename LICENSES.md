@@ -2,6 +2,8 @@
 
 ## Runtime and Build Dependencies
 
+The 0.7 workspace, local-summary and trend implementation adds no runtime package. SVG/CSS presentation and lifecycle/data-validation logic are original; the user-supplied VelaMost reference informs visual direction only.
+
 The 0.6 communication/quality update adds no external runtime package. WebRTC stats formulas follow the W3C specification; the supplied research document is used as a roadmap reference. No proprietary codec, GPU SDK, commercial implementation, HDR/4:4:4 module or copied open-source media implementation was introduced.
 
 The 0.5 UX update adds no runtime dependencies. CSS/SVG assets and UI components are original. WCAG, WAI-ARIA, W3C Screen Capture and Microsoft DPI documentation are referenced for engineering decisions; no third-party UI implementation was copied. See docs/research-and-decisions-0.5.md.

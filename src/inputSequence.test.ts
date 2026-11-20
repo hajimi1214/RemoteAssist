@@ -21,3 +21,12 @@ test("reliable button release is never discarded because newer motion arrived", 
   assert.equal(order.accept("mouse_down", undefined), false);
   assert.equal(order.accept("key_up", undefined), true);
 });
+
+test("release-all prevents late pointer motion from moving the host after local input stops",()=>{
+  const order=new PointerOrder();
+  assert.equal(order.accept("mouse_down",1),true);
+  assert.equal(order.accept("release_all",3),true);
+  assert.equal(order.accept("mouse_move",2),false);
+  assert.equal(order.accept("mouse_up",2),true);
+  assert.equal(order.accept("mouse_move",4),true);
+});

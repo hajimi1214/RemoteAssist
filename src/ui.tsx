@@ -3,16 +3,26 @@ import type { RefObject, ReactNode, KeyboardEvent, PointerEvent } from "react";
 import { remoteLayout } from "./ux";
 import type { VideoTelemetry } from "./videoTelemetry";
 import type { VideoPreference } from "./connectionQuality";
+import { appendTrend, connectionHealth, trendSegments } from "./connectionHealth";
+import type { TrendPoint } from "./connectionHealth";
 
 export function QualityPreference({value,onChange}: {value:VideoPreference;onChange:(value:VideoPreference)=>void}) {
-  return <label className="quality-preference"><span>画质偏好</span><select value={value} onChange={ev=>onChange(ev.target.value as VideoPreference)}><option value="auto">自动平衡</option><option value="text">文字优先</option><option value="motion">流畅优先</option></select><small>文字优先尽量保留分辨率；流畅优先保留帧率。网络不足时仍会自动降级。</small></label>;
+  const options=[{id:"auto",title:"自动平衡",detail:"随网络调整清晰度与帧率",icon:"grid"},{id:"text",title:"文字优先",detail:"适合代码、文档与表格",icon:"monitor"},{id:"motion",title:"流畅优先",detail:"适合滚动、演示与动态画面",icon:"arrow"}] as const;
+  return <fieldset className="quality-options"><legend>画质偏好</legend><div>{options.map(option=><label key={option.id} className={value===option.id?"selected":""}><input type="radio" name="quality-preference" value={option.id} checked={value===option.id} onChange={()=>onChange(option.id)}/><span className="quality-symbol"><Icon name={option.icon}/></span><span><strong>{option.title}</strong><small>{option.detail}</small></span><span className="quality-check" aria-hidden="true">{value===option.id&&<Icon name="check"/>}</span></label>)}</div><p>网络不足时仍会自动降级。偏好不会改变共享与控制权限。</p></fieldset>;
 }
 
 export function ConnectionDiagnostics({sample}: {sample:VideoTelemetry|null}) {
+  const [history,setHistory]=useState<TrendPoint[]>([]);
+  const [updated,setUpdated]=useState(0);
+  useEffect(()=>{if(!sample){setHistory([]);setUpdated(0);return;}const at=Date.now();setHistory(previous=>appendTrend(previous,sample,at));setUpdated(at);},[sample]);
   if(!sample)return null;
+  const advice=connectionHealth(sample);
   const metric=(value:number|undefined,unit:string)=>value==null?"暂不可用":`${value} ${unit}`;
   const limits:Record<string,string>={none:"未报告限制",cpu:"编码处理压力",bandwidth:"带宽压力",other:"其他限制"};
-  return <details className="connection-diagnostics"><summary>连接与画质详情</summary><p>最近采样间隔的统计，仅保留在本机内存。编解码耗时为单帧平均值，不等于端到端操作延迟。</p><dl>
+  return <section className="diagnostics-card"><div className={`health-summary ${advice.severity}`}><span className="health-icon"><Icon name="shield"/></span><div><strong>{advice.title}</strong><p>{advice.detail}</p></div><span className="health-route">{sample.route==="P2P"?"设备直连":sample.route==="TURN Relay"?"中继连接":"检测路径"}</span></div>
+    <details className="connection-diagnostics"><summary><span>连接与画质详情</span><small>{sample.width&&sample.height?`${sample.width} × ${sample.height}`:"等待画面"}{updated?` · ${new Date(updated).toLocaleTimeString("zh-CN")} 采样`:""}</small></summary>
+    <div className="trend-grid">{(["rttMs","bitrateKbps"] as const).map(field=><figure key={field}><figcaption><span>{field==="rttMs"?"网络往返趋势":"视频码率趋势"}</span><strong>{metric(field==="rttMs"?sample.rttMs==null?undefined:Math.round(sample.rttMs):sample.bitrateKbps,field==="rttMs"?"ms":"kbps")}</strong></figcaption><svg viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label={`${field==="rttMs"?"网络往返":"视频码率"}最近 ${history.length} 个采样，缺测不连线`}><path d="M0 36H100M0 20H100" className="trend-guide"/>{trendSegments(history,field).map((points,index)=><polyline key={index} points={points} className="trend-line"/>)}</svg><small>最近最多 30 个采样 · 自适应纵轴</small></figure>)}</div>
+    <p>最近采样间隔的统计，仅保留在本机内存。编解码耗时为单帧平均值，不等于端到端操作延迟。</p><dl>
     <div><dt>编码格式</dt><dd>{sample.codec??"协商中"}</dd></div>
     <div><dt>实际分辨率</dt><dd>{sample.width&&sample.height?`${sample.width} × ${sample.height}`:"待测量"}</dd></div>
     <div><dt>{sample.direction==="send"?"编码帧率":"解码帧率"}</dt><dd>{metric(sample.fps,"fps")}</dd></div>
@@ -26,7 +36,7 @@ export function ConnectionDiagnostics({sample}: {sample:VideoTelemetry|null}) {
       <div><dt>间隔丢弃帧数</dt><dd>{metric(sample.framesDropped,"帧")}</dd></div>
       <div><dt>累计画面冻结</dt><dd>{metric(sample.freezes,"次")}</dd></div>
     </>}
-  </dl><p>静止桌面可能几乎不产生新帧，低 fps 或低码率不一定代表连接故障。</p></details>;
+  </dl><p>静止桌面可能几乎不产生新帧，低 fps 或低码率不一定代表连接故障。</p></details></section>;
 }
 
 export type IconName = "monitor" | "devices" | "shield" | "history" | "arrow" | "settings" | "grid" | "copy" | "expand" | "stop" | "check" | "sun" | "moon";

@@ -4,7 +4,8 @@ export class PointerOrder {
   private latest = 0;
 
   accept(type: string, sequence: unknown): boolean {
-    if (!type.startsWith("mouse_") || type === "mouse_wheel") return true;
+    const barrier=type==="release_all"||type==="disconnect";
+    if (!barrier&&(!type.startsWith("mouse_") || type === "mouse_wheel")) return true;
     if (typeof sequence !== "number" || !Number.isSafeInteger(sequence) || sequence <= 0) return false;
     if (type === "mouse_move" && sequence <= this.latest) return false;
     this.latest = Math.max(this.latest, sequence);

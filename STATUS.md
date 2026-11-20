@@ -2,38 +2,37 @@
 
 ## Current milestone
 
-M9 — 0.6.0-alpha communication and quality refinement. Reviewed 2026-11-20.
+M10 — 0.7.0-alpha workspace, local summaries and diagnostic trends. Reviewed 2026-11-20.
 
 ## Completed
 
-- Host quality preferences: automatic balance, text first, motion first. Four adaptive levels move gradually; moderate pressure first preserves text resolution.
-- Live sender/receiver diagnostics: actual codec, dimensions, interval fps/bitrate/loss, jitter/RTT, mean encode/decode time, local send queue, jitter-buffer residence and frame-drop/freeze counters where the browser reports them.
-- Heartbeats correlate bounded probe IDs and local monotonic time. Late pongs are no longer confused with newer probes; missing authenticated keepalives terminate control.
-- Peer negotiation has its own 25-second deadline, separate from signaling-ready timeout. Reliable input-channel opening defines usable readiness.
-- Fresh ICE/TURN credentials are fetched at negotiation rather than before the approval wait.
-- Latest-value pointer coalescing preserves the final position and cancels old queued movement before buttons/releases. Input/heartbeat/signaling sends handle congestion and send exceptions.
-- Shared peer lifecycle removes duplicated cleanup and bounds queued signals. No automatic remote-control resumption is added.
-- The supplied professional remote-desktop research was reviewed; applicable browser statistics/queue/quality advice is implemented. Native GPU, HDR/4:4:4 and true input-to-photon measurement remain separate work.
-- Decisions/formulas: docs/communication-quality-0.6.md. Validation: docs/validation-0.6.md.
+- Refined the VelaMost-inspired light blue/white dashboard, navy typography, device illustration, workflow tiles and quality selection cards. Dark/larger-text/narrow layouts remain.
+- Replaced the session placeholder with real local summaries: direction, start/connection/end times, outcome and route. Failed/cancelled attempts remain distinct from established sessions.
+- Summaries default to current-login memory. User-enabled per-account persistence keeps at most 50 records from the latest 30 days; no server IDs/codes/tokens/addresses/device names/frames/input content are saved.
+- Summary validation rejects invalid dates, duplicates and unknown fields; termination is idempotent. Logout cleanup writes only the original account's opted-in store. Storage errors cannot block control shutdown.
+- Diagnostic status hints distinguish loss, buffering, processing pressure and high RTT. RTT/bitrate trend samples are bounded and preserve missing-data gaps.
+- Zero available bandwidth now correctly triggers gradual adaptation. release-all advances the pointer sequence barrier so older unordered movement is rejected after input is released.
+- No extra package, hidden behavior or automatic control resumption added.
+- Details: docs/workspace-refinement-0.7.md and docs/validation-0.7.md.
 
-## Validation
+## Verification
 
-- Frontend policy/timing/telemetry suite: PASS, 24 tests; production build PASS.
-- Real browser media loopback: PASS, including fresh ICE callbacks, telemetry, live text-preference change, final pointer position and authorization rejection.
-- Real browser watchdog tests: PASS for missing SDP answer and missing native keepalive acknowledgement.
-- scripts/test.ps1: PASS — 24 frontend tests/build, all Go tests/service build, Rust check and 5 native tests. npm audit: zero reported vulnerabilities.
-- Portable Windows EXE/NSIS 0.6.0-alpha: PASS, packaged with the example HTTPS endpoint. Operational deployment requires the actual domain.
+- scripts/test.ps1: PASS — 34 frontend tests/build, Go tests/service build, Rust check and 5 native tests.
+- npm audit: PASS, zero reported vulnerabilities. Diff whitespace checks: PASS.
+- Browser: PASS for actual local invalid-attempt summaries, opt-in persistence, logout/login retention, active-session logout completion, filtering and clear-confirmation cancellation.
+- Browser: PASS for radio keyboard navigation, 320px no-overflow checks, light desktop and dark larger-text layout.
+- Real browser WebRTC loopback: PASS. Actual stats populate the bounded trends and accessible labels.
+- Windows portable EXE/NSIS 0.7.0-alpha: PASS, built with example HTTPS endpoint. Rebuild with actual domain before operational deployment.
 
 ## Remaining limits
 
-- Two-machine LAN/public TURN, Windows native capture/input, physical display/DPI calibration, native consent and second-machine installation remain NOT VERIFIED.
-- No hardware encoder, zero-copy, HDR/4:4:4 or high-refresh guarantee is made. Browser chooses the negotiated codec; hints and bitrate/fps settings are best effort.
-- Diagnostics are aggregates in local memory, not a complete per-frame capture-to-display trace or true input latency measurement.
-- Host confirms the primary display; window/secondary-monitor input remains unsupported. Active sessions are single-process and end on server restart.
-- Both endpoints must use the 0.6 heartbeat protocol. Existing 0.4+ server signaling remains compatible.
-- Example-domain installer must be rebuilt with the user's real HTTPS service address.
-- Total model concurrency is limited to 2 including the main agent.
+- Actual Windows capture/input/consent, native DPI and secondary displays, public TURN, second-machine installation and hardware codec paths remain unverified.
+- Local summaries are convenience metadata, not a server audit log or cross-device history. Opted-in metadata can be inspected by users with profile access.
+- Source-reviewed account isolation and storage-error behavior are not a complete browser fault-injection/privacy audit.
+- Active sessions remain one-process; cloud/PostgreSQL/live container validation and degraded-network benchmarks remain pending.
+- Example-domain installer must be rebuilt with the actual HTTPS signaling URL; both endpoints should use the current client version.
+- Model concurrency remains limited to 2 including the main agent.
 
 ## Next milestone
 
-M10 — actual cloud/two-machine acceptance, controlled weak-network tests, calibrated native capture, durable audit metadata and a measured native-media prototype.
+M11 — real cloud/two-machine acceptance, controlled network benchmarks, calibrated native display capture, durable server audit metadata and hardware media prototype.

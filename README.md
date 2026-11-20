@@ -1,5 +1,7 @@
 # RemoteAssist
 
+Version 0.7 refines the VelaMost-inspired light workspace, adds real local session summaries with opt-in retention, and presents bounded diagnostic trends with readable status hints. It also fixes zero-bandwidth adaptation and delayed pointer motion after releasing input. See [0.7 details](docs/workspace-refinement-0.7.md) and [validation](docs/validation-0.7.md).
+
 Version 0.6 adds measured video diagnostics, host quality preferences, gradual quality changes, correlated heartbeat timeouts, negotiation deadlines, and latest-position mouse delivery. Read [communication and quality decisions](docs/communication-quality-0.6.md). The responsive workspace, themes and viewer controls are documented in [0.5 research](docs/research-and-decisions-0.5.md).
 
 RemoteAssist is a visible Windows remote assistance client. It requires sign in, device registration, host-started primary-display sharing, an 8-digit temporary code, and explicit host approval before remote input is accepted. The controller then explicitly enables local input capture; Escape or Tab releases it.

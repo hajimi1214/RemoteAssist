@@ -34,7 +34,7 @@ export class AdaptiveVideoPolicy {
   private samples = 0;
 
   observe(sample: ConnectionSample): VideoQuality {
-    const bandwidth = finitePositive(sample.availableOutgoingBitrate);
+    const bandwidth = finiteNonnegative(sample.availableOutgoingBitrate);
     const rtt = typeof sample.rttMs === "number" && Number.isFinite(sample.rttMs) && sample.rttMs >= 0 ? sample.rttMs : undefined;
     const constrained = sample.qualityLimitationReason === "cpu" || sample.qualityLimitationReason === "bandwidth";
     if (bandwidth == null && rtt == null && !constrained) {
@@ -71,8 +71,8 @@ export class AdaptiveVideoPolicy {
   }
 }
 
-function finitePositive(value: number | undefined): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+function finiteNonnegative(value: number | undefined): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 export function selectedCandidatePair(stats: RTCStatsReport): RTCStats | undefined {

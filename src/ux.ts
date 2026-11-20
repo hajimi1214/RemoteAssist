@@ -6,7 +6,7 @@ export const pages: Record<View, { title: string; description: string }> = {
   Dashboard: { title: "工作台", description: "设备、连接和协助入口，都在这里。" },
   "My Devices": { title: "我的设备", description: "管理设备备注，向在线设备发送协助请求。" },
   "Remote Assist": { title: "远程协助", description: "连接前获得同意，结束时立即停止共享与控制。" },
-  Sessions: { title: "会话记录", description: "了解当前版本的会话记录能力。" },
+  Sessions: { title: "会话记录", description: "在本机查看协助时间、结果与传输路径。" },
   Settings: { title: "偏好设置", description: "调整外观与阅读大小，查看账号和设备信息。" }
 };
 
