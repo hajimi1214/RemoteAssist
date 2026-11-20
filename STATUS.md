@@ -2,7 +2,22 @@
 
 ## Current milestone
 
-M15 — 0.12.0-alpha sparse multi-region capture, HDR-to-SDR conversion and in-viewer connection health. Reviewed 2026-11-20.
+M16 — 0.13.0-alpha emergency sender-pressure response and responsive layout cascade fix. Reviewed 2026-11-21.
+
+## 0.13 update
+
+- On the first sample showing a severe sender-side queue (≥250 ms), critically low estimated bandwidth (<300 kbps), or CPU-limited encoding (≥120 ms mean), lower the adaptive quality ceiling by one or two levels. Recovery still requires consecutive good samples.
+- Fixed a CSS cascade that overrode compact device-focus sizing on short desktop viewports. Verified actual action hit-testing at 1024×768 and 1280×720; the 44px control is visible/clickable and document width matches viewport.
+- PASS: frontend 80/80 and production build, Go tests/build/vet, and Rust check plus 17 tests (one manual capture smoke ignored). Windows portable and NSIS installer, and development-signed Android ARM64 APK built for 0.13.
+- PASS: synthetic same-account loopback received 2560×1600 video; at 393×820 the expanded viewer filled the viewport, tools scrolled internally and fullscreen exit and disconnect were reachable.
+
+NOT VERIFIED: two-machine weak-network responsiveness, stable 4K60, end-to-end input latency, and physical Android 0.13 interaction. Immediate downgrade is a pressure response; it does not remove hardware/network bottlenecks. Details: [0.13 notes](docs/direct-desktop-0.13.md).
+
+## Next acceptance
+
+Run a sustained two-machine weak-network test and compare telemetry (sender queue, encoder limit, receiver decode/jitter) with observed interaction delay; separately retest on physical Android.
+
+## 0.12 baseline
 
 ## 0.12 update
 
@@ -15,10 +30,6 @@ M15 — 0.12.0-alpha sparse multi-region capture, HDR-to-SDR conversion and in-v
 PASS: frontend 78/78 and production build; Go tests/build/vet; Rust check and 17 tests (one real capture smoke ignored by default). Android ARM64 debug APK and Windows portable/installer built for 0.12; hashes in `.local/releases/0.12.0-alpha/SHA256.json`.
 
 NOT VERIFIED: stable 4K60, multi-region savings on a natural desktop sample, HDR path on HDR output, moving-4K CPU/tone-map cost, input-to-photon delay, UU comparison, weak-network and physical Android 0.12 behavior. Details: [0.12 notes](docs/direct-desktop-0.12.md) and [native capture](docs/native-performance-0.12.md).
-
-## Next acceptance
-
-Test the 0.12 APK on a physical Android tablet and measure HDR/SDR moving content, capture and decode FPS, and input latency separately. Do not infer 4K60 from the target or payload savings.
 
 ## 0.11 baseline
 

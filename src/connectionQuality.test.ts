@@ -125,3 +125,22 @@ test("uses selected transport pair and detects relay on the local side", () => {
   assert.deepEqual(connectionSample(stats), { rttMs: 45, availableOutgoingBitrate: 2_000_000 });
   assert.equal(connectionRoute(new Map() as unknown as RTCStatsReport), "Unknown");
 });
+
+
+test("severe sender queue immediately lowers quality while recovery stays hysteretic",()=>{
+  const policy=new AdaptiveVideoPolicy("Sharp");
+  assert.equal(policy.observe({sendQueueMs:249}),"Sharp");
+  assert.equal(policy.observe({sendQueueMs:250}),"Balanced");
+  assert.equal(policy.observe({sendQueueMs:10,availableOutgoingBitrate:8_000_000,rttMs:40}),"Balanced");
+  assert.equal(policy.observe({sendQueueMs:10,availableOutgoingBitrate:8_000_000,rttMs:40}),"Balanced");
+  assert.equal(policy.observe({sendQueueMs:10,availableOutgoingBitrate:8_000_000,rttMs:40}),"Sharp");
+});
+
+test("very low available bandwidth and severe encoder pressure use an emergency ceiling",()=>{
+  const network=new AdaptiveVideoPolicy("Sharp");
+  assert.equal(network.observe({availableOutgoingBitrate:299_999}),"Constrained");
+  const cpu=new AdaptiveVideoPolicy("Sharp");
+  assert.equal(cpu.observe({qualityLimitationReason:"cpu",encodeMs:120}),"Constrained");
+  const queue=new AdaptiveVideoPolicy("Sharp");
+  assert.equal(queue.observe({sendQueueMs:500}),"Constrained");
+});

@@ -27,7 +27,7 @@ import type { View, AssistMode } from "./ux";
 type AuthMode = "signin" | "register";
 
 const signaling = new SignalingClient();
-const appVersion = "0.12.0-alpha";
+const appVersion = "0.13.0-alpha";
 const navigationIcons: Record<View, IconName> = { Dashboard:"grid", "My Devices":"devices", "Remote Assist":"monitor", Sessions:"history", Settings:"settings" };
 
 export function App() {

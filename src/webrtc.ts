@@ -310,7 +310,7 @@ export class HostPeer extends SessionPeer {
           telemetry.qualityMode=this.qualityMode;
           telemetry.targetFps=target.maxFramerate;telemetry.targetBitrateKbps=Math.round(target.maxBitrate/1000);
           this.callbacks.onTelemetry?.(telemetry);
-          this.policy.observe({...connectionSample(stats),sendQueueMs:telemetry.sendQueueMs});
+          this.policy.observe({...connectionSample(stats),sendQueueMs:telemetry.sendQueueMs,encodeMs:telemetry.encodeMs});
           await this.applyVideoProfile();
         }
       }catch{

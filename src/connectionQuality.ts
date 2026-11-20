@@ -8,6 +8,7 @@ export interface ConnectionSample {
   availableOutgoingBitrate?: number;
   // Mean RTP packetizer-to-socket delay from consecutive sender samples.
   sendQueueMs?: number;
+  encodeMs?: number;
   qualityLimitationReason?: "none" | "cpu" | "bandwidth" | "other";
 }
 
@@ -53,6 +54,21 @@ export class AdaptiveVideoPolicy {
     const rtt = typeof sample.rttMs === "number" && Number.isFinite(sample.rttMs) && sample.rttMs >= 0 ? sample.rttMs : undefined;
     const sendQueue = finiteNonnegative(sample.sendQueueMs);
     const constrained = sample.qualityLimitationReason === "cpu" || sample.qualityLimitationReason === "bandwidth";
+    const encodeMs = finiteNonnegative(sample.encodeMs);
+    // Severe sender-side pressure is a latency event, not a cosmetic quality
+    // preference: lower the ceiling immediately instead of waiting for the
+    // normal hysteresis window. Recovery still uses the regular good-sample gate.
+    const severeBandwidth = bandwidth != null && bandwidth < 300_000;
+    const severeQueue = sendQueue != null && sendQueue >= 250;
+    const severeCpu = sample.qualityLimitationReason === "cpu" && encodeMs != null && encodeMs >= 120;
+    if (severeBandwidth || severeQueue || severeCpu) {
+      const currentRank = qualityRank[this.current];
+      const steps = severeBandwidth || (sendQueue != null && sendQueue >= 500) || severeCpu ? 2 : 1;
+      this.current = qualityLevels[Math.max(0, currentRank - steps)];
+      this.candidate = undefined;
+      this.samples = 0;
+      return this.current;
+    }
     if (bandwidth == null && rtt == null && sendQueue == null && !constrained) {
       this.candidate = undefined;
       this.samples = 0;
