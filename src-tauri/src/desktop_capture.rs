@@ -7,7 +7,7 @@ use std::sync::{
 };
 use std::time::Duration;
 use windows::core::Interface;
-use windows::Win32::Foundation::{HMODULE, POINT};
+use windows::Win32::Foundation::{HMODULE, POINT, RECT};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_UNKNOWN;
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
@@ -69,6 +69,73 @@ impl Drop for Capture {
 mod tests {
     use super::*;
 
+    #[test]
+    fn small_dirty_metadata_is_conservatively_aggregated() {
+        let bounds = dirty_bounds(
+            &[
+                RECT {
+                    left: 10,
+                    top: 20,
+                    right: 30,
+                    bottom: 40,
+                },
+                RECT {
+                    left: 25,
+                    top: 15,
+                    right: 45,
+                    bottom: 35,
+                },
+            ],
+            100,
+            100,
+        )
+        .unwrap();
+        assert_eq!(
+            (bounds.left, bounds.top, bounds.right, bounds.bottom),
+            (10, 15, 45, 40)
+        );
+        for rect in [
+            RECT {
+                left: -1,
+                top: 0,
+                right: 10,
+                bottom: 10,
+            },
+            RECT {
+                left: 0,
+                top: 0,
+                right: 101,
+                bottom: 10,
+            },
+            RECT {
+                left: 20,
+                top: 0,
+                right: 10,
+                bottom: 10,
+            },
+            RECT {
+                left: 0,
+                top: 0,
+                right: 100,
+                bottom: 100,
+            },
+        ] {
+            assert!(dirty_bounds(&[rect], 100, 100).is_none());
+        }
+        assert!(dirty_bounds(&[], 100, 100).is_none());
+        assert!(dirty_bounds(
+            &[RECT {
+                left: 0,
+                top: 0,
+                right: 1,
+                bottom: 1
+            }; 257],
+            100,
+            100
+        )
+        .is_none());
+    }
+
     /// Explicit operator-only smoke check. No frame contents are written or logged.
     #[test]
     #[ignore = "requires a visible, unlocked Windows desktop and explicit environment opt-in"]
@@ -81,9 +148,18 @@ mod tests {
         let capture = Capture::start().expect("primary desktop duplication must start");
         let sender = capture.requester();
         let mut frames = 0;
+        let mut full_frames = 0;
+        let mut delta_frames = 0;
+        let mut cursor_packets = 0;
         let mut bytes = 0;
+        let mut raw_equivalent = 0u64;
+        let mut sequence = 0;
         let mut dimensions = (0, 0);
-        for _ in 0..12 {
+        let requested = std::env::var("REMOTEASSIST_CAPTURE_SAMPLES")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok());
+        let samples = requested.unwrap_or(12).clamp(1, 300);
+        for _ in 0..samples {
             let (tx, rx) = mpsc::channel();
             sender.try_send(tx).unwrap();
             let frame = rx
@@ -94,27 +170,53 @@ mod tests {
                 continue;
             }
             assert!(frame.len() >= 16);
-            let width = u32::from_le_bytes(frame[0..4].try_into().unwrap());
+            let tagged_width = u32::from_le_bytes(frame[0..4].try_into().unwrap());
+            let width = tagged_width & 0x3fff_ffff;
             let height = u32::from_le_bytes(frame[4..8].try_into().unwrap());
-            assert!(frame.len() == 16 || frame.len() == 16 + width as usize * height as usize * 4);
+            bytes += frame.len();
             if frame.len() == 16 {
+                raw_equivalent += 16;
+                cursor_packets += 1;
                 continue;
             }
+            raw_equivalent += 20 + u64::from(width) * u64::from(height) * 4;
+            let next = u32::from_le_bytes(frame[16..20].try_into().unwrap());
+            assert_eq!(next, sequence + 1);
+            if tagged_width & FULL_V1 != 0 {
+                assert_eq!(frame.len(), 20 + width as usize * height as usize * 4);
+                full_frames += 1;
+            } else {
+                assert_eq!(tagged_width & DELTA_V1, DELTA_V1);
+                assert_eq!(
+                    u32::from_le_bytes(frame[20..24].try_into().unwrap()),
+                    sequence
+                );
+                assert_eq!(u32::from_le_bytes(frame[24..28].try_into().unwrap()), 1);
+                let x = u32::from_le_bytes(frame[28..32].try_into().unwrap());
+                let y = u32::from_le_bytes(frame[32..36].try_into().unwrap());
+                let w = u32::from_le_bytes(frame[36..40].try_into().unwrap());
+                let h = u32::from_le_bytes(frame[40..44].try_into().unwrap());
+                assert!(w > 0 && h > 0 && x + w <= width && y + h <= height);
+                assert_eq!(frame.len(), 44 + w as usize * h as usize * 4);
+                delta_frames += 1;
+            }
+            sequence = next;
             dimensions = (width, height);
             frames += 1;
-            bytes += frame.len();
-            if frames == 3 {
+            if requested.is_none() && frames == 3 {
                 break;
             }
         }
         assert!(frames > 0, "at least one actual desktop frame is required");
         drop(capture);
         eprintln!(
-            "capture_smoke dimensions={}x{} frames={} bytes={} elapsed_ms={}",
+            "capture_smoke dimensions={}x{} frames={} full={} delta={} cursor={} bytes={} raw_equivalent_bytes={} elapsed_ms={}",
             dimensions.0,
             dimensions.1,
             frames,
+            full_frames,delta_frames,cursor_packets,
             bytes,
+            raw_equivalent,
             started.elapsed().as_millis()
         );
     }
@@ -125,6 +227,41 @@ struct Desktop {
     duplication: IDXGIOutputDuplication,
     staging: Option<ID3D11Texture2D>,
     dimensions: (u32, u32),
+    sequence: u32,
+}
+const FULL_V1: u32 = 0x4000_0000;
+const DELTA_V1: u32 = 0x8000_0000;
+const MAX_DIRTY_RECTS: usize = 256;
+
+// Invalid or widespread metadata falls back to a full frame. A conservative
+// bounding box may include clean pixels, but can never omit a reported change.
+fn dirty_bounds(rects: &[RECT], width: u32, height: u32) -> Option<RECT> {
+    if rects.is_empty() || rects.len() > MAX_DIRTY_RECTS {
+        return None;
+    }
+    let mut bounds = RECT {
+        left: width as i32,
+        top: height as i32,
+        right: 0,
+        bottom: 0,
+    };
+    for rect in rects {
+        if rect.left < 0
+            || rect.top < 0
+            || rect.right <= rect.left
+            || rect.bottom <= rect.top
+            || rect.right as u32 > width
+            || rect.bottom as u32 > height
+        {
+            return None;
+        }
+        bounds.left = bounds.left.min(rect.left);
+        bounds.top = bounds.top.min(rect.top);
+        bounds.right = bounds.right.max(rect.right);
+        bounds.bottom = bounds.bottom.max(rect.bottom);
+    }
+    let area = (bounds.right - bounds.left) as u64 * (bounds.bottom - bounds.top) as u64;
+    (area * 100 <= u64::from(width) * u64::from(height) * 60).then_some(bounds)
 }
 impl Desktop {
     fn open() -> Result<Self, String> {
@@ -175,6 +312,7 @@ impl Desktop {
                             duplication,
                             staging: None,
                             dimensions: (0, 0),
+                            sequence: 0,
                         });
                     }
                     out += 1;
@@ -204,13 +342,17 @@ impl Desktop {
                 // readback/IPC copy when the existing desktop texture is valid.
                 Ok(self.header())
             } else {
-                self.copy(resource.ok_or("capture_resource_missing"))
+                self.copy(resource.ok_or("capture_resource_missing"), &info)
             };
             let _ = self.duplication.ReleaseFrame();
             result
         }
     }
-    unsafe fn copy(&mut self, resource: Result<IDXGIResource, &str>) -> Result<Vec<u8>, String> {
+    unsafe fn copy(
+        &mut self,
+        resource: Result<IDXGIResource, &str>,
+        info: &DXGI_OUTDUPL_FRAME_INFO,
+    ) -> Result<Vec<u8>, String> {
         let texture = resource?
             .cast::<ID3D11Texture2D>()
             .map_err(|_| "capture_texture_invalid")?;
@@ -236,7 +378,8 @@ impl Desktop {
         ) {
             return Err(format!("display_format_unsupported_{}", desc.Format.0));
         }
-        if self.dimensions != (desc.Width, desc.Height) {
+        let resized = self.dimensions != (desc.Width, desc.Height);
+        if resized {
             let mut staging = None;
             let mut cpu = desc;
             cpu.Usage = D3D11_USAGE_STAGING;
@@ -249,28 +392,137 @@ impl Desktop {
             self.staging = staging;
             self.dimensions = (desc.Width, desc.Height);
         }
+        let region = if resized {
+            None
+        } else {
+            self.changed_region(info, desc.Width, desc.Height)
+        };
+        let region = region.unwrap_or(RECT {
+            left: 0,
+            top: 0,
+            right: desc.Width as i32,
+            bottom: desc.Height as i32,
+        });
+        let full = region.left == 0
+            && region.top == 0
+            && region.right as u32 == desc.Width
+            && region.bottom as u32 == desc.Height;
+        let sequence = self
+            .sequence
+            .checked_add(1)
+            .ok_or("capture_sequence_exhausted")?;
         let staging = self.staging.as_ref().ok_or("capture_buffer_failed")?;
-        self.context.CopyResource(staging, &texture);
+        if full {
+            self.context.CopyResource(staging, &texture);
+        } else {
+            let source = D3D11_BOX {
+                left: region.left as u32,
+                top: region.top as u32,
+                front: 0,
+                right: region.right as u32,
+                bottom: region.bottom as u32,
+                back: 1,
+            };
+            self.context.CopySubresourceRegion(
+                staging,
+                0,
+                region.left as u32,
+                region.top as u32,
+                0,
+                &texture,
+                0,
+                Some(&source),
+            );
+        }
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
         self.context
             .Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
             .map_err(|_| "capture_map_failed")?;
-        let row = desc.Width as usize * 4;
-        let len = row * desc.Height as usize;
-        if mapped.pData.is_null() || (mapped.RowPitch as usize) < row {
+        let region_width = (region.right - region.left) as usize;
+        let region_height = (region.bottom - region.top) as usize;
+        let row = region_width * 4;
+        let len = row * region_height;
+        if mapped.pData.is_null() || (mapped.RowPitch as usize) < desc.Width as usize * 4 {
             self.context.Unmap(staging, 0);
             return Err("capture_stride_invalid".into());
         }
         let mut bytes = self.header();
+        bytes[0..4]
+            .copy_from_slice(&(desc.Width | if full { FULL_V1 } else { DELTA_V1 }).to_le_bytes());
+        bytes.extend_from_slice(&sequence.to_le_bytes());
+        if !full {
+            bytes.extend_from_slice(&self.sequence.to_le_bytes());
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            for value in [
+                region.left as u32,
+                region.top as u32,
+                region_width as u32,
+                region_height as u32,
+            ] {
+                bytes.extend_from_slice(&value.to_le_bytes());
+            }
+        }
         bytes.reserve(len);
-        for y in 0..desc.Height as usize {
+        for y in region.top as usize..region.bottom as usize {
             bytes.extend_from_slice(std::slice::from_raw_parts(
-                (mapped.pData as *const u8).add(y * mapped.RowPitch as usize),
+                (mapped.pData as *const u8)
+                    .add(y * mapped.RowPitch as usize + region.left as usize * 4),
                 row,
             ));
         }
         self.context.Unmap(staging, 0);
+        self.sequence = sequence;
         Ok(bytes)
+    }
+
+    unsafe fn changed_region(
+        &self,
+        info: &DXGI_OUTDUPL_FRAME_INFO,
+        width: u32,
+        height: u32,
+    ) -> Option<RECT> {
+        if info.TotalMetadataBufferSize == 0
+            || info.TotalMetadataBufferSize as usize > MAX_DIRTY_RECTS * std::mem::size_of::<RECT>()
+        {
+            return None;
+        }
+        // A desktop move needs the previous source pixels. Full fallback avoids
+        // GPU in-place overlap hazards and keeps this protocol deterministic.
+        let mut moves = 0;
+        let mut move_rect = DXGI_OUTDUPL_MOVE_RECT::default();
+        if self
+            .duplication
+            .GetFrameMoveRects(
+                std::mem::size_of_val(&move_rect) as u32,
+                &mut move_rect,
+                &mut moves,
+            )
+            .is_err()
+            || moves != 0
+        {
+            return None;
+        }
+        let mut rects = [RECT::default(); MAX_DIRTY_RECTS];
+        let mut required = 0;
+        if self
+            .duplication
+            .GetFrameDirtyRects(
+                std::mem::size_of_val(&rects) as u32,
+                rects.as_mut_ptr(),
+                &mut required,
+            )
+            .is_err()
+            || required == 0
+            || required as usize > std::mem::size_of_val(&rects)
+            || required as usize % std::mem::size_of::<RECT>() != 0
+        {
+            return None;
+        }
+        dirty_bounds(
+            &rects[..required as usize / std::mem::size_of::<RECT>()],
+            width,
+            height,
+        )
     }
 
     unsafe fn header(&self) -> Vec<u8> {

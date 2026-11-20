@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { RefObject, ReactNode, KeyboardEvent, PointerEvent } from "react";
 import { MobileControls } from "./MobileControls";
 import { filledVideoLayout } from "./mobileInput";
-import type { MobileAction } from "./mobileInput";
+import type { MobileAction, TouchMode } from "./mobileInput";
 import { remoteLayout } from "./ux";
 import type { VideoTelemetry } from "./videoTelemetry";
 import type { VideoPreference } from "./connectionQuality";
@@ -99,9 +99,10 @@ export function StatusMessage({ children, error = false }: { children: ReactNode
   return <div className={`${error ? "error-box" : "info-box"} status-message`} role={error ? "alert" : "status"}><Icon name={error ? "alert" : "info"}/><div>{children}</div></div>;
 }
 
-export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, onWheel, onRelease, onDisconnect, onMobileAction, textSupported, autoControl = false, autoFullscreen = autoControl, deviceName = "远程桌面", telemetry = null, latency = null }: {
+export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, onWheel, onRelease, onDisconnect, onMobileAction, textSupported, autoControl = false, autoFullscreen = autoControl, deviceName = "远程桌面", telemetry = null, latency = null, qualityMode = "auto", onQualityModeChange }: {
   onMobileAction: (action: MobileAction) => boolean; textSupported: boolean; autoControl?: boolean; autoFullscreen?: boolean; deviceName?: string;
   videoRef: RefObject<HTMLVideoElement | null>; connected: boolean; status: string; telemetry?: VideoTelemetry | null; latency?: number | null;
+  qualityMode?: "auto" | "sharp" | "smooth" | "economy"; onQualityModeChange?: (mode:"auto"|"sharp"|"smooth"|"economy")=>void;
   onPointer: (type: "mouse_move" | "mouse_down" | "mouse_up", ev: PointerEvent<HTMLVideoElement>) => void;
   onKey: (type: "key_down" | "key_up", ev: KeyboardEvent<HTMLVideoElement>) => void;
   onWheel: (ev: WheelEvent) => void; onRelease: () => void; onDisconnect: () => void;
@@ -110,12 +111,15 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
   const viewport = useRef<HTMLDivElement>(null);
   const inputToggle = useRef<HTMLButtonElement>(null);
   const autoOpened = useRef(false);
+  const compactTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [source, setSource] = useState({ width: 0, height: 0 });
   const [mode, setMode] = useState<"fit" | "fill" | "100" | "150">("fit");
   const [fullscreen, setFullscreen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [touchMode,setTouchMode]=useState<TouchMode>("direct");
+  const [compact,setCompact]=useState(false),[autoCompact,setAutoCompact]=useState(true);
   const [inputEnabled, setInputEnabled] = useState(false);
   const [manualPaused, setManualPaused] = useState(false);
   const [backgroundPaused, setBackgroundPaused] = useState(false);
@@ -127,6 +131,12 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
   const live = useRef({connected,autoControl,manualPaused,source}); live.current={connected,autoControl,manualPaused,source};
   const hasVideo = connected && source.width > 0 && source.height > 0;
   const immersive = fullscreen || expanded;
+  useEffect(()=>{
+    clearTimeout(compactTimer.current);setCompact(false);
+    if(autoCompact&&immersive&&connected&&!toolsOpen)compactTimer.current=setTimeout(()=>setCompact(true),3500);
+    return()=>clearTimeout(compactTimer.current);
+  },[autoCompact,immersive,connected,toolsOpen]);
+  function revealBar(){setCompact(false);clearTimeout(compactTimer.current);if(autoCompact&&immersive&&!toolsOpen)compactTimer.current=setTimeout(()=>setCompact(true),3500);}
 
   useEffect(() => {
     const video=videoRef.current;
@@ -189,10 +199,10 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
   const measuredRtt=telemetry?.rttMs??latency;
   const actualWidth=telemetry?.width??source.width,actualHeight=telemetry?.height??source.height;
   const actualResolution=actualWidth>0&&actualHeight>0?`${actualWidth} × ${actualHeight}`:"待测";
-  return <div ref={surface} className={`remote-screen modern-screen${inputEnabled?" input-active":""}${connected?" session-present":""}${expanded?" expanded-screen":""}${toolsOpen?" tools-open":""}`}>
-    <div className="screen-floating-bar" aria-label="远程桌面快捷操作">
-      <button className="screen-menu-toggle" aria-expanded={toolsOpen} aria-controls={`${helpId}-tools`} onClick={()=>setToolsOpen(!toolsOpen)}><Icon name="settings"/><span>{toolsOpen?"收起工具":"工具"}</span></button>
-      <span className="screen-floating-name" title={deviceName}><i className={inputEnabled?"control-ready":""}/><span>{deviceName}<small>{measured(telemetry?.fps,"fps",1)} · {measured(measuredRtt,"ms")}</small></span></span>
+  return <div ref={surface} className={`remote-screen modern-screen touch-mode-${touchMode}${inputEnabled?" input-active":""}${connected?" session-present":""}${expanded?" expanded-screen":""}${toolsOpen?" tools-open":""}`}>
+    <div className={`screen-floating-bar${compact?" bar-compact":""}`} aria-label="远程桌面快捷操作" onPointerEnter={revealBar} onFocusCapture={revealBar}>
+      <button className="screen-menu-toggle" aria-label={toolsOpen?"收起工具":"工具"} aria-expanded={toolsOpen} aria-controls={`${helpId}-tools`} onClick={()=>setToolsOpen(!toolsOpen)}><Icon name="settings"/><span>{toolsOpen?"收起工具":"工具"}</span></button>
+      <span className="screen-floating-name" title={deviceName}><i className={inputEnabled?"control-ready":""}/><span>{deviceName}<small>{inputEnabled?(touchMode==="touchpad"?"触控板":"直触"):"仅观看"} · {measured(telemetry?.fps,"fps",1)} · {measured(measuredRtt,"ms")}</small></span></span>
       <button className="screen-floating-exit" aria-label={immersive?"退出全屏":"全屏显示"} title={immersive?"退出全屏":"全屏显示"} onClick={()=>void (immersive?exitFullscreen():enterFullscreen())}><Icon name="expand"/></button>
       {connected&&<button className="screen-floating-disconnect" onClick={()=>{onRelease();onDisconnect();}}><Icon name="stop"/><span>断开</span></button>}
     </div>
@@ -206,20 +216,24 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
           onPointerCancel={()=>onRelease()} onBlur={()=>onRelease()} onContextMenu={event=>{if(inputEnabled)event.preventDefault();}} onKeyDown={event=>key("key_down",event)} onKeyUp={event=>key("key_up",event)}/>
       </div>
       {!hasVideo&&<div className="screen-empty"><span className="screen-empty-icon"><Icon name="monitor"/></span><strong>{connected?"正在准备电脑画面":"远程画面将在这里显示"}</strong><p>{status}</p></div>}
+      {hasVideo&&inputEnabled&&touchMode==="touchpad"&&<span className="touchpad-mode-badge">触控板 · 单指移动 / 双指滚动</span>}
     </div>
     <div id={`${helpId}-tools`} className="screen-tools-panel" hidden={!toolsOpen}>
       <div className="screen-toolbar" aria-label="远程画面工具栏">
-        <div className="screen-title"><span>{deviceName}</span><span>{hasVideo?actualResolution:"等待画面"}</span></div>
+        <div className="screen-title"><span>{deviceName}</span><span className={`screen-control-chip${inputEnabled?" control-ready":""}`}>{inputEnabled?"正在操作":"仅观看"}</span></div>
         <dl className="screen-live-metrics" aria-label="实际连接与画面统计">
           <div><dt>实际分辨率</dt><dd>{actualResolution}</dd></div><div><dt>实际帧率</dt><dd>{measured(telemetry?.fps,"fps",1)}</dd></div>
           <div><dt>实际码率</dt><dd>{measured(telemetry?.bitrateKbps,"kbps")}</dd></div><div><dt>网络往返</dt><dd>{measured(measuredRtt,"ms")}</dd></div>
           <div><dt>间隔丢弃帧</dt><dd>{measured(telemetry?.framesDropped,"帧")}</dd></div><div><dt>间隔丢包率</dt><dd>{measured(telemetry?.packetLossPercent,"%",1)}</dd></div>
         </dl><p className="screen-stat-note">最近采样的实测值；静止画面可能帧率较低。网络往返不等于操作到显示的总延迟。</p>
+        {onQualityModeChange&&<fieldset className="screen-quality-options"><legend>画质与流畅度</legend>{([{value:"auto",label:"自动",detail:"根据网络调整"},{value:"sharp",label:"清晰",detail:"4K / 60 帧目标"},{value:"smooth",label:"流畅",detail:"动态画面优先"},{value:"economy",label:"省带宽",detail:"较低传输负载"}]as const).map(option=><label key={option.value} className={qualityMode===option.value?"selected":""}><input type="radio" name={`${helpId}-quality`} checked={qualityMode===option.value} onChange={()=>onQualityModeChange(option.value)}/><span><strong>{option.label}</strong><small>{option.detail}</small></span></label>)}</fieldset>}
+        {onQualityModeChange&&<p className="screen-stat-note">目标档位不等于实测帧率；上方统计显示实际收到的画面。</p>}
         <fieldset className="zoom-options"><legend>画面显示</legend>{([{value:"fit",label:"完整画面"},{value:"fill",label:"铺满裁边"},{value:"100",label:"100%"},{value:"150",label:"150%"}]as const).map(option=><label key={option.value} className={mode===option.value?"selected":""}><input type="radio" name={`${helpId}-zoom`} value={option.value} checked={mode===option.value} onChange={()=>{onRelease();setMode(option.value);}}/><span>{option.label}</span></label>)}</fieldset>
         {mode==="fill"&&<p className="screen-mode-help">保持画面比例，屏幕边缘会裁切；切回“完整画面”可显示整个桌面。</p>}
         <button ref={inputToggle} className="secondary-action screen-input-toggle" disabled={!hasVideo} aria-pressed={inputEnabled} onPointerDown={event=>{if(event.button===0)event.preventDefault();}} onClick={toggleInput}>{inputEnabled?"暂停操作":"恢复操作"}</button>
+        <label className="screen-compact-setting"><input type="checkbox" checked={autoCompact} onChange={event=>setAutoCompact(event.target.checked)}/><span>全屏时自动精简悬浮栏<small>退出全屏和断开按钮始终保留</small></span></label>
       </div>
-      <MobileControls videoRef={videoRef} enabled={inputEnabled} available={hasVideo} textSupported={textSupported} open={toolsOpen} resetKey={layoutReset} onAction={action=>inputEnabled&&hasVideo?onMobileAction(action):false} onRelease={onRelease} onSuspend={suspendInput}/>
+      <MobileControls videoRef={videoRef} enabled={inputEnabled} available={hasVideo} textSupported={textSupported} open={toolsOpen} resetKey={layoutReset} onModeChange={setTouchMode} onAction={action=>inputEnabled&&hasVideo?onMobileAction(action):false} onRelease={onRelease} onSuspend={suspendInput}/>
       <div className="screen-help"><Icon name="shield"/><span>{backgroundPaused?"应用已离开前台，输入已释放。":inputEnabled?"正在操作电脑。点击画面直接控制；Esc 返回窗口并暂停操作。":"输入已暂停，点击“恢复操作”继续。"}</span></div>
       {error&&<StatusMessage error>{error}</StatusMessage>}
     </div>

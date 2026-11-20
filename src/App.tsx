@@ -1,3 +1,5 @@
+import { readQualityPreference } from "./qualityMode";
+import type { QualityMode } from "./qualityMode";
 import { androidClient, configuredServer, controllerOnly, secureCredentialStorage } from "./platform";
 import { MobileGuestPage, MobileHome, ServerDialog } from "./MobileHome";
 import type { MobileAction } from "./mobileInput";
@@ -25,7 +27,7 @@ import type { View, AssistMode } from "./ux";
 type AuthMode = "signin" | "register";
 
 const signaling = new SignalingClient();
-const appVersion = "0.10.0-alpha";
+const appVersion = "0.11.0-alpha";
 const navigationIcons: Record<View, IconName> = { Dashboard:"grid", "My Devices":"devices", "Remote Assist":"monitor", Sessions:"history", Settings:"settings" };
 
 export function App() {
@@ -235,6 +237,9 @@ function ControlComputer({ auth, target, controller, viewOnly, onBack, onActivit
   const [latency, setLatency] = useState<number | null>(null);
   const [telemetry,setTelemetry]=useState<VideoTelemetry|null>(null);
   const [inputNotice,setInputNotice]=useState("");
+  const [qualityMode,setQualityMode]=useState<QualityMode>(readQualityPreference);
+  const [qualityControl,setQualityControl]=useState(false);
+  const [qualityNotice,setQualityNotice]=useState("");
   const [textSupported,setTextSupported]=useState(false);
   const [session, setSession] = useState<{ id: string; controllerToken: string } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -263,6 +268,7 @@ function ControlComputer({ auth, target, controller, viewOnly, onBack, onActivit
       const ws = new WebSocket(signaling.wsURL(joined.id, "controller"));
       wsRef.current = ws;
       const peer = new ControllerPeer(joined.id, joined.controllerToken, ws, [], {
+        onQualityControl:sample=>{setQualityControl(sample.supported);if(sample.supported)setQualityNotice(`电脑端画质偏好：${{auto:"自动",sharp:"清晰",smooth:"流畅",economy:"省带宽"}[sample.mode]}${sample.applied?" · 参数已应用":" · 编码参数由浏览器管理"}`);},
         onInputStatus:sample=>setInputNotice(sample.reason==="limited"?"输入频率较高，正在合并鼠标移动以降低积压。":"部分输入未送达电脑，请查看连接状态。"),
         onTextSupport:setTextSupported,
         onRemoteStream: (stream) => { if (videoRef.current) videoRef.current.srcObject = stream; },
@@ -271,7 +277,7 @@ function ControlComputer({ auth, target, controller, viewOnly, onBack, onActivit
         onLatency: setLatency,
         onTelemetry:sample=>{setTelemetry(sample);recorder.current?.route(sample.route);},
         onFailure:(reason)=>setError(transportFailure(reason))
-      },{loadIceServers:()=>signaling.iceServers(latestAuth.current.accessToken)});
+      },{qualityMode,loadIceServers:()=>signaling.iceServers(latestAuth.current.accessToken)});
       peerRef.current = peer;
       ws.onopen = () => ws.send(JSON.stringify({ type: "authenticate", token: joined.controllerToken }));
       ws.onmessage = (ev) => {
@@ -342,7 +348,7 @@ function ControlComputer({ auth, target, controller, viewOnly, onBack, onActivit
     ws?.close();
     if (videoRef.current) videoRef.current.srcObject = null;
     setLatency(null);
-    setTelemetry(null);setTextSupported(false);
+    setTelemetry(null);setTextSupported(false);setQualityControl(false);setQualityNotice("");
     setInputNotice("");
     setRelay("Unknown");
     if(reason!=="Closed")setStatus(reason);
@@ -364,9 +370,10 @@ function ControlComputer({ auth, target, controller, viewOnly, onBack, onActivit
       <div className="panel-heading"><button className="secondary-action" onClick={()=>{disconnect("Stopped by controller");onBack();}}>返回设备</button><h2>{target.note||target.deviceName}</h2><span className={`presence ${status==="connected"?"online":"offline"}`} role="status"><i />{connectionLabel(status)}</span></div>
       {error&&<StatusMessage error>{error}</StatusMessage>}
       {inputNotice&&<StatusMessage>{inputNotice}</StatusMessage>}
+      {qualityNotice&&<p className="field-hint" role="status">{qualityNotice}</p>}
       {!session&&!busy&&<button className="primary-action" onClick={()=>void connect()}>重新连接</button>}
       {busy&&<p role="status">正在连接设备…</p>}
-      <RemoteScreen telemetry={telemetry} latency={latency} onMobileAction={sendMobile} textSupported={textSupported} videoRef={videoRef} connected={status==="connected"} autoFullscreen autoControl={!viewOnly} deviceName={target.note||target.deviceName} status={connectionLabel(status)} onPointer={sendPointer} onKey={sendKey} onWheel={sendWheel} onRelease={releaseInputs} onDisconnect={()=>disconnect("Stopped by controller")} />
+      <RemoteScreen qualityMode={qualityMode} onQualityModeChange={qualityControl?mode=>{setQualityMode(mode);try{localStorage.setItem("remoteassist.qualityMode",mode);}catch{}setQualityNotice(peerRef.current?.setQualityMode(mode)?"正在调整电脑端画质…":"画质未调整，连接可能已断开。");}:undefined} telemetry={telemetry} latency={latency} onMobileAction={sendMobile} textSupported={textSupported} videoRef={videoRef} connected={status==="connected"} autoFullscreen autoControl={!viewOnly} deviceName={target.note||target.deviceName} status={connectionLabel(status)} onPointer={sendPointer} onKey={sendKey} onWheel={sendWheel} onRelease={releaseInputs} onDisconnect={()=>disconnect("Stopped by controller")} />
       <dl className="connection-details"><div><dt>连接状态</dt><dd>{connectionLabel(status)}</dd></div><div><dt>传输路径</dt><dd>{relay==="P2P"?"设备直连":relay==="TURN Relay"?"中继连接":"等待连接"}</dd></div><div><dt>往返延迟</dt><dd>{latency == null ? "待测量" : `${latency} ms`}</dd></div></dl>
       <ConnectionDiagnostics sample={telemetry} />
     </section>

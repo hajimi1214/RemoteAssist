@@ -156,3 +156,34 @@
 @media (max-width: 480px) { .modern-screen .screen-floating-bar { gap: 2px; } .screen-floating-name { max-inline-size: 26vw; font-size: .6875rem; } .modern-screen .screen-floating-bar button { padding-inline: 8px; } }
 @media (max-height: 500px) and (orientation: landscape) { .modern-screen .screen-floating-bar { inset-block-start: calc(6px + env(safe-area-inset-top)); } .modern-screen .screen-floating-bar button { min-block-size: 36px; } .modern-screen .screen-tools-panel { inset-block-start: calc(54px + env(safe-area-inset-top)); max-block-size: calc(100dvh - 64px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); inline-size: min(390px,55vw); } }
 @media (prefers-reduced-motion: reduce) { .modern-screen .screen-floating-bar { backdrop-filter: none; } }
+
+/* Compact, explicit controls with no persistent remote modifier holds. */
+.modern-screen .screen-floating-bar.bar-compact .screen-floating-name,.modern-screen .screen-floating-bar.bar-compact .screen-menu-toggle > span { display: none; }
+.modern-screen .screen-floating-bar.bar-compact { opacity: .82; }
+.modern-screen .screen-floating-bar:focus-within,.modern-screen .screen-floating-bar:hover { opacity: 1; }
+.modern-screen .screen-tools-panel .screen-title > .screen-control-chip { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); padding: 5px 8px; background: var(--subtle); border: 1px solid var(--line); border-radius: 20px; font-size: .625rem; }
+.modern-screen .screen-tools-panel .screen-title > .screen-control-chip::before { content: ""; inline-size: 5px; block-size: 5px; border-radius: 50%; background: currentColor; }
+.modern-screen .screen-tools-panel .screen-title > .screen-control-chip.control-ready { color: var(--green); background: var(--green-soft); border-color: color-mix(in srgb,var(--green),transparent 75%); }
+.modern-screen .screen-quality-options { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin: 0; padding: 0; border: 0; min-inline-size: 0; }
+.screen-quality-options legend,.touch-mode-options legend { margin-block-end: 9px; font-size: .75rem; font-weight: 650; }
+.screen-quality-options label,.touch-mode-options label { position: relative; display: flex; align-items: center; gap: 8px; min-inline-size: 0; min-block-size: 54px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); cursor: pointer; }
+.screen-quality-options label.selected,.touch-mode-options label.selected { color: var(--blue); background: var(--blue-soft); border-color: color-mix(in srgb,var(--blue),transparent 40%); }
+.screen-quality-options label > input[type="radio"],.touch-mode-options label > input[type="radio"] { inline-size: 14px; block-size: 14px; min-block-size: 14px; padding: 0; margin: 0; accent-color: var(--blue); flex-shrink: 0; }
+.screen-quality-options strong,.touch-mode-options strong { display: block; font-size: .75rem; }
+.screen-quality-options small,.touch-mode-options small { display: block; margin-block-start: 3px; font-size: .5625rem; font-weight: 400; line-height: 1.5; color: var(--muted); }
+.screen-compact-setting { display: flex; align-items: flex-start; gap: 8px; font-size: .6875rem; font-weight: 400; }
+.screen-compact-setting input[type="checkbox"] { inline-size: 16px; block-size: 16px; min-block-size: 16px; padding: 0; margin: 2px 0 0; accent-color: var(--blue); flex-shrink: 0; }
+.screen-compact-setting small { display: block; font-size: .5625rem; color: var(--muted); margin-block-start: 3px; }
+.touch-mode-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-inline-size: 0; border: 0; margin: 0 0 14px; padding: 0; }
+.touchpad-mode-badge { position: absolute; z-index: 1; inset: auto auto max(10px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left)); color: #d6e2f3; background: #142238bd; border: 1px solid #bfd4ef26; padding: 6px 9px; border-radius: 8px; font-size: .625rem; pointer-events: none; user-select: none; }
+.modern-screen .touch-stop.compact-stop { display: block; inline-size: 100%; min-block-size: 38px; margin-block-start: 12px; border: 1px solid color-mix(in srgb,var(--red),transparent 65%); border-radius: 9px; color: var(--red); background: var(--red-soft); font-size: .6875rem; }
+.mobile-modifiers,.mobile-shortcuts { display: grid; gap: 7px; }
+.mobile-modifiers { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.mobile-shortcuts { grid-template-columns: repeat(4,minmax(0,1fr)); margin-block: 12px; }
+.mobile-modifiers button,.mobile-shortcuts button { min-block-size: 42px; min-inline-size: 0; padding: 7px 5px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: var(--subtle); font-size: .6875rem; font-weight: 600; touch-action: manipulation; }
+.mobile-modifiers button[aria-pressed="true"] { background: var(--blue-soft); border-color: var(--blue); color: var(--blue); }
+.modern-screen .modifier-help { color: var(--muted); margin: 8px 0 12px; font-size: .625rem; line-height: 1.6; }
+.touch-operation-message { min-block-size: 0; font-size: .625rem; }
+.touch-operation-message:empty { display: none; }
+.touch-operation-message:not(:empty) { margin-block-start: 12px; border-inline-start: 2px solid var(--blue); padding-inline-start: 8px; }
+@media (max-width: 350px) { .screen-quality-options label,.touch-mode-options label { padding-inline: 7px; gap: 6px; } .screen-quality-options small,.touch-mode-options small { font-size: .5625rem; } .mobile-shortcuts { gap: 5px; } }

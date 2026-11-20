@@ -23,6 +23,7 @@ export interface VideoTelemetry {
   targetBitrateKbps?: number;
   /** Browser encoder's current target estimate, when exposed by getStats. */
   encoderTargetKbps?: number;
+  qualityMode?: "auto" | "sharp" | "smooth" | "economy";
 }
 
 interface Counters { timestamp: number; bytes: number; frames?: number; received?: number; lost?: number; processingTime?: number; bufferDelay?: number; bufferCount?: number; dropped?: number; sendDelay?: number; sent?: number }

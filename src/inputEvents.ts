@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
-import { mapVideoPoint } from "./pointerMapping";
-import { PointerOrder } from "./inputSequence";
-import { validRemoteText } from "./mobileInput";
+import { mapVideoPoint } from "./pointerMapping.ts";
+import { PointerOrder } from "./inputSequence.ts";
+import { validRemoteText } from "./mobileInput.ts";
+import { isQualityMode } from "./qualityMode.ts";
 
 export type InputEventType =
   | "mouse_move"
@@ -11,6 +12,7 @@ export type InputEventType =
   | "key_down"
   | "key_up"
   | "text_input"
+  | "quality_mode"
   | "release_all"
   | "ping"
   | "pong"
@@ -30,16 +32,21 @@ const maxClockSkewMs = 30_000;
 export class InputEventGate {
   private hits: number[] = [];
   private readonly pointerOrder = new PointerOrder();
+  private readonly expectedSessionToken: string;
+  private readonly isAuthorized: () => boolean;
+  private readonly maxPerSecond: number;
+  private readonly deliver: (command: string, args?: Record<string, unknown>) => Promise<unknown>;
 
   constructor(
-    private readonly expectedSessionToken: string,
-    private readonly isAuthorized: () => boolean,
-    private readonly maxPerSecond = 120,
-    private readonly deliver: (command: string, args?: Record<string, unknown>) => Promise<unknown> = invoke
-  ) {}
+    expectedSessionToken: string,
+    isAuthorized: () => boolean,
+    maxPerSecond = 120,
+    deliver: (command: string, args?: Record<string, unknown>) => Promise<unknown> = invoke
+  ) { this.expectedSessionToken=expectedSessionToken;this.isAuthorized=isAuthorized;this.maxPerSecond=maxPerSecond;this.deliver=deliver; }
 
   async accept(raw: unknown): Promise<void> {
     const event = this.parse(raw);
+    if (event.type === "quality_mode") return;
     if (event.type === "ping") {
       await this.deliver("renew_input_lease", { sessionToken: event.sessionToken });
       return;
@@ -147,6 +154,7 @@ function validType(value: string): value is InputEventType {
     "key_down",
     "key_up",
     "text_input",
+    "quality_mode",
     "release_all",
     "ping",
     "pong",
@@ -156,6 +164,7 @@ function validType(value: string): value is InputEventType {
 
 function validatePayload(event: RemoteInputEvent): void {
   const payload = event.payload ?? {};
+  if (event.type === "quality_mode" && !isQualityMode(payload.mode)) throw new Error("invalid_quality_mode");
   if (event.type === "text_input" && (typeof payload.text !== "string" || !validRemoteText(payload.text))) throw new Error("invalid_text_payload");
   if (event.type.startsWith("mouse_")) {
     if (event.type === "mouse_wheel") {

@@ -1,8 +1,10 @@
 import { InputEventGate, RemoteInputEvent } from "./inputEvents";
 import type { IceServer } from "./signaling";
-import { AdaptiveVideoPolicy, connectionRoute, connectionSample, VideoPreference, VideoQuality, videoEncoding } from "./connectionQuality";
+import { AdaptiveVideoPolicy, connectionRoute, connectionSample, VideoPreference, VideoQuality } from "./connectionQuality";
 import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS, NEGOTIATION_TIMEOUT_MS, HeartbeatTracker, LatestPointer } from "./transportTiming";
 import { VideoStatsSampler, VideoTelemetry } from "./videoTelemetry";
+import { isQualityMode, sessionEncoding } from "./qualityMode";
+import type { QualityMode } from "./qualityMode";
 
 export type SignalType = "offer" | "answer" | "ice" | "ping" | "pong" | "disconnect" | "rejected" | "expired" | "ready";
 export interface SignalMessage {
@@ -21,10 +23,12 @@ export interface PeerCallbacks {
   onTelemetry?: (sample: VideoTelemetry) => void;
   onTextSupport?: (supported: boolean) => void;
   onInputStatus?: (status: { reason: "limited" | "rejected"; rejected: number }) => void;
+  onQualityControl?: (status: { supported: boolean; mode: QualityMode; applied?: boolean }) => void;
   onFailure?: (reason: string) => void;
 }
 export interface PeerOptions {
   preference?: VideoPreference;
+  qualityMode?: QualityMode;
   // Refresh only at negotiation time, after any potentially long approval wait.
   loadIceServers?: () => Promise<IceServer[]>;
 }
@@ -159,9 +163,10 @@ export class HostPeer extends SessionPeer {
   private readonly policy=new AdaptiveVideoPolicy("Sharp");
   private lastInputWarning=-Infinity;
   private rejectedInputs=0;
+  private qualityMode:QualityMode="auto";
 
   constructor(sessionId:string,hostToken:string,ws:WebSocket,iceServers:IceServer[],callbacks:PeerCallbacks={},options:PeerOptions={}){
-    super(sessionId,hostToken,ws,iceServers,callbacks,options);this.preference=options.preference??"auto";
+    super(sessionId,hostToken,ws,iceServers,callbacks,options);this.preference=options.preference??"auto";this.qualityMode=options.qualityMode??"auto";
   }
   setPreference(preference: VideoPreference) {
     this.preference=preference;
@@ -181,7 +186,7 @@ export class HostPeer extends SessionPeer {
         if(track.kind==="video"){
           this.videoTrack=track;track.contentHint=this.preference==="motion"?"motion":this.preference==="text"?"text":"detail";
           // Seed encoding ceilings in the first offer, not several seconds after media starts.
-          this.videoSender=this.pc!.addTransceiver(track,{direction:"sendonly",streams:[stream],sendEncodings:[videoEncoding(this.policy.current,this.preference,track.getSettings())]}).sender;
+          this.videoSender=this.pc!.addTransceiver(track,{direction:"sendonly",streams:[stream],sendEncodings:[sessionEncoding(this.qualityMode,this.policy.current,track.getSettings(),this.preference)]}).sender;
         } else this.pc!.addTrack(track,stream);
       });
       this.inputChannel=this.pc.createDataChannel("input",{ordered:true});
@@ -201,9 +206,18 @@ export class HostPeer extends SessionPeer {
         const msg=parseMessage(ev.data);if(!msg)return;
         void gate.accept(msg).then(()=>{
           if(this.closed)return;
+          if(msg.type==="quality_mode"){
+            const mode=(msg.payload as Record<string,unknown>)?.mode;
+            if(isQualityMode(mode)){
+              this.qualityMode=mode;this.appliedProfile="";
+              if(this.videoTrack)this.videoTrack.contentHint=mode==="smooth"?"motion":"detail";
+              void this.applyVideoProfile().then(applied=>{if(!this.closed)this.sendReliable({type:"quality_mode_status",sessionId:this.sessionId,mode:this.qualityMode,applied});});
+            }
+            return;
+          }
           if(msg.type==="ping"){
             this.lastHeartbeat=performance.now();
-            this.sendReliable({type:"pong",sessionToken:msg.sessionToken,ts:msg.ts,probeId:msg.probeId,textInputVersion:1});
+            this.sendReliable({type:"pong",sessionToken:msg.sessionToken,ts:msg.ts,probeId:msg.probeId,textInputVersion:1,qualityControlVersion:1,qualityMode:this.qualityMode,qualityProfileApplied:!!this.appliedProfile});
           }
         }).catch(error=>{
           // A failed authenticated keepalive means the native authorization lease
@@ -253,26 +267,36 @@ export class HostPeer extends SessionPeer {
     // No input payload, key, coordinate, token value, or native exception text is reported.
     this.sendReliable({type:"input_status",sessionId:this.sessionId,...status});
   }
-  private applyingProfile?:Promise<void>;
-  private async applyVideoProfile(){
+  private applyingProfile?:Promise<boolean>;
+  private profileDirty=false;
+  private applyVideoProfile():Promise<boolean>{
+    this.profileDirty=true;
     if(this.applyingProfile)return this.applyingProfile;
-    this.applyingProfile=this.updateVideoProfile().finally(()=>{this.applyingProfile=undefined;});
+    const drain=async()=>{
+      let applied=false;
+      try {
+        while(this.profileDirty&&!this.closed){this.profileDirty=false;applied=await this.updateVideoProfile();}
+        return applied&&!this.closed;
+      } finally {this.applyingProfile=undefined;}
+    };
+    this.applyingProfile=drain();
     return this.applyingProfile;
   }
-  private async updateVideoProfile(){
-    if(this.closed||!this.videoSender||!this.videoTrack)return;
+  private async updateVideoProfile():Promise<boolean>{
+    if(this.closed||!this.videoSender||!this.videoTrack)return false;
     const quality=this.policy.current;
     const settings=this.videoTrack.getSettings();
-    const key=[quality,this.preference,settings.width,settings.height].join(":");
-    if(key===this.appliedProfile)return;
+    const key=[quality,this.preference,this.qualityMode,settings.width,settings.height].join(":");
+    if(key===this.appliedProfile)return true;
     try{
       const parameters=this.videoSender.getParameters();
-      if(!parameters.encodings?.length){this.callbacks.onQuality?.("Browser managed");return;}
-      Object.assign(parameters.encodings[0],videoEncoding(quality,this.preference,settings));
-      parameters.degradationPreference=this.preference==="motion"?"maintain-framerate":"maintain-resolution";
+      if(!parameters.encodings?.length){this.appliedProfile="";this.callbacks.onQuality?.("Browser managed");return false;}
+      Object.assign(parameters.encodings[0],sessionEncoding(this.qualityMode,quality,settings,this.preference));
+      parameters.degradationPreference=this.qualityMode==="smooth"||this.preference==="motion"?"maintain-framerate":"maintain-resolution";
       await this.videoSender.setParameters(parameters);
-      if(!this.closed){this.appliedProfile=key;this.callbacks.onQuality?.(quality);}
-    }catch{if(!this.closed)this.callbacks.onQuality?.("Browser managed");}
+      if(this.closed)return false;
+      this.appliedProfile=key;this.callbacks.onQuality?.(quality);return true;
+    }catch{this.appliedProfile="";if(!this.closed)this.callbacks.onQuality?.("Browser managed");return false;}
   }
   private startQualityMonitor(){
     const sample=async()=>{
@@ -282,7 +306,8 @@ export class HostPeer extends SessionPeer {
           const stats=await this.pc.getStats();if(this.closed)return;
           this.callbacks.onRelayStatus?.(connectionRoute(stats));
           const telemetry=this.statsSampler.sample(stats,"send");
-          const target=videoEncoding(this.policy.current,this.preference,this.videoTrack?.getSettings());
+          const target=sessionEncoding(this.qualityMode,this.policy.current,this.videoTrack?.getSettings(),this.preference);
+          telemetry.qualityMode=this.qualityMode;
           telemetry.targetFps=target.maxFramerate;telemetry.targetBitrateKbps=Math.round(target.maxBitrate/1000);
           this.callbacks.onTelemetry?.(telemetry);
           this.policy.observe({...connectionSample(stats),sendQueueMs:telemetry.sendQueueMs});
@@ -304,6 +329,14 @@ export class ControllerPeer extends SessionPeer {
   private telemetryTimer?:number;
   private heartbeat?:HeartbeatTracker;
   private readonly pointer=new LatestPointer<RemoteInputEvent>((event)=>this.deliverInput(event));
+  private desiredQuality?:QualityMode;
+  private qualitySupported=false;
+  setQualityMode(mode:QualityMode):boolean {
+    if(!isQualityMode(mode))return false;
+    this.desiredQuality=mode;
+    if(!this.qualitySupported)return false;
+    return this.sendReliable({type:"quality_mode",sessionToken:this.sessionToken,ts:Date.now(),payload:{mode}});
+  }
 
   protected async processSignal(msg:SignalMessage){
     if(msg.type==="offer"){
@@ -325,11 +358,19 @@ export class ControllerPeer extends SessionPeer {
         this.inputChannel=ev.channel;this.installInputFailureHandlers();this.watchPointerBuffer(ev.channel);
         this.inputChannel.onmessage=(message)=>{
           const parsed=parseMessage(message.data);
+          if(parsed?.type==="quality_mode_status"&&parsed.sessionId===this.sessionId&&isQualityMode(parsed.mode)){
+            this.callbacks.onQualityControl?.({supported:true,mode:parsed.mode,applied:parsed.applied===true});return;
+          }
           if(parsed?.type==="input_status"&&parsed.sessionId===this.sessionId){
             if((parsed.reason==="limited"||parsed.reason==="rejected")&&Number.isSafeInteger(parsed.rejected)&&(parsed.rejected as number)>=0)this.callbacks.onInputStatus?.({reason:parsed.reason,rejected:parsed.rejected as number});
             return;
           }
           if(parsed?.type!=="pong"||parsed.sessionToken!==this.sessionToken||!this.heartbeat)return;
+          const supported=parsed.qualityControlVersion===1;
+          const mode=isQualityMode(parsed.qualityMode)?parsed.qualityMode:"auto";
+          const first=supported&&!this.qualitySupported;this.qualitySupported=supported;
+          this.callbacks.onQualityControl?.({supported,mode,applied:parsed.qualityProfileApplied===true});
+          if(first)this.setQualityMode(this.desiredQuality??this.options.qualityMode??"auto");
           this.callbacks.onTextSupport?.(parsed.textInputVersion===1);
           const rtt=this.heartbeat.acknowledge(parsed.probeId,performance.now());
           if(rtt!=null)this.callbacks.onLatency?.(rtt);

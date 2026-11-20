@@ -2,9 +2,26 @@
 
 ## Current milestone
 
-M13 — 0.10.0-alpha same-account device access, native Windows capture, fullscreen touch controls and a 4K60 target. Reviewed 2026-11-20.
+M14 — 0.11.0-alpha negotiated quality profiles, dirty-region capture packets, responsive device layouts and mobile touchpad controls. Reviewed 2026-11-20.
 
-## Completed
+## 0.11 update
+
+- Device center now offers desktop, grid and list layouts with account-local preference, combined status/platform filters, search and favorites. The viewer adds touchpad input and a four-profile real sender-control channel; acknowledgments distinguish applied encoder settings from browser-managed settings.
+- Native DXGI capture reuses a texture and transfers validated dirty-region updates for small changes, falling back to full frames for broad changes, moves or uncertain metadata. No frame pixels enter logs or disk.
+- Actual opt-in primary-display capture sample on this 2560×1600 desktop: 108 changed-image packets over 2.148s, comprising 33 full and 75 delta updates. Bytes were 541,482,112 vs 1,769,474,160 full-frame-equivalent bytes (~69.4% less for this local sample). This is payload evidence only, not an FPS/codec/network benchmark.
+- Browser synthetic direct session: received 2560×1600 at ~30fps from a ~30fps generator, exact 1280×720 fullscreen geometry, zero packet loss, sharp sender profile accepted with `applied=true`; no OS input was generated. Device layouts and account filters were exercised. Added a compact profile for shorter desktop workspaces; final physical font-scale variants still need checks.
+
+PASS: frontend 76/76 and production build; Go tests/build/vet; Rust check and 9 normal tests (one real capture test ignored by default). The opt-in capture smoke passed separately. Android ARM64 APK (v2 development signature), Windows portable EXE and NSIS installer built for 0.11; hashes are in the ignored local release folder.
+
+NOT VERIFIED: sustained 4K60, 4K source, end-to-end input latency, comparison against UU, weak-network conditions, physical Android 0.11 interaction, cloud deployment or production signing. Details: [0.11 notes](docs/direct-desktop-0.11.md), [capture packet design](docs/native-performance-0.11.md).
+
+## Next acceptance
+
+Reconnect a physical Android device to matching 0.11 clients and measure moving-content capture/encode/decode FPS and input latency on direct and relayed networks. Do not label the 4K60 target as achieved until measured from a real 4K source.
+
+## 0.10 baseline
+
+### Completed
 
 - Same-account device selection replaces connection codes, repeated host confirmation and screen picking, as explicitly requested by the user. The Windows client stays visible and logged in, identifies an active controller, and offers immediate stop/pause. No hidden service, autostart, UAC bypass or remote shell is added.
 - Server-enforced account/device ownership, online/revocation checks, one-time activation, bounded pending sessions and active-session revalidation prevent cross-account access, including by another account's administrator.
@@ -14,7 +31,7 @@ M13 — 0.10.0-alpha same-account device access, native Windows capture, fullscr
 - Sharp targets native source size up to 3840×2160 / 60fps with source-dependent 16–40Mbps ceilings. Actual FPS/bitrate/RTT/loss/drop statistics remain separate. Mouse pacing targets 90Hz with expiry/backpressure bounds.
 - Android ARM64 debug APK and Windows portable/NSIS packaging are supported. Runtime service configuration avoids a baked-in example domain. The optional LAN helper uses short-lived IP certificates and exact-IP debug trust, with no OS CA/firewall changes.
 
-## Verification
+### Verification
 
 PASS:
 
@@ -25,12 +42,8 @@ PASS:
 - LAN proxy Go tests/vet and certificate tests. The earlier physical 0.9 tablet session displayed the Windows desktop, and the user reported the touch/quality problems addressed here.
 - Android signature verification and Windows portable/NSIS generation; artifact hashes and final counts are recorded in docs/direct-desktop-0.10.md.
 
-NOT VERIFIED:
+### Not verified
 
 - Sustained native 4K60, hardware encoder selection and touch-to-photon latency. Raw IPC and browser encoding can limit throughput; this desktop's source is 2560×1600.
 - The latest 0.10 build on the physical tablet (USB currently disconnected), real IME/immersive behavior, public TURN and two-machine weak-network performance.
 - Production Android signing, installation on a second Windows PC, cloud deployment and live PostgreSQL migration.
-
-## Next acceptance
-
-Install matching 0.10 clients against the upgraded service, reconnect the tablet and measure native capture/encode/decode FPS and interaction latency. Details: docs/direct-desktop-0.10.md, docs/direct-device-protocol.md and docs/media-0.10.md.

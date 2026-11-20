@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { parseCaptureFrame } from "./captureFrame";
+import type { CaptureBaseline } from "./captureFrame";
 
 /** One raw BGRA frame in flight; GPU swizzle feeds the browser's WebRTC encoder. */
 export async function startNativeStream(token: string, onFailure: () => void): Promise<{ stream: MediaStream; stop: () => void }> {
@@ -34,23 +36,24 @@ export async function startNativeStream(token: string, onFailure: () => void): P
     const dimensionsUniform = gl.getUniformLocation(program, "dimensions"), cursorUniform = gl.getUniformLocation(program, "cursor"), visibleUniform = gl.getUniformLocation(program, "cursorVisible");
     const maximumTexture = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
     let width = 0, height = 0;
+    let baseline: CaptureBaseline | null = null;
     const render = (raw: ArrayBuffer) => {
       if (stopped || raw.byteLength === 0) return false;
-      if (raw.byteLength < 16) throw new Error("invalid frame");
-      const header = new DataView(raw), nextWidth = header.getUint32(0,true), nextHeight = header.getUint32(4,true);
-      const cursorOnly=raw.byteLength===16;
-      if (!nextWidth || !nextHeight || nextWidth > maximumTexture || nextHeight > maximumTexture || (!cursorOnly && raw.byteLength !== 16 + nextWidth * nextHeight * 4) || nextWidth * nextHeight > 33_177_600) throw new Error("invalid frame");
-      if(cursorOnly && (width!==nextWidth || height!==nextHeight))throw new Error("cursor without desktop frame");
+      const frame = parseCaptureFrame(raw, baseline, maximumTexture);
+      if (!frame) return false;
+      const nextWidth = frame.width, nextHeight = frame.height;
       if (width !== nextWidth || height !== nextHeight) {
         width = nextWidth; height = nextHeight; canvas.width = width; canvas.height = height; gl.viewport(0,0,width,height);
         // Reallocate only on a real display-size change, not on every frame.
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
       }
-      const x = header.getInt32(8,true), y = header.getInt32(12,true);
+      const x = frame.cursorX, y = frame.cursorY;
       gl.uniform2f(dimensionsUniform, width, height); gl.uniform2f(cursorUniform, x / width, y / height); gl.uniform1i(visibleUniform, x >= 0 && y >= 0 && x < width && y < height ? 1 : 0);
-      if(!cursorOnly)gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(raw,16));
+      for (const rect of frame.rects) gl.texSubImage2D(gl.TEXTURE_2D, 0, rect.x, rect.y, rect.width, rect.height, gl.RGBA, gl.UNSIGNED_BYTE, rect.pixels);
       gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
       if (gl.isContextLost()) throw new Error("GPU context lost");
+      if (gl.getError() !== gl.NO_ERROR) throw new Error("GPU capture upload failed");
+      baseline = { width, height, sequence: frame.sequence };
       return true;
     };
     const firstDeadline = performance.now() + 2500;
