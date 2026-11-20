@@ -114,34 +114,48 @@
 .remote-screen.modern-screen > .remote-viewport > .video-space { display: grid; place-content: center; }
 .remote-screen.modern-screen:is(:fullscreen,.expanded-screen) { position: fixed; inset: 0; z-index: 100; display: block; inline-size: 100%; block-size: 100dvh; min-block-size: 0; margin: 0; border: 0; border-radius: 0; padding: 0; overflow: hidden; }
 .app-frame .remote-screen.modern-screen:is(:fullscreen,.expanded-screen) > .remote-viewport { inset: 0; block-size: 100% !important; min-block-size: 0; flex: none; }
-.modern-screen .screen-floating-bar { position: absolute; z-index: 5; inset: calc(10px + env(safe-area-inset-top)) auto auto 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 5px; inline-size: max-content; max-inline-size: calc(100% - 20px - env(safe-area-inset-left) - env(safe-area-inset-right)); padding: 4px; color: #f0f5fe; background: #172337e8; border: 1px solid #c2d4f22e; border-radius: 14px; box-shadow: 0 6px 24px #0004; backdrop-filter: blur(10px); }
-.modern-screen .screen-floating-bar button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-block-size: 40px; min-inline-size: 42px; padding: 8px 10px; color: inherit; background: transparent; border: 0; border-radius: 9px; font-size: .75rem; white-space: nowrap; }
+.modern-screen .screen-floating-bar { position: absolute; z-index: 5; inset-block-start: calc(10px + env(safe-area-inset-top)); inset-inline: max(10px,env(safe-area-inset-left)) max(10px,env(safe-area-inset-right)); margin-inline: auto; display: flex; align-items: center; gap: 4px; inline-size: min(370px,calc(100% - max(10px,env(safe-area-inset-left)) - max(10px,env(safe-area-inset-right)))); padding: 4px; color: #f0f5fe; background: #172337; border: 1px solid #c2d4f23a; border-radius: 12px; box-shadow: 0 6px 24px #0004; }
+.modern-screen .screen-floating-bar button { display: grid; place-items: center; flex: 0 0 44px; inline-size: 44px; min-block-size: 44px; padding: 0; color: inherit; background: transparent; border: 0; border-radius: 8px; }
 .modern-screen .screen-floating-bar button:hover,.modern-screen .screen-floating-bar button[aria-expanded="true"] { background: #fff2; }
+.modern-screen .screen-floating-bar button:focus-visible,.modern-screen .screen-tool-tabs button:focus-visible { outline-offset: -3px; }
 .modern-screen .screen-floating-bar .ui-icon { inline-size: 17px; block-size: 17px; }
-.modern-screen .screen-floating-disconnect { color: #ffc2cc !important; background: #702d3d70 !important; }
-.screen-floating-name { display: flex; align-items: center; gap: 7px; padding-inline: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-inline-size: min(240px,28vw); font-size: .75rem; font-weight: 500; }
+.modern-screen .screen-floating-bar .screen-floating-disconnect { color: #ffc2cc; background: #702d3d70; }
+.modern-screen .screen-floating-bar .screen-floating-disconnect:hover { background: #8b384c; }
+.screen-floating-name { display: flex; align-items: center; flex: 1; min-inline-size: 0; gap: 7px; padding-inline: 7px; overflow: hidden; white-space: nowrap; font-size: .75rem; font-weight: 650; }
 .screen-floating-name i { display: block; inline-size: 6px; block-size: 6px; flex-shrink: 0; border-radius: 50%; background: #a5b0c1; }
 .screen-floating-name i.control-ready { background: #61e1ad; }
 .screen-floating-name > span { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.screen-floating-name small { display: block; margin-block-start: 2px; font-size: .5625rem; color: #bbcadf; font-weight: 400; }
-.modern-screen .screen-tools-panel { position: absolute; z-index: 6; inset: calc(66px + env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) auto auto; inline-size: min(410px,calc(100% - 24px)); max-block-size: calc(100dvh - 90px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 18px 70px #0006; }
-.modern-screen .screen-tools-panel[hidden] { display: none !important; }
-.modern-screen .screen-toolbar { position: static; display: grid; gap: 14px; padding: 16px; background: var(--surface); border-block-end: 1px solid var(--line); }
-.remote-screen.modern-screen .screen-tools-panel .screen-toolbar { position: relative; inset: auto; z-index: auto; flex: none; }
+.screen-floating-name small { display: block; overflow: hidden; text-overflow: ellipsis; margin-block-start: 2px; font-size: .625rem; color: #bbcadf; font-weight: 500; font-variant-numeric: tabular-nums; }
+.modern-screen .screen-tools-backdrop { position: absolute; z-index: 4; inset: 0; background: #0b14222b; touch-action: manipulation; }
+.modern-screen .screen-tools-panel { position: absolute; z-index: 6; display: flex; flex-direction: column; inset: calc(72px + env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) auto auto; inline-size: min(410px,calc(100% - max(12px,env(safe-area-inset-left)) - max(12px,env(safe-area-inset-right)))); max-block-size: calc(100% - 84px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow: hidden; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 16px 44px #0006; }
+.modern-screen .screen-tools-panel[hidden],.modern-screen .screen-tool-pane[hidden] { display: none; }
+.modern-screen .screen-tools-header { flex: none; display: grid; gap: 10px; padding: 12px 12px 8px; border-block-end: 1px solid var(--line); }
+.modern-screen .screen-tool-tabs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 3px; padding: 3px; border-radius: 9px; background: var(--subtle); }
+.modern-screen .screen-tool-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-inline-size: 0; min-block-size: 42px; padding: 5px 2px; color: var(--muted); border: 1px solid transparent; border-radius: 7px; background: transparent; font-size: .75rem; }
+.modern-screen .screen-tool-tabs button:hover { color: var(--ink); }
+.modern-screen .screen-tool-tabs button[aria-selected="true"] { color: var(--blue); border-color: var(--line); background: var(--surface); }
+.modern-screen .screen-tool-tabs .ui-icon { inline-size: 15px; block-size: 15px; }
+.modern-screen .screen-tools-content { min-block-size: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.modern-screen .screen-tool-pane { display: grid; gap: 13px; padding: 12px; }
+.modern-screen .screen-tool-pane:focus-visible { outline: 2px solid var(--blue); outline-offset: -3px; }
 .remote-screen.modern-screen .screen-tools-panel .touch-controls { position: relative; inset: auto; z-index: auto; flex: none; }
-.app-frame .modern-screen .screen-tools-panel .screen-title { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: .8125rem; }
-.modern-screen .screen-tools-panel .screen-title > span:first-child { font-weight: 700; }
+.modern-screen .screen-tools-panel .screen-title { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 8px; font-size: .8125rem; }
+.modern-screen .screen-tools-panel .screen-title > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
 .modern-screen .screen-tools-panel .screen-title > span:last-child { color: var(--muted); font-size: .6875rem; }
 .modern-screen .screen-tools-panel .zoom-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-inline-size: 0; margin: 0; padding: 0; border: 0; }
 .modern-screen .screen-tools-panel .zoom-options legend { margin-block-end: 8px; font-size: .75rem; font-weight: 600; }
 .modern-screen .screen-tools-panel .zoom-options label { display: flex; justify-content: center; align-items: center; min-block-size: 44px; padding: 8px; font-size: .75rem; border-radius: 9px; }
-.modern-screen .screen-mode-help { margin: -6px 0 0; color: var(--muted); font-size: .6875rem; }
 .modern-screen .screen-input-toggle { inline-size: 100%; }
-.screen-live-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px 14px; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--subtle); }
+.screen-stream-summary { display: flex; align-items: center; gap: 10px; }
+.screen-stream-summary > .ui-icon { inline-size: 34px; block-size: 34px; padding: 7px; border-radius: 8px; color: var(--blue); background: var(--blue-soft); }
+.screen-stream-summary strong,.screen-stream-summary small { display: block; }
+.screen-stream-summary strong { font-size: 1rem; font-variant-numeric: tabular-nums; }
+.screen-stream-summary small { margin-block-start: 2px; font-size: .6875rem; color: var(--muted); }
+.screen-live-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 11px 9px; margin: 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--subtle); }
 .screen-live-metrics > div { min-inline-size: 0; }
 .screen-live-metrics dt { color: var(--muted); font-size: .625rem; margin-block-end: 4px; }
 .screen-live-metrics dd { color: var(--ink); margin: 0; font-size: .75rem; font-weight: 650; font-variant-numeric: tabular-nums; }
-.modern-screen .screen-stat-note { margin: -5px 0 0; color: var(--muted); font-size: .625rem; line-height: 1.6; }
+.modern-screen .screen-stat-note { margin: 0; color: var(--muted); font-size: .6875rem; line-height: 1.6; }
 .modern-screen .touch-controls { padding: 14px; }
 .modern-screen .touch-control-actions { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px; }
 .modern-screen .touch-control-actions button { min-block-size: 44px; min-inline-size: 0; padding: 6px; font-size: .6875rem; }
@@ -153,15 +167,13 @@
 .modern-screen .mobile-key-row button { min-inline-size: 0; flex: none; }
 .modern-screen .touch-tools-toggle { min-block-size: 44px; }
 .modern-screen .video-space video { -webkit-user-select: none; user-select: none; }
-@media (max-width: 480px) { .modern-screen .screen-floating-bar { gap: 2px; } .screen-floating-name { max-inline-size: 26vw; font-size: .6875rem; } .modern-screen .screen-floating-bar button { padding-inline: 8px; } }
-@media (max-height: 500px) and (orientation: landscape) { .modern-screen .screen-floating-bar { inset-block-start: calc(6px + env(safe-area-inset-top)); } .modern-screen .screen-floating-bar button { min-block-size: 36px; } .modern-screen .screen-tools-panel { inset-block-start: calc(54px + env(safe-area-inset-top)); max-block-size: calc(100dvh - 64px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); inline-size: min(390px,55vw); } }
-@media (prefers-reduced-motion: reduce) { .modern-screen .screen-floating-bar { backdrop-filter: none; } }
+@media (max-width: 350px) { .modern-screen .screen-floating-bar { gap: 2px; } .screen-floating-name { padding-inline: 4px; } .screen-live-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-height: 500px) and (orientation: landscape) { .modern-screen .screen-floating-bar { inset-block-start: calc(6px + env(safe-area-inset-top)); } .modern-screen .screen-tools-panel { inset-block-start: calc(66px + env(safe-area-inset-top)); max-block-size: calc(100% - 74px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); inline-size: min(390px,65vw); } .modern-screen .screen-tools-header { padding-block: 7px; gap: 6px; } }
 
 /* Compact, explicit controls with no persistent remote modifier holds. */
-.modern-screen .screen-floating-bar.bar-compact .screen-floating-name,.modern-screen .screen-floating-bar.bar-compact .screen-menu-toggle > span { display: none; }
-.modern-screen .screen-floating-bar.bar-compact { opacity: .82; }
+.modern-screen .screen-floating-bar.bar-compact { opacity: .78; }
 .modern-screen .screen-floating-bar:focus-within,.modern-screen .screen-floating-bar:hover { opacity: 1; }
-.modern-screen .screen-tools-panel .screen-title > .screen-control-chip { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); padding: 5px 8px; background: var(--subtle); border: 1px solid var(--line); border-radius: 20px; font-size: .625rem; }
+.modern-screen .screen-tools-panel .screen-title > .screen-control-chip { display: inline-flex; flex: none; align-items: center; gap: 5px; color: var(--muted); padding: 5px 8px; background: var(--subtle); border: 1px solid var(--line); border-radius: 20px; font-size: .625rem; }
 .modern-screen .screen-tools-panel .screen-title > .screen-control-chip::before { content: ""; inline-size: 5px; block-size: 5px; border-radius: 50%; background: currentColor; }
 .modern-screen .screen-tools-panel .screen-title > .screen-control-chip.control-ready { color: var(--green); background: var(--green-soft); border-color: color-mix(in srgb,var(--green),transparent 75%); }
 .modern-screen .screen-quality-options { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin: 0; padding: 0; border: 0; min-inline-size: 0; }
@@ -173,7 +185,6 @@
 .screen-quality-options small,.touch-mode-options small { display: block; margin-block-start: 3px; font-size: .5625rem; font-weight: 400; line-height: 1.5; color: var(--muted); }
 .screen-compact-setting { display: flex; align-items: flex-start; gap: 8px; font-size: .6875rem; font-weight: 400; }
 .screen-compact-setting input[type="checkbox"] { inline-size: 16px; block-size: 16px; min-block-size: 16px; padding: 0; margin: 2px 0 0; accent-color: var(--blue); flex-shrink: 0; }
-.screen-compact-setting small { display: block; font-size: .5625rem; color: var(--muted); margin-block-start: 3px; }
 .touch-mode-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-inline-size: 0; border: 0; margin: 0 0 14px; padding: 0; }
 .touchpad-mode-badge { position: absolute; z-index: 1; inset: auto auto max(10px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left)); color: #d6e2f3; background: #142238bd; border: 1px solid #bfd4ef26; padding: 6px 9px; border-radius: 8px; font-size: .625rem; pointer-events: none; user-select: none; }
 .modern-screen .touch-stop.compact-stop { display: block; inline-size: 100%; min-block-size: 38px; margin-block-start: 12px; border: 1px solid color-mix(in srgb,var(--red),transparent 65%); border-radius: 9px; color: var(--red); background: var(--red-soft); font-size: .6875rem; }

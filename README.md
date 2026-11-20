@@ -1,6 +1,6 @@
 # RemoteAssist
 
-Version 0.13 adds an emergency sender-pressure response for lower queue delay and fixes short-window device focus layout sizing. The 0.12 capture and health improvements remain in [0.12 notes](docs/direct-desktop-0.12.md); the 0.13 latency/layout details are in [0.13 notes](docs/direct-desktop-0.13.md).
+Version 0.14 reduces Windows capture and drawing work on desktop updates, paces capture to the encoder's accepted frame-rate ceiling, and reorganizes the fullscreen controls. See the [desktop design and offline super-resolution benchmark](docs/desktop-research-0.14.md). The [0.13 latency policy](docs/direct-desktop-0.13.md) still applies.
 
 Version 0.8 opens directly into a guest workspace and asks for login in a dismissible dialog when a protected feature is used. It adds custom window controls, responsive page layouts, local copyable feedback, bounded pointer retries and adaptation to sender queue pressure. Session creation/join now require an authenticated account on the server too; upgrade service and clients together. See [0.8 behavior and validation](docs/guest-workspace-0.8.md).
 

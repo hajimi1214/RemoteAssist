@@ -147,7 +147,7 @@ mod tests {
                 bottom: 10,
             },
         ];
-        let regions = dirty_regions(&input, 10, 10).unwrap();
+        let regions = changed_regions(&input, &[], 10, 10).unwrap();
         assert_eq!(regions.len(), 2);
         assert_regions_cover_and_do_not_overlap(&input, &regions, 10, 10);
     }
@@ -174,7 +174,7 @@ mod tests {
                 bottom: 8,
             },
         ];
-        let regions = dirty_regions(&input, 12, 12).unwrap();
+        let regions = changed_regions(&input, &[], 12, 12).unwrap();
         assert_eq!(regions.len(), 1);
         assert_regions_cover_and_do_not_overlap(&input, &regions, 12, 12);
     }
@@ -195,7 +195,7 @@ mod tests {
                 bottom: 3,
             },
         ];
-        let regions = dirty_regions(&input, 20, 20).unwrap();
+        let regions = changed_regions(&input, &[], 20, 20).unwrap();
         assert_eq!(regions.len(), 1);
         assert_regions_cover_and_do_not_overlap(&input, &regions, 20, 20);
     }
@@ -228,16 +228,17 @@ mod tests {
                 bottom: 100,
             },
         ] {
-            assert!(dirty_regions(&[rect], 100, 100).is_none());
+            assert!(changed_regions(&[rect], &[], 100, 100).is_none());
         }
-        assert!(dirty_regions(&[], 100, 100).is_none());
-        assert!(dirty_regions(
+        assert!(changed_regions(&[], &[], 100, 100).is_none());
+        assert!(changed_regions(
             &[RECT {
                 left: 0,
                 top: 0,
                 right: 1,
                 bottom: 1
-            }; MAX_DIRTY_RECTS + 1],
+            }; MAX_CHANGE_RECTS + 1],
+            &[],
             100,
             100
         )
@@ -254,7 +255,78 @@ mod tests {
                 bottom: 1,
             })
             .collect();
-        assert_eq!(dirty_regions(&rects, 1000, 100).unwrap().len(), 1);
+        assert_eq!(changed_regions(&rects, &[], 1000, 100).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn current_texture_patches_reconstruct_scroll_with_overlapping_dirty_pixels() {
+        let width = 8usize;
+        let height = 5usize;
+        let previous: Vec<_> = (0..width * height).collect();
+        let mut current = previous.clone();
+        let movement = DXGI_OUTDUPL_MOVE_RECT {
+            SourcePoint: POINT { x: 0, y: 1 },
+            DestinationRect: RECT {
+                left: 1,
+                top: 2,
+                right: 4,
+                bottom: 4,
+            },
+        };
+        let dirty = [
+            // Newly drawn pixels in the destination must win over an old move.
+            RECT {
+                left: 2,
+                top: 3,
+                right: 3,
+                bottom: 4,
+            },
+            RECT {
+                left: 7,
+                top: 0,
+                right: 8,
+                bottom: 1,
+            },
+        ];
+        for y in 0..2 {
+            let source = (y + 1) * width;
+            let destination = (y + 2) * width + 1;
+            current[destination..destination + 3].copy_from_slice(&previous[source..source + 3]);
+        }
+        current[3 * width + 2] = 100;
+        current[7] = 200;
+        let regions = changed_regions(&dirty, &[movement], width as u32, height as u32).unwrap();
+        assert_regions_cover_and_do_not_overlap(
+            &[movement.DestinationRect, dirty[0], dirty[1]],
+            &regions,
+            width as u32,
+            height as u32,
+        );
+        let mut rebuilt = previous;
+        for region in regions {
+            for y in region.top as usize..region.bottom as usize {
+                let row = y * width + region.left as usize..y * width + region.right as usize;
+                rebuilt[row.clone()].copy_from_slice(&current[row]);
+            }
+        }
+        assert_eq!(rebuilt, current);
+    }
+
+    #[test]
+    fn move_only_uses_destination_pixels_and_rejects_out_of_bounds_sources() {
+        let mut movement = DXGI_OUTDUPL_MOVE_RECT {
+            SourcePoint: POINT { x: 9, y: 4 },
+            DestinationRect: RECT {
+                left: 3,
+                top: 2,
+                right: 5,
+                bottom: 4,
+            },
+        };
+        assert!(changed_regions(&[], &[movement], 10, 8).is_none());
+        movement.SourcePoint.x = 8;
+        let regions = changed_regions(&[], &[movement], 10, 8).unwrap();
+        assert_eq!(regions.as_slice(), &[movement.DestinationRect]);
     }
 
     fn assert_regions_cover_and_do_not_overlap(
@@ -408,7 +480,7 @@ struct Desktop {
 }
 const FULL_V1: u32 = 0x4000_0000;
 const DELTA_V1: u32 = 0x8000_0000;
-const MAX_DIRTY_RECTS: usize = 256;
+const MAX_CHANGE_RECTS: usize = 256;
 const MAX_DELTA_RECTS: usize = 64;
 const MAX_DIRTY_COVERAGE_PERCENT: u64 = 60;
 
@@ -432,12 +504,25 @@ fn rect_area(rect: &RECT) -> u64 {
     (rect.right - rect.left) as u64 * (rect.bottom - rect.top) as u64
 }
 
-/// Return a conservative non-overlapping dirty-region patch only when its wire
-/// cost is below both a single bounding box and a complete frame. Intersecting
-/// regions merge to their bounding box; disjoint screen areas remain separate.
-fn dirty_regions(rects: &[RECT], width: u32, height: u32) -> Option<Vec<RECT>> {
-    if rects.is_empty()
-        || rects.len() > MAX_DIRTY_RECTS
+fn rect_fits(rect: &RECT, width: u32, height: u32) -> bool {
+    rect.left >= 0
+        && rect.top >= 0
+        && rect.right > rect.left
+        && rect.bottom > rect.top
+        && rect.right as u32 <= width
+        && rect.bottom as u32 <= height
+}
+
+/// Plan non-overlapping patches of the current texture. A move changes its
+/// destination; any pixels repainted at its old position are in the dirty list.
+fn changed_regions(
+    dirty: &[RECT],
+    moves: &[DXGI_OUTDUPL_MOVE_RECT],
+    width: u32,
+    height: u32,
+) -> Option<Vec<RECT>> {
+    let count = dirty.len().checked_add(moves.len())?;
+    if !(1..=MAX_CHANGE_RECTS).contains(&count)
         || width == 0
         || height == 0
         || width > i32::MAX as u32
@@ -445,22 +530,30 @@ fn dirty_regions(rects: &[RECT], width: u32, height: u32) -> Option<Vec<RECT>> {
     {
         return None;
     }
-    for rect in rects {
-        if rect.left < 0
-            || rect.top < 0
-            || rect.right <= rect.left
-            || rect.bottom <= rect.top
-            || rect.right as u32 > width
-            || rect.bottom as u32 > height
+    if !dirty.iter().all(|rect| rect_fits(rect, width, height)) {
+        return None;
+    }
+    let mut regions = Vec::with_capacity(count);
+    regions.extend_from_slice(dirty);
+    for movement in moves {
+        let destination = movement.DestinationRect;
+        let source = movement.SourcePoint;
+        if !rect_fits(&destination, width, height)
+            || source.x < 0
+            || source.y < 0
+            || i64::from(source.x) + i64::from(destination.right - destination.left)
+                > i64::from(width)
+            || i64::from(source.y) + i64::from(destination.bottom - destination.top)
+                > i64::from(height)
         {
             return None;
         }
+        regions.push(destination);
     }
 
     // The bounding box of overlapping rectangles is always a safe superset.
     // Restart the scan after each merge because its expanded bounds can overlap
     // regions that were previously disjoint.
-    let mut regions = rects.to_vec();
     loop {
         let mut merged = false;
         'scan: for index in 0..regions.len() {
@@ -643,7 +736,7 @@ impl Desktop {
             } else if info.LastPresentTime == 0 && self.dimensions != (0, 0) {
                 // DXGI can wake only for a cursor update. Avoid a full 4K GPU
                 // readback/IPC copy when the existing desktop texture is valid.
-                Ok(self.header())
+                Ok(self.header(16))
             } else {
                 self.copy(resource.ok_or("capture_resource_missing"), &info)
             };
@@ -748,6 +841,19 @@ impl Desktop {
                 );
             }
         }
+        let pixel_bytes = regions
+            .iter()
+            .map(|region| rect_area(region) as usize * 4)
+            .sum::<usize>();
+        let packet_size = if full { 20 } else { 28 + regions.len() * 16 } + pixel_bytes;
+        let mut bytes = self.header(packet_size);
+        bytes[0..4]
+            .copy_from_slice(&(desc.Width | if full { FULL_V1 } else { DELTA_V1 }).to_le_bytes());
+        bytes.extend_from_slice(&sequence.to_le_bytes());
+        if !full {
+            bytes.extend_from_slice(&self.sequence.to_le_bytes());
+            bytes.extend_from_slice(&(regions.len() as u32).to_le_bytes());
+        }
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
         self.context
             .Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
@@ -758,23 +864,6 @@ impl Desktop {
             self.context.Unmap(staging, 0);
             return Err("capture_stride_invalid".into());
         }
-        let mut bytes = self.header();
-        bytes[0..4]
-            .copy_from_slice(&(desc.Width | if full { FULL_V1 } else { DELTA_V1 }).to_le_bytes());
-        bytes.extend_from_slice(&sequence.to_le_bytes());
-        if !full {
-            bytes.extend_from_slice(&self.sequence.to_le_bytes());
-            bytes.extend_from_slice(&(regions.len() as u32).to_le_bytes());
-        }
-        let pixel_bytes = regions
-            .iter()
-            .map(|region| rect_area(region) as usize * 4)
-            .sum::<usize>();
-        bytes.reserve(if full {
-            pixel_bytes
-        } else {
-            pixel_bytes + regions.len() * 16
-        });
         for region in &regions {
             let region_width = (region.right - region.left) as usize;
             let region_height = (region.bottom - region.top) as usize;
@@ -810,6 +899,7 @@ impl Desktop {
             }
         }
         self.context.Unmap(staging, 0);
+        debug_assert_eq!(bytes.len(), packet_size);
         self.sequence = sequence;
         Ok(bytes)
     }
@@ -820,52 +910,57 @@ impl Desktop {
         width: u32,
         height: u32,
     ) -> Option<Vec<RECT>> {
-        if info.TotalMetadataBufferSize == 0
-            || info.TotalMetadataBufferSize as usize > MAX_DIRTY_RECTS * std::mem::size_of::<RECT>()
+        let metadata_size = info.TotalMetadataBufferSize as usize;
+        if metadata_size == 0
+            || metadata_size > MAX_CHANGE_RECTS * std::mem::size_of::<DXGI_OUTDUPL_MOVE_RECT>()
         {
             return None;
         }
-        // A desktop move needs the previous source pixels. Full fallback avoids
-        // GPU in-place overlap hazards and keeps this protocol deterministic.
-        let mut moves = 0;
-        let mut move_rect = DXGI_OUTDUPL_MOVE_RECT::default();
+        // DXGI supplies a full current desktop texture. Copy its pixels from
+        // each move destination, not from the previous frame's source point.
+        // This includes any new dirty paint over that destination, with no
+        // dependency on order or in-place texture moves in the WebView.
+        let mut moves = [DXGI_OUTDUPL_MOVE_RECT::default(); MAX_CHANGE_RECTS];
+        let mut move_bytes = 0;
         if self
             .duplication
             .GetFrameMoveRects(
-                std::mem::size_of_val(&move_rect) as u32,
-                &mut move_rect,
-                &mut moves,
+                std::mem::size_of_val(&moves) as u32,
+                moves.as_mut_ptr(),
+                &mut move_bytes,
             )
             .is_err()
-            || moves != 0
+            || move_bytes as usize > std::mem::size_of_val(&moves)
+            || move_bytes as usize % std::mem::size_of::<DXGI_OUTDUPL_MOVE_RECT>() != 0
         {
             return None;
         }
-        let mut rects = [RECT::default(); MAX_DIRTY_RECTS];
-        let mut required = 0;
+        let mut dirty = [RECT::default(); MAX_CHANGE_RECTS];
+        let mut dirty_bytes = 0;
         if self
             .duplication
             .GetFrameDirtyRects(
-                std::mem::size_of_val(&rects) as u32,
-                rects.as_mut_ptr(),
-                &mut required,
+                std::mem::size_of_val(&dirty) as u32,
+                dirty.as_mut_ptr(),
+                &mut dirty_bytes,
             )
             .is_err()
-            || required == 0
-            || required as usize > std::mem::size_of_val(&rects)
-            || required as usize % std::mem::size_of::<RECT>() != 0
+            || dirty_bytes as usize > std::mem::size_of_val(&dirty)
+            || dirty_bytes as usize % std::mem::size_of::<RECT>() != 0
+            || move_bytes as usize + dirty_bytes as usize > metadata_size
         {
             return None;
         }
-        dirty_regions(
-            &rects[..required as usize / std::mem::size_of::<RECT>()],
+        changed_regions(
+            &dirty[..dirty_bytes as usize / std::mem::size_of::<RECT>()],
+            &moves[..move_bytes as usize / std::mem::size_of::<DXGI_OUTDUPL_MOVE_RECT>()],
             width,
             height,
         )
     }
 
-    unsafe fn header(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(16);
+    unsafe fn header(&self, capacity: usize) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(capacity);
         bytes.extend_from_slice(&self.dimensions.0.to_le_bytes());
         bytes.extend_from_slice(&self.dimensions.1.to_le_bytes());
         let mut cursor = CURSORINFO {

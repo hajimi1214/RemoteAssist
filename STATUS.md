@@ -2,7 +2,18 @@
 
 ## Current milestone
 
-M16 — 0.13.0-alpha emergency sender-pressure response and responsive layout cascade fix. Reviewed 2026-11-21.
+M17 — 0.14.0-alpha Windows capture pacing, incremental drawing and fullscreen tools.
+
+## 0.14 update
+
+- DXGI reads move destinations and dirty rectangles from the current texture into existing bounded patch packets; broad or invalid damage falls back to a full frame.
+- WebGL draws patch and cursor areas on supported contexts and still paints a full first frame. The one-in-flight capture loop follows the video sender's accepted frame-rate ceiling.
+- Fullscreen tools now have picture, input and connection tabs, fixed-size quick actions and independent scrolling.
+- Downloaded and reviewed open-source media references. The offline FSRCNN x2 experiment improved PSNR from 20.77 to 21.53 dB on synthetic 720p input, but took about 1.06 seconds per frame on the tested CPU. It is not included in the runtime.
+
+PASS: frontend 82/82 and build, Rust check and 19 tests, Go tests/build/vet, browser synthetic pixel/pacing and responsive viewer checks, and 0.14 Windows portable/NSIS packaging. One operator-only desktop smoke remains ignored.
+
+NOT VERIFIED: real Windows move capture on 0.14, sustained 4K60, real weak-link and touch-to-photon latency, or a performance advantage over UU. See [design, sources and benchmark](docs/desktop-research-0.14.md).
 
 ## 0.13 update
 

@@ -20,6 +20,7 @@ export interface PeerCallbacks {
   onRelayStatus?: (status: "P2P" | "TURN Relay" | "Unknown") => void;
   onLatency?: (ms: number) => void;
   onQuality?: (quality: VideoQuality | "Browser managed") => void;
+  onCaptureFrameRate?: (fps: number) => void;
   onTelemetry?: (sample: VideoTelemetry) => void;
   onTextSupport?: (supported: boolean) => void;
   onInputStatus?: (status: { reason: "limited" | "rejected"; rejected: number }) => void;
@@ -291,10 +292,12 @@ export class HostPeer extends SessionPeer {
     try{
       const parameters=this.videoSender.getParameters();
       if(!parameters.encodings?.length){this.appliedProfile="";this.callbacks.onQuality?.("Browser managed");return false;}
-      Object.assign(parameters.encodings[0],sessionEncoding(this.qualityMode,quality,settings,this.preference));
+      const encoding=sessionEncoding(this.qualityMode,quality,settings,this.preference);
+      Object.assign(parameters.encodings[0],encoding);
       parameters.degradationPreference=this.qualityMode==="smooth"||this.preference==="motion"?"maintain-framerate":"maintain-resolution";
       await this.videoSender.setParameters(parameters);
       if(this.closed)return false;
+      this.callbacks.onCaptureFrameRate?.(encoding.maxFramerate);
       this.appliedProfile=key;this.callbacks.onQuality?.(quality);return true;
     }catch{this.appliedProfile="";if(!this.closed)this.callbacks.onQuality?.("Browser managed");return false;}
   }

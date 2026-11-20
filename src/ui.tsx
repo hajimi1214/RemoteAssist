@@ -42,7 +42,7 @@ export function ConnectionDiagnostics({sample}: {sample:VideoTelemetry|null}) {
   </dl><p>静止桌面可能几乎不产生新帧，低 fps 或低码率不一定代表连接故障。</p></details></section>;
 }
 
-export type IconName = "monitor" | "devices" | "shield" | "history" | "arrow" | "settings" | "grid" | "copy" | "expand" | "stop" | "check" | "sun" | "moon" | "info" | "alert" | "search";
+export type IconName = "monitor" | "devices" | "shield" | "history" | "arrow" | "settings" | "grid" | "copy" | "expand" | "shrink" | "pause" | "play" | "stop" | "check" | "sun" | "moon" | "info" | "alert" | "search";
 export function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, ReactNode> = {
     monitor: <><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></>,
@@ -54,6 +54,9 @@ export function Icon({ name }: { name: IconName }) {
     grid: <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>,
     copy: <><rect x="8" y="8" width="12" height="13" rx="2" /><path d="M16 8V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h4" /></>,
     expand: <path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" />,
+    shrink: <path d="M3 8h5V3m13 5h-5V3M3 16h5v5m13-5h-5v5" />,
+    pause: <><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></>,
+    play: <path d="m8 5 12 7-12 7Z" />,
     stop: <rect x="5" y="5" width="14" height="14" rx="2" />,
     check: <path d="m5 12 4 4L19 6" />,
     sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1" /></>,
@@ -99,6 +102,13 @@ export function StatusMessage({ children, error = false }: { children: ReactNode
   return <div className={`${error ? "error-box" : "info-box"} status-message`} role={error ? "alert" : "status"}><Icon name={error ? "alert" : "info"}/><div>{children}</div></div>;
 }
 
+const screenTools = [
+  {id:"picture",label:"画面",icon:"monitor"},
+  {id:"input",label:"操控",icon:"devices"},
+  {id:"link",label:"连接",icon:"history"},
+] as const;
+type ScreenTool = (typeof screenTools)[number]["id"];
+
 export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, onWheel, onRelease, onDisconnect, onMobileAction, textSupported, autoControl = false, autoFullscreen = autoControl, deviceName = "远程桌面", telemetry = null, latency = null, qualityMode = "auto", onQualityModeChange }: {
   onMobileAction: (action: MobileAction) => boolean; textSupported: boolean; autoControl?: boolean; autoFullscreen?: boolean; deviceName?: string;
   videoRef: RefObject<HTMLVideoElement | null>; connected: boolean; status: string; telemetry?: VideoTelemetry | null; latency?: number | null;
@@ -109,7 +119,10 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
 }) {
   const surface = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
-  const inputToggle = useRef<HTMLButtonElement>(null);
+  const toolToggle = useRef<HTMLButtonElement>(null);
+  const toolContent = useRef<HTMLDivElement>(null);
+  const nativeFullscreen = useRef(false);
+  const explicitFullscreenExit = useRef(false);
   const autoOpened = useRef(false);
   const compactTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -118,16 +131,16 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
   const [fullscreen, setFullscreen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [tool, setTool] = useState<ScreenTool>("picture");
   const [touchMode,setTouchMode]=useState<TouchMode>("direct");
   const [compact,setCompact]=useState(false),[autoCompact,setAutoCompact]=useState(true);
   const [inputEnabled, setInputEnabled] = useState(false);
   const [manualPaused, setManualPaused] = useState(false);
   const [backgroundPaused, setBackgroundPaused] = useState(false);
-  const [error, setError] = useState("");
   const helpId = useId();
   const releaseRef = useRef(onRelease); releaseRef.current = onRelease;
   const wheelRef = useRef(onWheel); wheelRef.current = onWheel;
-  const inputRef = useRef(inputEnabled); inputRef.current = inputEnabled;
+  const inputRef = useRef(false); inputRef.current = inputEnabled&&!toolsOpen;
   const live = useRef({connected,autoControl,manualPaused,source}); live.current={connected,autoControl,manualPaused,source};
   const hasVideo = connected && source.width > 0 && source.height > 0;
   const immersive = fullscreen || expanded;
@@ -136,7 +149,9 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
     if(autoCompact&&immersive&&connected&&!toolsOpen)compactTimer.current=setTimeout(()=>setCompact(true),3500);
     return()=>clearTimeout(compactTimer.current);
   },[autoCompact,immersive,connected,toolsOpen]);
-  function revealBar(){setCompact(false);clearTimeout(compactTimer.current);if(autoCompact&&immersive&&!toolsOpen)compactTimer.current=setTimeout(()=>setCompact(true),3500);}
+  function revealBar(){setCompact(false);clearTimeout(compactTimer.current);if(autoCompact&&immersive&&connected&&!toolsOpen)compactTimer.current=setTimeout(()=>setCompact(true),3500);}
+
+  useEffect(()=>{if(toolContent.current)toolContent.current.scrollTop=0;},[tool,toolsOpen]);
 
   useEffect(() => {
     const video=videoRef.current;
@@ -162,11 +177,28 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
     return()=>{video.removeEventListener("resize",update);video.removeEventListener("loadedmetadata",update);};
   },[videoRef]);
   useEffect(() => {
-    const change=()=>{setFullscreen(document.fullscreenElement===surface.current);releaseRef.current();};
+    const change=()=>{
+      const next=document.fullscreenElement===surface.current;
+      if(nativeFullscreen.current===next)return;
+      nativeFullscreen.current=next;
+      setFullscreen(next);
+      releaseRef.current();
+      if(!next){
+        setExpanded(false);
+        if(!explicitFullscreenExit.current&&live.current.connected){
+          setInputEnabled(false);setManualPaused(true);setTool("input");setToolsOpen(true);
+        }
+        explicitFullscreenExit.current=false;
+      }
+    };
     document.addEventListener("fullscreenchange",change);return()=>document.removeEventListener("fullscreenchange",change);
   },[]);
   useEffect(() => {
-    if(!connected){autoOpened.current=false;setSource({width:0,height:0});setInputEnabled(false);setManualPaused(false);setBackgroundPaused(false);setExpanded(false);setToolsOpen(false);return;}
+    if(!connected){
+      autoOpened.current=false;setSource({width:0,height:0});setInputEnabled(false);setManualPaused(false);setBackgroundPaused(false);setExpanded(false);setToolsOpen(false);
+      if(document.fullscreenElement===surface.current)void document.exitFullscreen().catch(()=>{});
+      return;
+    }
     if(hasVideo&&autoFullscreen&&!autoOpened.current){autoOpened.current=true;setExpanded(true);setToolsOpen(false);if(autoControl)videoRef.current?.focus({preventScroll:true});}
     if(hasVideo&&autoControl&&!manualPaused&&!backgroundPaused&&!document.hidden)setInputEnabled(true);
     if(!hasVideo)setInputEnabled(false);
@@ -185,59 +217,92 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
     return()=>{window.removeEventListener("blur",suspend);window.removeEventListener("focus",resume);document.removeEventListener("visibilitychange",visibility);window.removeEventListener("orientationchange",geometry);};
   },[]);
   function suspendInput(){onRelease();setManualPaused(true);setInputEnabled(false);}
-  function toggleInput(){onRelease();if(inputEnabled){suspendInput();return;}setManualPaused(false);setBackgroundPaused(false);setInputEnabled(hasVideo);videoRef.current?.focus({preventScroll:true});}
-  async function exitFullscreen(){onRelease();setExpanded(false);if(document.fullscreenElement===surface.current)await document.exitFullscreen().catch(()=>{});}
-  async function enterFullscreen(){onRelease();setExpanded(true);setToolsOpen(false);setError("");try{await surface.current?.requestFullscreen();}catch{/* The fixed application surface fills WebViews without native fullscreen. */}}
+  function toggleInput(){if(inputEnabled){suspendInput();return;}onRelease();setManualPaused(false);setBackgroundPaused(false);setInputEnabled(hasVideo);setToolsOpen(false);videoRef.current?.focus({preventScroll:true});}
+  function toggleTools(){onRelease();setToolsOpen(open=>!open);}
+  async function exitFullscreen(){
+    onRelease();setExpanded(false);
+    if(document.fullscreenElement===surface.current){
+      explicitFullscreenExit.current=true;
+      await document.exitFullscreen().catch(()=>{explicitFullscreenExit.current=false;});
+    }
+  }
+  async function enterFullscreen(){onRelease();setExpanded(true);setToolsOpen(false);try{await surface.current?.requestFullscreen();}catch{/* The fixed application surface fills WebViews without native fullscreen. */}}
   useEffect(()=>{
-    const escape=(event:globalThis.KeyboardEvent)=>{if(event.key!=="Escape"||!live.current.connected)return;event.preventDefault();event.stopPropagation();releaseRef.current();setInputEnabled(false);setManualPaused(true);setExpanded(false);setToolsOpen(true);if(document.fullscreenElement===surface.current)void document.exitFullscreen().catch(()=>{});};
+    const escape=(event:globalThis.KeyboardEvent)=>{if(event.key!=="Escape"||!live.current.connected)return;event.preventDefault();event.stopPropagation();releaseRef.current();setInputEnabled(false);setManualPaused(true);setExpanded(false);setTool("input");setToolsOpen(true);toolToggle.current?.focus({preventScroll:true});if(document.fullscreenElement===surface.current)void document.exitFullscreen().catch(()=>{});};
     document.addEventListener("keydown",escape,true);return()=>document.removeEventListener("keydown",escape,true);
   },[]);
-  function key(type:"key_down"|"key_up",event:KeyboardEvent<HTMLVideoElement>){if(event.key!=="Escape"&&inputEnabled)onKey(type,event);}
+  function key(type:"key_down"|"key_up",event:KeyboardEvent<HTMLVideoElement>){if(event.key!=="Escape"&&inputEnabled&&!toolsOpen)onKey(type,event);}
+  function selectToolWithKey(event:KeyboardEvent<HTMLButtonElement>,index:number){
+    const count=screenTools.length;
+    const next=event.key==="ArrowRight"?(index+1)%count:event.key==="ArrowLeft"?(index+count-1)%count:event.key==="Home"?0:event.key==="End"?count-1:-1;
+    if(next<0)return;
+    event.preventDefault();
+    setTool(screenTools[next].id);
+    event.currentTarget.parentElement?.querySelectorAll("button")[next]?.focus();
+  }
   const layout=mode==="fill"?filledVideoLayout(size,source):remoteLayout(size,source,mode);
-  const layoutReset=`${size.width}:${size.height}:${source.width}:${source.height}:${mode}:${immersive}`;
+  const layoutReset=`${size.width}:${size.height}:${source.width}:${source.height}:${mode}:${immersive}:${toolsOpen}`;
   const measured=(value:number|null|undefined,unit:string,decimals=0)=>typeof value==="number"&&Number.isFinite(value)&&value>=0?`${Number(value.toFixed(decimals))} ${unit}`:"待测";
   const measuredRtt=telemetry?.rttMs??latency;
   const actualWidth=telemetry?.width??source.width,actualHeight=telemetry?.height??source.height;
   const actualResolution=actualWidth>0&&actualHeight>0?`${actualWidth} × ${actualHeight}`:"待测";
-  return <div ref={surface} className={`remote-screen modern-screen touch-mode-${touchMode}${inputEnabled?" input-active":""}${connected?" session-present":""}${expanded?" expanded-screen":""}${toolsOpen?" tools-open":""}`}>
-    <div className={`screen-floating-bar${compact?" bar-compact":""}`} aria-label="远程桌面快捷操作" onPointerEnter={revealBar} onFocusCapture={revealBar}>
-      <button className="screen-menu-toggle" aria-label={toolsOpen?"收起工具":"工具"} aria-expanded={toolsOpen} aria-controls={`${helpId}-tools`} onClick={()=>setToolsOpen(!toolsOpen)}><Icon name="settings"/><span>{toolsOpen?"收起工具":"工具"}</span></button>
-      <span className="screen-floating-name" title={deviceName}><i className={inputEnabled?"control-ready":""}/><span>{deviceName}<small>{inputEnabled?(touchMode==="touchpad"?"触控板":"直触"):"仅观看"} · {measured(telemetry?.fps,"fps",1)} · {measured(measuredRtt,"ms")}</small></span></span>
-      <button className="screen-floating-exit" aria-label={immersive?"退出全屏":"全屏显示"} title={immersive?"退出全屏":"全屏显示"} onClick={()=>void (immersive?exitFullscreen():enterFullscreen())}><Icon name="expand"/></button>
-      {connected&&<button className="screen-floating-disconnect" onClick={()=>{onRelease();onDisconnect();}}><Icon name="stop"/><span>断开</span></button>}
+  const controlLabel=inputEnabled?"暂停操作":"恢复操作";
+  const controlState=inputEnabled?"正在操作":manualPaused||backgroundPaused?"已暂停":"仅观看";
+  const fullscreenLabel=immersive?"退出全屏":"全屏显示";
+  const advice=telemetry?connectionHealth(telemetry):null;
+  const route=telemetry?.route==="P2P"?"设备直连":telemetry?.route==="TURN Relay"?"中继连接":"检测路径";
+  return <div ref={surface} className={`remote-screen modern-screen touch-mode-${touchMode}${inputEnabled&&!toolsOpen?" input-active":""}${connected?" session-present":""}${expanded?" expanded-screen":""}${toolsOpen?" tools-open":""}`}>
+    <div className={`screen-floating-bar${compact?" bar-compact":""}`} role="group" aria-label="远程桌面快捷操作" onPointerEnter={revealBar} onFocusCapture={revealBar}>
+      <span className="screen-floating-name" title={deviceName}><i className={inputEnabled?"control-ready":""}/><span>{deviceName}<small>{controlState} · {measured(telemetry?.fps,"fps",1)} · {measured(measuredRtt,"ms")}</small></span></span>
+      <button ref={toolToggle} className="screen-menu-toggle" aria-label={toolsOpen?"收起工具":"工具"} title={toolsOpen?"收起工具":"工具"} aria-expanded={toolsOpen} aria-controls={`${helpId}-tools`} onClick={toggleTools}><Icon name="settings"/></button>
+      {connected&&<button disabled={!hasVideo} aria-label={controlLabel} title={controlLabel} onClick={toggleInput}><Icon name={inputEnabled?"pause":"play"}/></button>}
+      <button className="screen-floating-exit" aria-label={fullscreenLabel} title={fullscreenLabel} onClick={()=>void (immersive?exitFullscreen():enterFullscreen())}><Icon name={immersive?"shrink":"expand"}/></button>
+      {connected&&<button className="screen-floating-disconnect" aria-label="断开" title="断开连接" onClick={()=>{onRelease();onDisconnect();}}><Icon name="stop"/></button>}
     </div>
     <div ref={viewport} className={`remote-viewport ${mode==="fit"?"fit":mode==="fill"?"fill":"zoomed"}`}>
       <div className="video-space" style={hasVideo?{width:mode==="fill"?size.width:Math.max(size.width,layout.width),height:mode==="fill"?size.height:Math.max(size.height,layout.height)}:undefined}>
-        <video ref={videoRef} autoPlay playsInline tabIndex={hasVideo?0:-1} aria-label="远程桌面画面" aria-describedby={helpId}
+        <video ref={videoRef} autoPlay playsInline tabIndex={hasVideo&&!toolsOpen?0:-1} aria-label="远程桌面画面" aria-describedby={helpId}
           style={hasVideo?{width:layout.width,height:layout.height}:{width:"100%",height:"100%"}}
-          onPointerMove={event=>{if(inputEnabled&&event.pointerType!=="touch"&&event.pointerType!=="pen")onPointer("mouse_move",event);}}
-          onPointerDown={event=>{setToolsOpen(false);if(inputEnabled&&event.pointerType!=="touch"&&event.pointerType!=="pen")onPointer("mouse_down",event);}}
-          onPointerUp={event=>{if(inputEnabled&&event.pointerType!=="touch"&&event.pointerType!=="pen")onPointer("mouse_up",event);}}
+          onPointerMove={event=>{if(inputEnabled&&!toolsOpen&&event.pointerType!=="touch"&&event.pointerType!=="pen")onPointer("mouse_move",event);}}
+          onPointerDown={event=>{if(inputEnabled&&!toolsOpen&&event.pointerType!=="touch"&&event.pointerType!=="pen")onPointer("mouse_down",event);}}
+          onPointerUp={event=>{if(inputEnabled&&!toolsOpen&&event.pointerType!=="touch"&&event.pointerType!=="pen")onPointer("mouse_up",event);}}
           onPointerCancel={()=>onRelease()} onBlur={()=>onRelease()} onContextMenu={event=>{if(inputEnabled)event.preventDefault();}} onKeyDown={event=>key("key_down",event)} onKeyUp={event=>key("key_up",event)}/>
       </div>
       {!hasVideo&&<div className="screen-empty"><span className="screen-empty-icon"><Icon name="monitor"/></span><strong>{connected?"正在准备电脑画面":"远程画面将在这里显示"}</strong><p>{status}</p></div>}
       {hasVideo&&inputEnabled&&touchMode==="touchpad"&&<span className="touchpad-mode-badge">触控板 · 单指移动 / 双指滚动</span>}
     </div>
-    <div id={`${helpId}-tools`} className="screen-tools-panel" hidden={!toolsOpen}>
-      <div className="screen-toolbar" aria-label="远程画面工具栏">
-        <div className="screen-title"><span>{deviceName}</span><span className={`screen-control-chip${inputEnabled?" control-ready":""}`}>{inputEnabled?"正在操作":"仅观看"}</span></div>
+    {toolsOpen&&<div className="screen-tools-backdrop" aria-hidden="true" onContextMenu={event=>event.preventDefault()} onClick={()=>{setToolsOpen(false);toolToggle.current?.focus({preventScroll:true});}}/>}
+    <aside id={`${helpId}-tools`} className="screen-tools-panel" aria-label="远程桌面工具" hidden={!toolsOpen}>
+      <header className="screen-tools-header">
+        <div className="screen-title"><span title={deviceName}>{deviceName}</span><span className={`screen-control-chip${inputEnabled?" control-ready":""}`}>{controlState}</span></div>
+        <div role="tablist" className="screen-tool-tabs" aria-label="工具分类">
+          {screenTools.map(({id,label,icon},index)=><button key={id} type="button" role="tab" id={`${helpId}-tab-${id}`} aria-selected={tool===id} aria-controls={`${helpId}-pane-${id}`} tabIndex={tool===id?0:-1} onClick={()=>setTool(id)} onKeyDown={event=>selectToolWithKey(event,index)}><Icon name={icon}/>{label}</button>)}
+        </div>
+      </header>
+      <div ref={toolContent} className="screen-tools-content">
+      <section id={`${helpId}-pane-picture`} role="tabpanel" aria-labelledby={`${helpId}-tab-picture`} tabIndex={0} className="screen-tool-pane" hidden={tool!=="picture"}>
+        {onQualityModeChange&&<fieldset className="screen-quality-options"><legend>画质与流畅度</legend>{([{value:"auto",label:"自动",detail:"智能调节"},{value:"sharp",label:"清晰",detail:"最高 4K / 60 fps 目标"},{value:"smooth",label:"流畅",detail:"动态优先"},{value:"economy",label:"省带宽",detail:"降低传输负载"}]as const).map(option=><label key={option.value} className={qualityMode===option.value?"selected":""}><input type="radio" name={`${helpId}-quality`} checked={qualityMode===option.value} onChange={()=>onQualityModeChange(option.value)}/><span><strong>{option.label}</strong><small>{option.detail}</small></span></label>)}</fieldset>}
+        <fieldset className="zoom-options"><legend>画面显示</legend>{([{value:"fit",label:"完整画面"},{value:"fill",label:"铺满裁边"},{value:"100",label:"100%"},{value:"150",label:"150%"}]as const).map(option=><label key={option.value} className={mode===option.value?"selected":""}><input type="radio" name={`${helpId}-zoom`} value={option.value} checked={mode===option.value} onChange={()=>{onRelease();setMode(option.value);}}/><span>{option.label}</span></label>)}</fieldset>
+        <label className="screen-compact-setting"><input type="checkbox" checked={autoCompact} onChange={event=>setAutoCompact(event.target.checked)}/><span>全屏时淡化悬浮栏</span></label>
+      </section>
+      <section id={`${helpId}-pane-input`} role="tabpanel" aria-labelledby={`${helpId}-tab-input`} tabIndex={0} className="screen-tool-pane" hidden={tool!=="input"}>
+        <button className="secondary-action screen-input-toggle" disabled={!hasVideo} onClick={toggleInput}><Icon name={inputEnabled?"pause":"play"}/>{controlLabel}</button>
+        <MobileControls videoRef={videoRef} enabled={inputEnabled} available={hasVideo} textSupported={textSupported} open={toolsOpen&&tool==="input"} resetKey={layoutReset} onModeChange={setTouchMode} onAction={action=>inputEnabled&&hasVideo?onMobileAction(action):false} onRelease={onRelease} onSuspend={suspendInput}/>
+        {backgroundPaused&&<div className="screen-help"><Icon name="shield"/><span>应用已离开前台，输入已释放。</span></div>}
+      </section>
+      <section id={`${helpId}-pane-link`} role="tabpanel" aria-labelledby={`${helpId}-tab-link`} tabIndex={0} className="screen-tool-pane" hidden={tool!=="link"}>
+        <div className="screen-stream-summary"><Icon name="monitor"/><span><strong>{actualResolution}</strong><small>{route} · {telemetry?.codec??"编码协商中"}</small></span></div>
         <dl className="screen-live-metrics" aria-label="实际连接与画面统计">
-          <div><dt>实际分辨率</dt><dd>{actualResolution}</dd></div><div><dt>实际帧率</dt><dd>{measured(telemetry?.fps,"fps",1)}</dd></div>
+          <div><dt>实际帧率</dt><dd>{measured(telemetry?.fps,"fps",1)}</dd></div>
           <div><dt>实际码率</dt><dd>{measured(telemetry?.bitrateKbps,"kbps")}</dd></div><div><dt>网络往返</dt><dd>{measured(measuredRtt,"ms")}</dd></div>
           <div><dt>间隔丢弃帧</dt><dd>{measured(telemetry?.framesDropped,"帧")}</dd></div><div><dt>间隔丢包率</dt><dd>{measured(telemetry?.packetLossPercent,"%",1)}</dd></div>
-        </dl><p className="screen-stat-note">最近采样的实测值；静止画面可能帧率较低。网络往返不等于操作到显示的总延迟。</p>
-        {telemetry&&(()=>{const advice=connectionHealth(telemetry);return <section className={`screen-health-summary ${advice.severity}`} aria-label="连接健康提示"><span className="screen-health-mark"><Icon name={advice.severity==="warning"?"alert":advice.severity==="pending"?"info":"check"}/></span><span className="screen-health-copy"><strong>{advice.title}</strong><small>{advice.detail}</small></span></section>;})()}
-        {onQualityModeChange&&<fieldset className="screen-quality-options"><legend>画质与流畅度</legend>{([{value:"auto",label:"自动",detail:"根据网络调整"},{value:"sharp",label:"清晰",detail:"4K / 60 帧目标"},{value:"smooth",label:"流畅",detail:"动态画面优先"},{value:"economy",label:"省带宽",detail:"较低传输负载"}]as const).map(option=><label key={option.value} className={qualityMode===option.value?"selected":""}><input type="radio" name={`${helpId}-quality`} checked={qualityMode===option.value} onChange={()=>onQualityModeChange(option.value)}/><span><strong>{option.label}</strong><small>{option.detail}</small></span></label>)}</fieldset>}
-        {onQualityModeChange&&<p className="screen-stat-note">目标档位不等于实测帧率；上方统计显示实际收到的画面。</p>}
-        <fieldset className="zoom-options"><legend>画面显示</legend>{([{value:"fit",label:"完整画面"},{value:"fill",label:"铺满裁边"},{value:"100",label:"100%"},{value:"150",label:"150%"}]as const).map(option=><label key={option.value} className={mode===option.value?"selected":""}><input type="radio" name={`${helpId}-zoom`} value={option.value} checked={mode===option.value} onChange={()=>{onRelease();setMode(option.value);}}/><span>{option.label}</span></label>)}</fieldset>
-        {mode==="fill"&&<p className="screen-mode-help">保持画面比例，屏幕边缘会裁切；切回“完整画面”可显示整个桌面。</p>}
-        <button ref={inputToggle} className="secondary-action screen-input-toggle" disabled={!hasVideo} aria-pressed={inputEnabled} onPointerDown={event=>{if(event.button===0)event.preventDefault();}} onClick={toggleInput}>{inputEnabled?"暂停操作":"恢复操作"}</button>
-        <label className="screen-compact-setting"><input type="checkbox" checked={autoCompact} onChange={event=>setAutoCompact(event.target.checked)}/><span>全屏时自动精简悬浮栏<small>退出全屏和断开按钮始终保留</small></span></label>
+          <div><dt>平均解码</dt><dd>{measured(telemetry?.decodeMs,"ms",1)}</dd></div><div><dt>平均接收缓冲</dt><dd>{measured(telemetry?.jitterBufferMs,"ms",1)}</dd></div>
+        </dl>
+        {advice&&<section className={`screen-health-summary ${advice.severity}`} aria-label="连接健康提示"><span className="screen-health-mark"><Icon name={advice.severity==="warning"?"alert":advice.severity==="pending"?"info":"check"}/></span><span className="screen-health-copy"><strong>{advice.title}</strong><small>{advice.detail}</small></span></section>}
+        <p className="screen-stat-note">网络往返时间不包含采集、编码或屏幕显示耗时。</p>
+      </section>
       </div>
-      <MobileControls videoRef={videoRef} enabled={inputEnabled} available={hasVideo} textSupported={textSupported} open={toolsOpen} resetKey={layoutReset} onModeChange={setTouchMode} onAction={action=>inputEnabled&&hasVideo?onMobileAction(action):false} onRelease={onRelease} onSuspend={suspendInput}/>
-      <div className="screen-help"><Icon name="shield"/><span>{backgroundPaused?"应用已离开前台，输入已释放。":inputEnabled?"正在操作电脑。点击画面直接控制；Esc 返回窗口并暂停操作。":"输入已暂停，点击“恢复操作”继续。"}</span></div>
-      {error&&<StatusMessage error>{error}</StatusMessage>}
-    </div>
-    <p id={helpId} className="sr-only">{inputEnabled?"远程输入已开启，工具菜单可暂停操作和调整显示。":"远程输入未开启。"}</p>
+    </aside>
+    <p id={helpId} className="sr-only">{toolsOpen?"工具面板已打开，画面不会接收操作。":inputEnabled?"远程输入已开启。":"远程输入未开启。"}</p>
   </div>;
 }
