@@ -208,3 +208,11 @@
 .modern-screen .screen-health-copy { display: grid; gap: 3px; min-inline-size: 0; }
 .modern-screen .screen-health-copy strong { font-size: .6875rem; line-height: 1.35; }
 .modern-screen .screen-health-copy small { color: var(--muted); font-size: .5625rem; line-height: 1.5; }
+.modern-screen .game-pointer-control { display: grid; gap: 10px; min-inline-size: 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--subtle); }
+.modern-screen .game-pointer-control > div { display: grid; gap: 4px; }
+.modern-screen .game-pointer-control strong,.modern-screen .game-pointer-control > label > span { color: var(--ink); font-size: .75rem; }
+.modern-screen .game-pointer-control small { color: var(--muted); font-size: .625rem; line-height: 1.5; }
+.modern-screen .game-pointer-control > button { inline-size: 100%; min-block-size: 44px; color: var(--surface); background: var(--blue); border-radius: 8px; }
+.modern-screen .game-pointer-control > button[aria-pressed="true"] { color: var(--red); background: var(--red-soft); border: 1px solid color-mix(in srgb,var(--red),transparent 65%); }
+.modern-screen .game-pointer-control > label { display: grid; gap: 7px; }
+.modern-screen .game-pointer-control input[type="range"] { inline-size: 100%; accent-color: var(--blue); }

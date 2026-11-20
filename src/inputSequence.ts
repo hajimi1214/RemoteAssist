@@ -7,7 +7,7 @@ export class PointerOrder {
     const barrier=type==="release_all"||type==="disconnect";
     if (!barrier&&(!type.startsWith("mouse_") || type === "mouse_wheel")) return true;
     if (typeof sequence !== "number" || !Number.isSafeInteger(sequence) || sequence <= 0) return false;
-    if (type === "mouse_move" && sequence <= this.latest) return false;
+    if ((type === "mouse_move" || type === "mouse_relative") && sequence <= this.latest) return false;
     this.latest = Math.max(this.latest, sequence);
     // Reliable releases/clicks must still execute even if newer motion arrived.
     return true;

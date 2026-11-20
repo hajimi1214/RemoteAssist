@@ -2,33 +2,35 @@
 
 ## Current milestone
 
-M17 — 0.14.0-alpha Windows capture pacing, incremental drawing and fullscreen tools.
+M18 — 0.15.0-alpha game-oriented relative mouse control, bounded sender/renderer work, expanded Aliyun TURN docs and desktop media research. Reviewed 2026-11-21.
 
-## 0.14 update
+## 0.15 update
 
-- DXGI reads move destinations and dirty rectangles from the current texture into existing bounded patch packets; broad or invalid damage falls back to a full frame.
-- WebGL draws patch and cursor areas on supported contexts and still paints a full first frame. The one-in-flight capture loop follows the video sender's accepted frame-rate ceiling.
-- Fullscreen tools now have picture, input and connection tabs, fixed-size quick actions and independent scrolling.
-- Downloaded and reviewed open-source media references. The offline FSRCNN x2 experiment improved PSNR from 20.77 to 21.53 dB on synthetic 720p input, but took about 1.06 seconds per frame on the tested CPU. It is not included in the runtime.
+- Added a manually enabled pointer-lock mode for relative mouse camera input, per-game sensitivity, bounded delta validation, sub-frame delta coalescing, and release on unlock/blur/pause/stop/disconnect. Native authorization and input rate limits remain active.
+- Added a negotiated game encoder profile targeting up to 1080p60, with bitrate caps following congestion tiers. Host capture pull rate follows sender settings after they are applied; no frames are queued to hide missed deadlines.
+- Fixed the saved game mode being downgraded by a stale capability callback, and apply the optional receive jitter-buffer target immediately when game mode is acknowledged. The target remains a browser hint and responds to measured jitter/loss.
+- Clarified that remote mouse input uses standard Windows input simulation, not a physical HID/Raw Input device; some games may ignore it. The displayed receive FPS is labeled as decoded FPS, not display presentation rate.
+- Added local WebGL scissor updates for desktop deltas and old/new cursor footprints; first/full/resize/unsupported-precision frames redraw completely. Capture-video frame requests happen after drawing.
+- Expanded the TURN relay deployment guide for Aliyun ECS; local Docker Compose validation passed with a temporary placeholder-free config and no production credentials.
+- Offline FSRCNN x2 CPU benchmark: 720p synthetic input PSNR 21.53 dB vs bicubic 20.77 dB, but inference median 1,064.75 ms/frame. The model/runtime remain research-only and are not packaged or connected.
 
-PASS: frontend 82/82 and build, Rust check and 19 tests, Go tests/build/vet, browser synthetic pixel/pacing and responsive viewer checks, and 0.14 Windows portable/NSIS packaging. One operator-only desktop smoke remains ignored.
+PASS: 90/90 frontend tests and production build; Chrome synthetic WebRTC loopback including game capability/profile negotiation and relative-motion delivery; Chrome pointer-lock entry, relative motion and Esc release; 390×844 mobile layout without horizontal overflow; Rust check and 20 tests (one visible-desktop capture smoke ignored); Go tests, vet and server build; temporary-fixture Compose/deployment validation; Windows x64 NSIS build. Installer SHA-256: `A6F8CF69CCC267A97800426A82BA188D6836DEFFBF5B0D0242FAE0B609440E45`.
 
-NOT VERIFIED: real Windows move capture on 0.14, sustained 4K60, real weak-link and touch-to-photon latency, or a performance advantage over UU. See [design, sources and benchmark](docs/desktop-research-0.14.md).
+NOT VERIFIED: camera control inside representative games, two-machine 1080p60 or P50/P95 input-to-photon, public ECS EIP/TURN/WAN behavior, physical Android game control, stable 4K60, or an advantage over UU. Version 0.15 also has no remote system-audio track, so it is not a complete game-streaming release yet. Pointer Lock uses browser-relative movement and standard Windows input simulation; games requiring physical Raw Input may not accept it. See [game-streaming research](docs/game-streaming-research.md), [known limitations](docs/known-limitations.md) and [Aliyun deployment and acceptance guide](docs/aliyun-game-deployment.md).
 
-## 0.13 update
+## 0.13 baseline
 
-- On the first sample showing a severe sender-side queue (≥250 ms), critically low estimated bandwidth (<300 kbps), or CPU-limited encoding (≥120 ms mean), lower the adaptive quality ceiling by one or two levels. Recovery still requires consecutive good samples.
-- Fixed a CSS cascade that overrode compact device-focus sizing on short desktop viewports. Verified actual action hit-testing at 1024×768 and 1280×720; the 44px control is visible/clickable and document width matches viewport.
-- PASS: frontend 80/80 and production build, Go tests/build/vet, and Rust check plus 17 tests (one manual capture smoke ignored). Windows portable and NSIS installer, and development-signed Android ARM64 APK built for 0.13.
-- PASS: synthetic same-account loopback received 2560×1600 video; at 393×820 the expanded viewer filled the viewport, tools scrolled internally and fullscreen exit and disconnect were reachable.
-
-NOT VERIFIED: two-machine weak-network responsiveness, stable 4K60, end-to-end input latency, and physical Android 0.13 interaction. Immediate downgrade is a pressure response; it does not remove hardware/network bottlenecks. Details: [0.13 notes](docs/direct-desktop-0.13.md).
+Emergency sender-pressure downgrades, compact 701–800 px focus layout and 44 px action row. Details: [0.13 notes](docs/direct-desktop-0.13.md).
 
 ## Next acceptance
 
-Run a sustained two-machine weak-network test and compare telemetry (sender queue, encoder limit, receiver decode/jitter) with observed interaction delay; separately retest on physical Android.
+Use a physical game, test direct P2P and selected TURN UDP separately, verify which routes accept pointer lock, and measure camera-turn input-to-display p50/p95. Check ECS egress bandwidth from measured relay bitrate.
 
-## 0.12 baseline
+## 0.14 baseline
+
+Windows capture pacing follows the applied sender frame-rate limit; the viewer adds picture/input/connection tabs and partial-damage scissor redraw. Super-resolution stayed out of the runtime after the CPU model benchmark missed the frame budget. Details: [0.14 research](docs/desktop-research-0.14.md).
+
+## 0.13 baseline
 
 ## 0.12 update
 

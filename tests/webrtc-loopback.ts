@@ -42,6 +42,8 @@ button.onclick = async () => {
   let host!: HostPeer;
   let latency = -1;
   let quality = "";
+  let gameSupported = false;
+  let gameModeApplied = false;
   let hostConnected = false;
   let controllerConnected = false;
   let hostIceLoads=0;let controllerIceLoads=0;
@@ -58,22 +60,30 @@ button.onclick = async () => {
       onRemoteStream: (stream) => { video.srcObject = stream; },
       onConnectionStatus: (value) => { controllerConnected = value === "connected"; },
       onLatency: (value) => { latency = value; },
+      onGameSupport: (supported) => { gameSupported = supported; },
+      onQualityControl: (sample) => { gameModeApplied = sample.mode === "game" && sample.applied === true; },
       onTelemetry:(sample)=>{receiveStats=sample;diagnosticsRoot.render(createElement(ConnectionDiagnostics,{sample}));}
-    },{loadIceServers:async()=>{controllerIceLoads++;return[];}});
+    },{qualityMode:"game",loadIceServers:async()=>{controllerIceLoads++;return[];}});
     host = new HostPeer("loopback", "local-host-test-token", hostWire, [], {
       onConnectionStatus: (value) => { hostConnected = value === "connected"; },
       onQuality: (value) => { quality = value; },
       onTelemetry:(sample)=>{sendStats=sample;}
-    },{loadIceServers:async()=>{hostIceLoads++;return[];}});
+    },{gameInput:true,loadIceServers:async()=>{hostIceLoads++;return[];}});
     check(hostIceLoads===0&&controllerIceLoads===0,"ICE credentials are not loaded before negotiation");
     await host.start(stream, gate);
     await until(() => hostConnected && controllerConnected && video.videoWidth > 0 && latency >= 0, "video and DataChannels");
     check(true, "real PeerConnection negotiation, received video, ping/pong RTT");
+    await until(() => gameSupported && gameModeApplied, "game capability and encoder profile acknowledgement");
+    check(true,"game capability negotiation applies saved game mode");
     await until(() => quality !== "", "RTCRtpSender parameters");
     check(quality !== "Browser managed", `sender accepts adaptive encoding parameters (${quality})`);
     await until(()=>receiveStats?.bitrateKbps!=null&&sendStats?.codec!=null,"video telemetry interval");
     check(hostIceLoads===1&&controllerIceLoads===1,"both peers load fresh ICE credentials at negotiation");
     check(!!receiveStats?.codec&&(receiveStats?.width??0)>0&&(receiveStats?.fps??-1)>=0,"real receive codec dimensions fps and interval bitrate measured");
+    controller.sendInput({type:"mouse_relative",sessionToken,ts:Date.now(),payload:{dx:21,dy:-7}});
+    await until(()=>delivered.some(item=>(item.args?.event as {type?:string})?.type==="mouse_relative"),"game relative input delivery");
+    const relative=delivered.find(item=>(item.args?.event as {type?:string})?.type==="mouse_relative")?.args?.event as {payload?:{dx?:number;dy?:number}};
+    check(relative.payload?.dx===21&&relative.payload?.dy===-7,"relative game motion preserves accumulated deltas through the unordered channel");
     host.setPreference("text");
     await delay(3300);
     check(quality!=="Browser managed","text-oriented encoder preference accepted during streaming");

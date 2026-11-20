@@ -48,19 +48,24 @@ export class LatestPointer<T> {
   private readonly now: () => number;
   private readonly schedule: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
   private readonly cancel: (id: ReturnType<typeof setTimeout>) => void;
+  private readonly merge?: (older: T, newer: T) => T;
+  private readonly maxAgeMs: number;
   constructor(
     send: (value: T) => boolean | void,
     intervalMs = POINTER_INTERVAL_MS,
     now: () => number = () => performance.now(),
     schedule: (fn: () => void, ms: number) => ReturnType<typeof setTimeout> = (fn,ms)=>setTimeout(fn,ms),
-    cancel: (id: ReturnType<typeof setTimeout>) => void = (id)=>clearTimeout(id)
-  ) { this.send=send;this.intervalMs=intervalMs;this.now=now;this.schedule=schedule;this.cancel=cancel; }
+    cancel: (id: ReturnType<typeof setTimeout>) => void = (id)=>clearTimeout(id),
+    merge?: (older: T, newer: T) => T,
+    maxAgeMs = POINTER_MAX_AGE_MS
+  ) { this.send=send;this.intervalMs=intervalMs;this.now=now;this.schedule=schedule;this.cancel=cancel;this.merge=merge;this.maxAgeMs=maxAgeMs; }
 
   push(value: T): void {
     if (this.closed) return;
-    this.value = value;
-    this.queuedAt = this.now();
-    const remaining = this.intervalMs - (this.now() - this.lastSent);
+    const now = this.now();
+    if (this.merge && this.value !== undefined && now - this.queuedAt < this.maxAgeMs) this.value = this.merge(this.value, value);
+    else { this.value = value; this.queuedAt = now; }
+    const remaining = this.intervalMs - (now - this.lastSent);
     if (remaining <= 0) this.flush();
     else if (this.scheduled == null) this.scheduled = this.schedule(() => { this.scheduled = undefined; this.flush(); }, remaining);
   }
@@ -70,7 +75,7 @@ export class LatestPointer<T> {
     this.scheduled = undefined;
     if (this.closed || this.value === undefined) return;
     const now = this.now();
-    const remainingAge = POINTER_MAX_AGE_MS - (now - this.queuedAt);
+    const remainingAge = this.maxAgeMs - (now - this.queuedAt);
     if (remainingAge <= 0) { this.value = undefined; return; }
     const remainingInterval = this.intervalMs - (now - this.lastSent);
     if (remainingInterval > 0) {

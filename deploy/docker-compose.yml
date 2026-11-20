@@ -65,14 +65,28 @@ services:
       - "--use-auth-secret"
       - "--static-auth-secret=${TURN_SECRET}"
       - "--realm=${TURN_REALM}"
-      - "--external-ip=${TURN_EXTERNAL_IP}"
+      - "--listening-ip=${TURN_RELAY_IP:-172.30.218.2}"
+      - "--relay-ip=${TURN_RELAY_IP:-172.30.218.2}"
+      - "--external-ip=${TURN_EXTERNAL_IP}/${TURN_RELAY_IP:-172.30.218.2}"
       - "--listening-port=3478"
       - "--min-port=${TURN_MIN_PORT:-49152}"
       - "--max-port=${TURN_MAX_PORT:-49200}"
       - "--no-cli"
-      - "--no-tlsv1"
-      - "--no-tlsv1_1"
+      - "--no-tls"
+      - "--no-dtls"
+      - "--no-tcp-relay"
+      - "--no-multicast-peers"
+      - "--denied-peer-ip=0.0.0.0-0.255.255.255"
+      - "--denied-peer-ip=10.0.0.0-10.255.255.255"
+      - "--denied-peer-ip=100.64.0.0-100.127.255.255"
+      - "--denied-peer-ip=127.0.0.0-127.255.255.255"
+      - "--denied-peer-ip=169.254.0.0-169.254.255.255"
+      - "--denied-peer-ip=172.16.0.0-172.31.255.255"
+      - "--denied-peer-ip=192.168.0.0-192.168.255.255"
       - "--log-file=stdout"
+    networks:
+      turn:
+        ipv4_address: "${TURN_RELAY_IP:-172.30.218.2}"
     ports:
       - "3478:3478/tcp"
       - "3478:3478/udp"
@@ -103,3 +117,10 @@ volumes:
   postgres_data:
   caddy_data:
   caddy_config:
+
+networks:
+  turn:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: "${TURN_RELAY_SUBNET:-172.30.218.0/28}"

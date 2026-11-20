@@ -1,10 +1,17 @@
 import { InputEventGate, RemoteInputEvent } from "./inputEvents";
 import type { IceServer } from "./signaling";
 import { AdaptiveVideoPolicy, connectionRoute, connectionSample, VideoPreference, VideoQuality } from "./connectionQuality";
-import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS, NEGOTIATION_TIMEOUT_MS, HeartbeatTracker, LatestPointer } from "./transportTiming";
+import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS, NEGOTIATION_TIMEOUT_MS, POINTER_INTERVAL_MS, HeartbeatTracker, LatestPointer } from "./transportTiming";
 import { VideoStatsSampler, VideoTelemetry } from "./videoTelemetry";
-import { isQualityMode, sessionEncoding } from "./qualityMode";
+import { compatibleQualityMode, isQualityMode, sessionEncoding } from "./qualityMode";
 import type { QualityMode } from "./qualityMode";
+import { clampGameDelta, validGameDelta } from "./gameInput";
+import { receiveJitterBufferTarget } from "./receiveBuffer";
+
+function gameMouse(message: {type?: unknown; payload?: unknown}): boolean {
+  return message.type === "mouse_relative" || ((message.type === "mouse_down" || message.type === "mouse_up") &&
+    (message.payload as Record<string, unknown> | undefined)?.relative === true);
+}
 
 export type SignalType = "offer" | "answer" | "ice" | "ping" | "pong" | "disconnect" | "rejected" | "expired" | "ready";
 export interface SignalMessage {
@@ -23,6 +30,7 @@ export interface PeerCallbacks {
   onCaptureFrameRate?: (fps: number) => void;
   onTelemetry?: (sample: VideoTelemetry) => void;
   onTextSupport?: (supported: boolean) => void;
+  onGameSupport?: (supported: boolean) => void;
   onInputStatus?: (status: { reason: "limited" | "rejected"; rejected: number }) => void;
   onQualityControl?: (status: { supported: boolean; mode: QualityMode; applied?: boolean }) => void;
   onFailure?: (reason: string) => void;
@@ -30,6 +38,7 @@ export interface PeerCallbacks {
 export interface PeerOptions {
   preference?: VideoPreference;
   qualityMode?: QualityMode;
+  gameInput?: boolean;
   // Refresh only at negotiation time, after any potentially long approval wait.
   loadIceServers?: () => Promise<IceServer[]>;
 }
@@ -201,24 +210,28 @@ export class HostPeer extends SessionPeer {
       };
       this.pointerChannel.onmessage=(ev)=>{
         const msg=parseMessage(ev.data);
-        if(msg?.type==="mouse_move")void gate.accept(msg).catch(error=>this.reportInputRejection(error));
+        if(msg?.type==="mouse_move" || (this.options.gameInput && msg?.type==="mouse_relative"))void gate.accept(msg).catch(error=>this.reportInputRejection(error));
       };
       this.inputChannel.onmessage=(ev)=>{
         const msg=parseMessage(ev.data);if(!msg)return;
+        if(gameMouse(msg)&&!this.options.gameInput)return;
+        // Relative motion uses the unordered pointer channel; only reliable
+        // mouse button edges are handled on this channel.
+        if(msg.type==="mouse_relative")return;
         void gate.accept(msg).then(()=>{
           if(this.closed)return;
           if(msg.type==="quality_mode"){
             const mode=(msg.payload as Record<string,unknown>)?.mode;
-            if(isQualityMode(mode)){
+            if(isQualityMode(mode) && (mode!=="game" || this.options.gameInput)){
               this.qualityMode=mode;this.appliedProfile="";
-              if(this.videoTrack)this.videoTrack.contentHint=mode==="smooth"?"motion":"detail";
+              if(this.videoTrack)this.videoTrack.contentHint=mode==="smooth"||mode==="game"?"motion":"detail";
               void this.applyVideoProfile().then(applied=>{if(!this.closed)this.sendReliable({type:"quality_mode_status",sessionId:this.sessionId,mode:this.qualityMode,applied});});
             }
             return;
           }
           if(msg.type==="ping"){
             this.lastHeartbeat=performance.now();
-            this.sendReliable({type:"pong",sessionToken:msg.sessionToken,ts:msg.ts,probeId:msg.probeId,textInputVersion:1,qualityControlVersion:1,qualityMode:this.qualityMode,qualityProfileApplied:!!this.appliedProfile});
+            this.sendReliable({type:"pong",sessionToken:msg.sessionToken,ts:msg.ts,probeId:msg.probeId,textInputVersion:1,gameInputVersion:this.options.gameInput?1:undefined,qualityControlVersion:1,qualityMode:this.qualityMode,qualityProfileApplied:!!this.appliedProfile});
           }
         }).catch(error=>{
           // A failed authenticated keepalive means the native authorization lease
@@ -294,7 +307,7 @@ export class HostPeer extends SessionPeer {
       if(!parameters.encodings?.length){this.appliedProfile="";this.callbacks.onQuality?.("Browser managed");return false;}
       const encoding=sessionEncoding(this.qualityMode,quality,settings,this.preference);
       Object.assign(parameters.encodings[0],encoding);
-      parameters.degradationPreference=this.qualityMode==="smooth"||this.preference==="motion"?"maintain-framerate":"maintain-resolution";
+      parameters.degradationPreference=this.qualityMode==="smooth"||this.qualityMode==="game"||this.preference==="motion"?"maintain-framerate":"maintain-resolution";
       await this.videoSender.setParameters(parameters);
       if(this.closed)return false;
       this.callbacks.onCaptureFrameRate?.(encoding.maxFramerate);
@@ -332,13 +345,34 @@ export class ControllerPeer extends SessionPeer {
   private telemetryTimer?:number;
   private heartbeat?:HeartbeatTracker;
   private readonly pointer=new LatestPointer<RemoteInputEvent>((event)=>this.deliverInput(event));
+  private readonly relativePointer=new LatestPointer<RemoteInputEvent>(
+    event=>this.deliverInput(event), POINTER_INTERVAL_MS, undefined, undefined, undefined,
+    (older, newer)=>({...newer,payload:{
+      dx:clampGameDelta(Number(older.payload?.dx)+Number(newer.payload?.dx)),
+      dy:clampGameDelta(Number(older.payload?.dy)+Number(newer.payload?.dy)),
+    }}), 45
+  );
+  private gameSupported=false;
+  private videoReceiver?: RTCRtpReceiver;
+  private latestReceiveTelemetry?: VideoTelemetry;
+  private confirmedGameVideo=false;
   private desiredQuality?:QualityMode;
   private qualitySupported=false;
   setQualityMode(mode:QualityMode):boolean {
     if(!isQualityMode(mode))return false;
     this.desiredQuality=mode;
     if(!this.qualitySupported)return false;
-    return this.sendReliable({type:"quality_mode",sessionToken:this.sessionToken,ts:Date.now(),payload:{mode}});
+    return this.sendReliable({type:"quality_mode",sessionToken:this.sessionToken,ts:Date.now(),payload:{mode:mode==="game"&&!this.gameSupported?"auto":mode}});
+  }
+
+  private updateReceiveBuffer(game: boolean, telemetry?: VideoTelemetry) {
+    const receiver=this.videoReceiver;
+    if(telemetry)this.latestReceiveTelemetry=telemetry;
+    if(!receiver || !("jitterBufferTarget" in receiver)) return;
+    const sample=telemetry??this.latestReceiveTelemetry;
+    // This is an optional hint, not measured latency. Give uneven/lossy paths more headroom.
+    const target=receiveJitterBufferTarget(game,sample);
+    try { if(receiver.jitterBufferTarget!==target)receiver.jitterBufferTarget=target; } catch {/* Older WebViews may reject it. */}
   }
 
   protected async processSignal(msg:SignalMessage){
@@ -351,8 +385,7 @@ export class ControllerPeer extends SessionPeer {
       this.installPeerHandlers();
       this.pc.ontrack=(ev)=>{
         // This is a preferred hold time, not a guaranteed playout delay. Unsupported browsers keep their default.
-        const receiver=ev.receiver as RTCRtpReceiver & { jitterBufferTarget?:number|null };
-        if("jitterBufferTarget" in receiver)try{receiver.jitterBufferTarget=30;}catch{/* Optional decoder hint. */}
+        if(ev.track.kind==="video"){this.videoReceiver=ev.receiver;this.updateReceiveBuffer(this.confirmedGameVideo);}
         this.callbacks.onRemoteStream?.(ev.streams[0]??new MediaStream([ev.track]));
       };
       this.pc.ondatachannel=(ev)=>{
@@ -362,6 +395,8 @@ export class ControllerPeer extends SessionPeer {
         this.inputChannel.onmessage=(message)=>{
           const parsed=parseMessage(message.data);
           if(parsed?.type==="quality_mode_status"&&parsed.sessionId===this.sessionId&&isQualityMode(parsed.mode)){
+            this.confirmedGameVideo=parsed.mode==="game"&&parsed.applied===true;
+            this.updateReceiveBuffer(this.confirmedGameVideo);
             this.callbacks.onQualityControl?.({supported:true,mode:parsed.mode,applied:parsed.applied===true});return;
           }
           if(parsed?.type==="input_status"&&parsed.sessionId===this.sessionId){
@@ -370,9 +405,14 @@ export class ControllerPeer extends SessionPeer {
           }
           if(parsed?.type!=="pong"||parsed.sessionToken!==this.sessionToken||!this.heartbeat)return;
           const supported=parsed.qualityControlVersion===1;
+          this.gameSupported=parsed.gameInputVersion===1;
+          this.callbacks.onGameSupport?.(this.gameSupported);
           const mode=isQualityMode(parsed.qualityMode)?parsed.qualityMode:"auto";
+          const negotiatedMode=compatibleQualityMode(mode,this.gameSupported);
           const first=supported&&!this.qualitySupported;this.qualitySupported=supported;
-          this.callbacks.onQualityControl?.({supported,mode,applied:parsed.qualityProfileApplied===true});
+          this.confirmedGameVideo=negotiatedMode==="game"&&parsed.qualityProfileApplied===true;
+          this.updateReceiveBuffer(this.confirmedGameVideo);
+          this.callbacks.onQualityControl?.({supported,mode:negotiatedMode,applied:parsed.qualityProfileApplied===true});
           if(first)this.setQualityMode(this.desiredQuality??this.options.qualityMode??"auto");
           this.callbacks.onTextSupport?.(parsed.textInputVersion===1);
           const rtt=this.heartbeat.acknowledge(parsed.probeId,performance.now());
@@ -397,28 +437,37 @@ export class ControllerPeer extends SessionPeer {
   }
   sendInput(event:RemoteInputEvent){
     if(this.closed||this.inputChannel?.readyState!=="open")return false;
-    if(event.type==="mouse_move"){this.pointer.push(event);return true;}
+    if(gameMouse(event) && !this.gameSupported)return false;
+    if(event.type==="mouse_relative"){
+      if(this.pointerChannel?.readyState!=="open"||!validGameDelta(event.payload?.dx)||!validGameDelta(event.payload?.dy))return false;
+      this.pointer.discard();this.relativePointer.push(event);return true;
+    }
+    if(event.type!=="mouse_move")this.relativePointer.discard();
+    if(event.type==="mouse_move"){this.relativePointer.discard();this.pointer.push(event);return true;}
+    if(event.type==="release_all"||event.type==="disconnect"||event.type==="text_input")this.relativePointer.discard();
     if(event.type==="mouse_down"||event.type==="mouse_up"||event.type==="release_all"||event.type==="disconnect"||event.type==="text_input")this.pointer.discard();
     return this.deliverInput(event);
   }
   private watchPointerBuffer(channel:RTCDataChannel){
     channel.bufferedAmountLowThreshold=MAX_POINTER_BUFFER/2;
-    channel.onbufferedamountlow=()=>{if(!this.closed)this.pointer.flush();};
+    channel.onbufferedamountlow=()=>{if(!this.closed){this.pointer.flush();this.relativePointer.flush();}};
   }
   private deliverInput(event:RemoteInputEvent):boolean{
     if(this.closed||this.inputChannel?.readyState!=="open")return false;
-    const pointerChannel=event.type==="mouse_move"&&this.pointerChannel?.readyState==="open"?this.pointerChannel:undefined;
+    const pointerChannel=(event.type==="mouse_move"||event.type==="mouse_relative")&&this.pointerChannel?.readyState==="open"?this.pointerChannel:undefined;
     if(pointerChannel){
       if(pointerChannel.bufferedAmount>MAX_POINTER_BUFFER)return false;
       try{pointerChannel.send(JSON.stringify({...event,sequence:++this.inputSequence}));return true;}
       catch{this.fail("input_channel_failed");return false;}
     }else{
+      if(event.type==="mouse_relative")return false;
       if(event.type==="mouse_move"&&this.inputChannel.bufferedAmount>MAX_POINTER_BUFFER)return false;
       return this.sendReliable({...event,sequence:++this.inputSequence});
     }
   }
   override close(){
     this.pointer.close();
+    this.relativePointer.close();
     if(this.pingTimer!=null)window.clearInterval(this.pingTimer);
     if(this.telemetryTimer!=null)window.clearTimeout(this.telemetryTimer);
     super.close();
@@ -442,6 +491,7 @@ export class ControllerPeer extends SessionPeer {
         if(this.pc.connectionState==="connected"){
           const stats=await this.pc.getStats();if(this.closed)return;
           const telemetry=this.statsSampler.sample(stats,"receive");
+          this.updateReceiveBuffer(this.confirmedGameVideo,telemetry);
           this.callbacks.onRelayStatus?.(telemetry.route);this.callbacks.onTelemetry?.(telemetry);
         }
       }catch{/* Statistics are best effort and cannot grant or resume input. */}

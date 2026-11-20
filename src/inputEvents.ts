@@ -3,9 +3,11 @@ import { mapVideoPoint } from "./pointerMapping.ts";
 import { PointerOrder } from "./inputSequence.ts";
 import { validRemoteText } from "./mobileInput.ts";
 import { isQualityMode } from "./qualityMode.ts";
+import { validGameDelta } from "./gameInput.ts";
 
 export type InputEventType =
   | "mouse_move"
+  | "mouse_relative"
   | "mouse_down"
   | "mouse_up"
   | "mouse_wheel"
@@ -148,6 +150,7 @@ export function keyInput(type: "key_down" | "key_up", sessionToken: string, ev: 
 function validType(value: string): value is InputEventType {
   return [
     "mouse_move",
+    "mouse_relative",
     "mouse_down",
     "mouse_up",
     "mouse_wheel",
@@ -167,6 +170,14 @@ function validatePayload(event: RemoteInputEvent): void {
   if (event.type === "quality_mode" && !isQualityMode(payload.mode)) throw new Error("invalid_quality_mode");
   if (event.type === "text_input" && (typeof payload.text !== "string" || !validRemoteText(payload.text))) throw new Error("invalid_text_payload");
   if (event.type.startsWith("mouse_")) {
+    if (event.type === "mouse_relative") {
+      if (!validGameDelta(payload.dx) || !validGameDelta(payload.dy)) throw new Error("invalid_mouse_delta");
+      return;
+    }
+    if ((event.type === "mouse_down" || event.type === "mouse_up") && payload.relative === true) {
+      if (payload.button !== 0 && payload.button !== 1 && payload.button !== 2) throw new Error("invalid_mouse_button");
+      return;
+    }
     if (event.type === "mouse_wheel") {
       if (!Number.isFinite(payload.deltaX) || !Number.isFinite(payload.deltaY)) {
         throw new Error("invalid_wheel_payload");

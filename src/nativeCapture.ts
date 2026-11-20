@@ -70,7 +70,6 @@ export async function startNativeStream(token: string, onFailure: () => void): P
       cursor = nextCursor;
       baseline = { width, height, sequence: frame.sequence };
       if (!fullDraw && !damage.length) return false;
-      requestFrame?.();
       if (fullDraw) gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       else {
         gl.enable(gl.SCISSOR_TEST);
@@ -80,6 +79,9 @@ export async function startNativeStream(token: string, onFailure: () => void): P
         }
         gl.disable(gl.SCISSOR_TEST);
       }
+      // Canvas capture snapshots the current bitmap when requestFrame is called.
+      // Request only after drawing all damage to avoid publishing the prior image.
+      requestFrame?.();
       return true;
     };
     const firstDeadline = performance.now() + 2500;
@@ -90,9 +92,9 @@ export async function startNativeStream(token: string, onFailure: () => void): P
     stream = canvas.captureStream(0);
     const video = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack;
     if (!video || typeof video.requestFrame !== "function") throw new Error("canvas frame capture unavailable");
-    video.requestFrame();
     // Paint once with the capture track attached, including on an idle desktop.
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    video.requestFrame();
     let fps = 60, lastPull = performance.now();
     const schedulePull = () => {
       timer = setTimeout(() => {

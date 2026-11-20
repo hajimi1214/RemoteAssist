@@ -71,6 +71,37 @@ mod tests {
     }
 
     #[test]
+    fn relative_game_mouse_delta_is_bounded_and_button_edges_keep_legacy_payload_shape() {
+        assert_eq!(
+            relative_mouse_delta(&serde_json::json!({"dx":-180,"dy":72})).unwrap(),
+            (-180, 72)
+        );
+        for payload in [
+            serde_json::json!({"dx":1025,"dy":0}),
+            serde_json::json!({"dx":1.5,"dy":0}),
+            serde_json::json!({"dx":0}),
+        ] {
+            assert!(matches!(
+                relative_mouse_delta(&payload),
+                Err(InputError::InvalidPayload)
+            ));
+        }
+        let mut down = event("session", 1000);
+        down.event_type = InputType::MouseDown;
+        down.payload = serde_json::json!({"button":0,"relative":true});
+        let mut permission = PermissionAdapter {
+            authorized: true,
+            session_token: Some("session".into()),
+            expires_at_ms: Some(2000),
+            lease_deadline: Some(Instant::now() + INPUT_LEASE),
+            ..Default::default()
+        };
+        assert!(validate_adapter_permission(&down, &mut permission, 1000).is_ok());
+        track_pressed(&down, &mut permission);
+        assert!(permission.pressed_buttons.contains(&0));
+    }
+
+    #[test]
     fn unicode_text_is_bounded_and_still_requires_live_authorization() {
         assert_eq!(
             text_input_units(&serde_json::json!({"text":"中文🙂"}))
@@ -299,6 +330,7 @@ impl DisplayInfoAdapter for PrimaryDisplayInfoAdapter {
 #[serde(rename_all = "snake_case")]
 enum InputType {
     MouseMove,
+    MouseRelative,
     MouseDown,
     MouseUp,
     MouseWheel,
@@ -1065,6 +1097,20 @@ impl InputAdapter for WindowsInputAdapter {
         }
 
         let input = match event.event_type {
+            InputType::MouseRelative => {
+                let (dx, dy) = relative_mouse_delta(&event.payload)?;
+                INPUT {
+                    r#type: INPUT_MOUSE,
+                    Anonymous: INPUT_0 {
+                        mi: MOUSEINPUT {
+                            dx,
+                            dy,
+                            dwFlags: MOUSEEVENTF_MOVE,
+                            ..Default::default()
+                        },
+                    },
+                }
+            }
             InputType::MouseMove => {
                 let (x, y) = mouse_xy(&self.display, &event.payload)?;
                 INPUT {
@@ -1086,14 +1132,21 @@ impl InputAdapter for WindowsInputAdapter {
                     &event.payload,
                     matches!(event.event_type, InputType::MouseDown),
                 )?;
+                let (dx, dy, flags) =
+                    if event.payload.get("relative").and_then(|v| v.as_bool()) == Some(true) {
+                        (0, 0, flag)
+                    } else {
+                        let (x, y) = mouse_xy(&self.display, &event.payload)?;
+                        (x, y, flag | MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE)
+                    };
                 INPUT {
                     r#type: INPUT_MOUSE,
                     Anonymous: INPUT_0 {
                         mi: MOUSEINPUT {
-                            dx: mouse_xy(&self.display, &event.payload)?.0,
-                            dy: mouse_xy(&self.display, &event.payload)?.1,
+                            dx,
+                            dy,
                             mouseData: 0,
-                            dwFlags: flag | MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
+                            dwFlags: flags,
                             time: 0,
                             dwExtraInfo: 0,
                         },
@@ -1186,6 +1239,18 @@ impl InputAdapter for WindowsInputAdapter {
             Err(InputError::SendInputFailed)
         }
     }
+}
+
+#[cfg(any(windows, test))]
+fn relative_mouse_delta(payload: &serde_json::Value) -> Result<(i32, i32), InputError> {
+    fn axis(value: Option<&serde_json::Value>) -> Result<i32, InputError> {
+        value
+            .and_then(|v| v.as_i64())
+            .filter(|v| (-1024..=1024).contains(v))
+            .map(|v| v as i32)
+            .ok_or(InputError::InvalidPayload)
+    }
+    Ok((axis(payload.get("dx"))?, axis(payload.get("dy"))?))
 }
 
 fn text_input_units(payload: &serde_json::Value) -> Result<Vec<u16>, InputError> {

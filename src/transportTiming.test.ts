@@ -98,3 +98,18 @@ test("synchronous send failure that closes the queue cannot schedule a retry", (
   queue.push(1);
   assert.equal(scheduled,false);
 });
+
+test("coalesced relative motion accumulates rather than retaining only the last small delta",()=>{
+  let now=0,callback:(()=>void)|undefined;
+  const sent:{dx:number;dy:number}[]=[];
+  const queue=new LatestPointer<{dx:number;dy:number}>(v=>{sent.push(v);return true;},10,()=>now,
+    fn=>{callback=fn;return 1 as unknown as ReturnType<typeof setTimeout>;},()=>{callback=undefined;},
+    (a,b)=>({dx:a.dx+b.dx,dy:a.dy+b.dy}),45);
+  queue.push({dx:2,dy:-1});
+  now=1;queue.push({dx:3,dy:-2});
+  now=2;queue.push({dx:4,dy:-3});
+  assert.deepEqual(sent,[{dx:2,dy:-1}]);
+  now=10;callback?.();
+  assert.deepEqual(sent,[{dx:2,dy:-1},{dx:7,dy:-5}]);
+  queue.close();
+});

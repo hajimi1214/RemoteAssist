@@ -88,7 +88,7 @@ export function useDirectHost(auth: AuthResult | null, device: Device | null, si
         const peer = new HostPeer(pending.id, pending.hostToken, socket, [], {
           onCaptureFrameRate: source.setFrameRate,
           onFailure: () => fail(session, "连接已中断，可重新进入设备。")
-        }, { preference: "auto", loadIceServers: () => signaling.iceServers(latest.current!.accessToken) });
+        }, { preference: "auto", gameInput: device.osName === "Windows", loadIceServers: () => signaling.iceServers(latest.current!.accessToken) });
         session.peer = peer;
         socket.onclose = () => stop(session); socket.onerror = () => stop(session);
         socket.onmessage = event => {
