@@ -1,28 +1,25 @@
-# Release readiness — 0.5.0-alpha
+# Release readiness — 0.6.0-alpha
 
 Reviewed 2026-11-20.
 
-## Verified UI behavior
+## PASS
 
-PASS — login Enter submission, registration semantics, correct control shortcut, device-note saving and confirmation flows, safe error display, service retry controls, keyboard tabs, theme/large-text selection.
+- Frontend timing/quality/telemetry and existing UX/input policies: 24 tests.
+- TypeScript/Vite production build.
+- Real browser media loopback and fresh ICE loading at negotiation.
+- Real browser missing-answer and missing-heartbeat watchdogs.
+- Live diagnostics panel displays measured stats and distinguishes unsupported fields.
 
-PASS — checked layout at 320/768/1100/1920 CSS px, including 200% root-text scaling on the actual App. No horizontal page overflow in checked pages. Remote video at 100/150% scrolls inside its own viewport.
+## Final build verification
 
-PASS — generated portrait/ultrawide streams, fit scaling, fullscreen entry/exit, local input start/stop, Escape/Tab release and safe handling of geometry changes.
+PASS — scripts/test.ps1: 24 frontend tests/build, Go tests/service build, Rust check and 5 native tests. npm audit reports zero vulnerabilities.
 
-## Final automated checks
-
-PASS — scripts/test.ps1: 14 frontend tests and production build, Go tests/build, Rust check and 5 native tests. npm audit reports zero vulnerabilities; git diff whitespace checks pass.
-
-PASS — Windows portable EXE and RemoteAssist_0.5.0-alpha_x64-setup.exe built successfully (approximately 1.89 MiB). This validates packaging with the example domain, not installation or production connectivity.
+PASS — portable Windows EXE and RemoteAssist_0.6.0-alpha_x64-setup.exe built successfully (approximately 1.90 MiB). Packaging used the example HTTPS endpoint; rebuild with the actual server domain for operation.
 
 ## NOT VERIFIED
 
-- Complete WCAG compliance, screen-reader/high-contrast/touch-device acceptance.
-- Live Windows capture/input/clipboard/native consent, OS DPI calibration and secondary monitors.
-- Two-machine LAN/public TURN, cloud firewall/DNS/certificates, PostgreSQL/container runtime and GitHub-hosted CI.
-- Local Go race detector requires unavailable CGO/compiler; configured in Linux CI.
+Two-machine LAN/public TURN, actual native capture/input/consent, hardware codec paths, controlled degraded-network measurements, physical display/DPI mapping, live cloud/PostgreSQL, unsigned installer on a second machine and remote CI.
 
-## Delivery constraints
+## Compatibility
 
-Build with the real signaling HTTPS domain. The example-domain package is only a packaging check and cannot connect to the user's cloud server. Keep server and clients on the 0.4-or-newer protocol; 0.3 URL-token clients are unsupported. One signaling replica only.
+Upgrade both clients together to 0.6 for correlated heartbeat probes. The server keeps the 0.4+ first-frame signaling protocol. One signaling replica only. Build with the actual service HTTPS domain; example-domain installers validate build tooling only.

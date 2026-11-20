@@ -1,23 +1,19 @@
-# Security review — 0.5.0-alpha
+# Security review — 0.6.0-alpha
 
-Reviewed 2026-11-20. Scope: frontend interaction/layout refactor and native consent localization, building on 0.4 controls.
+Reviewed 2026-11-20. Scope: media peer lifecycle, heartbeats, input queue, adaptive encoding and local diagnostics.
 
-## PASS — reviewed behavior
+## PASS — reviewed and tested
 
-- Host native approval, session-token checks, native expiry/heartbeat lease and input revocation remain required. UI enhancements do not create unattended access.
-- Controller initially views only; it explicitly enables input after video arrives. Escape/Tab, blur and geometry changes release input. Stop/disconnect stays visible in fullscreen.
-- Leaving an active session requires explicit confirmation; cancellation keeps the session. Native unmount/disconnect cleanup is retained.
-- Async page/device callbacks are guarded against obsolete account/component state; navigation consults current session activity.
-- Errors shown to users are fixed safe text rather than arbitrary server bodies.
-- No new remote shell, hidden operation, autostart, silent install, screen recording or clipboard synchronization was added.
-- Clipboard use copies only the temporary connection code on an explicit button click. Native clipboard behavior remains NOT VERIFIED.
-- Theme/text settings persist only non-secret preferences. Credentials keep the pre-existing Windows Credential Manager path.
-- Test fixtures use generated canvas video, simulated input delivery and synthetic local account data. They are not included in the production Vite entry.
-- Research references are documented; no external project source/assets were copied and no new runtime package is needed.
+- Host approval and native input expiry/heartbeat lease remain mandatory. No hidden operation, autostart, unattended access, remote shell, screen recording or credential capture added.
+- Missing negotiation response and missing authenticated keepalive close PeerConnections and trigger existing app/native cleanup. Both deadlines were observed in real browser tests.
+- Diagnostics contain only current aggregate metrics. No video pixels, input content, SDP, candidate addresses or session tokens are exported/stored by the diagnostics code.
+- Pointer queue retains only the latest absolute position, remains bounded, is cancelled by buttons/releases and is cleared on shutdown. Keys/buttons stay on the reliable channel.
+- Session tokens stay out of signaling URLs and forwarded frames. Fresh ICE configuration still requires the user's access token.
+- send failures and excessive queued data terminate input rather than silently accumulating delayed controls.
+- New quality preferences affect encoder ceilings/hints only; they cannot grant or extend authorization.
+- Research document text is treated as reference material. No unattended policies or remote-command capabilities mentioned in the broader report were adopted.
+- Browser fixtures use generated canvas video and simulated native delivery; no operating-system input injection was performed.
 
-## Remaining limits
+## Limits
 
-- Browser tests do not prove real OS input/capture behavior, native WebView2 fullscreen, DPI/secondary-display mapping, or full accessibility conformance.
-- Primary display still requires host selection/confirmation; no automatic physical-display identity proof is introduced.
-- Cloud/TURN/PostgreSQL/backup/restore, local Go race and complete penetration testing remain outside the verified scope.
-- Existing native credential-storage failure handling still falls back to in-memory authentication; a broader secure-store recovery UX is future work.
+Real cloud TURN, target WebView2/hardware codec behavior, Windows input/capture, second-machine consent, sustained loss/jitter, true input-to-photon latency and native display mapping remain unverified. The current architecture does not guarantee GPU zero-copy, HDR or 4:4:4. The complete server/security model has not undergone an external penetration test.

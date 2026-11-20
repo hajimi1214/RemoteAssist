@@ -2,6 +2,8 @@
 
 ## Runtime and Build Dependencies
 
+The 0.6 communication/quality update adds no external runtime package. WebRTC stats formulas follow the W3C specification; the supplied research document is used as a roadmap reference. No proprietary codec, GPU SDK, commercial implementation, HDR/4:4:4 module or copied open-source media implementation was introduced.
+
 The 0.5 UX update adds no runtime dependencies. CSS/SVG assets and UI components are original. WCAG, WAI-ARIA, W3C Screen Capture and Microsoft DPI documentation are referenced for engineering decisions; no third-party UI implementation was copied. See docs/research-and-decisions-0.5.md.
 
 - Go standard library: BSD-3-Clause style license, used for HTTP service, JSON, crypto randomness, logging, and tests.

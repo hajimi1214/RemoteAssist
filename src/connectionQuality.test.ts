@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AdaptiveVideoPolicy, connectionRoute, connectionSample } from "./connectionQuality.ts";
+import { AdaptiveVideoPolicy, connectionRoute, connectionSample, videoEncoding } from "./connectionQuality.ts";
 
 test("degrades after sustained congestion, recovers only after three good samples", () => {
   const policy = new AdaptiveVideoPolicy();
-  assert.equal(policy.observe({ rttMs: 450 }), "Balanced");
-  assert.equal(policy.observe({ rttMs: 450 }), "Economy");
-  assert.equal(policy.observe({ rttMs: 30, availableOutgoingBitrate: 8_000_000 }), "Economy");
-  assert.equal(policy.observe({ rttMs: 30, availableOutgoingBitrate: 8_000_000 }), "Economy");
+  assert.equal(policy.observe({ rttMs: 650 }), "Balanced");
+  assert.equal(policy.observe({ rttMs: 650 }), "Constrained");
+  assert.equal(policy.observe({ rttMs: 650 }), "Constrained");
+  assert.equal(policy.observe({ rttMs: 650 }), "Economy");
+  for(let level=0; level<2; level++) for(let sample=0;sample<3;sample++)policy.observe({rttMs:30,availableOutgoingBitrate:8_000_000});
+  assert.equal(policy.current,"Balanced");
+  assert.equal(policy.observe({ rttMs: 30, availableOutgoingBitrate: 8_000_000 }), "Balanced");
+  assert.equal(policy.observe({ rttMs: 30, availableOutgoingBitrate: 8_000_000 }), "Balanced");
   assert.equal(policy.observe({ rttMs: 30, availableOutgoingBitrate: 8_000_000 }), "Sharp");
 });
 
@@ -24,15 +28,29 @@ test("does not upgrade on missing bandwidth or infinite estimates", () => {
   const policy = new AdaptiveVideoPolicy();
   policy.observe({ availableOutgoingBitrate: 500_000 });
   policy.observe({ availableOutgoingBitrate: 500_000 });
-  for (let i = 0; i < 6; i++) assert.equal(policy.observe({ rttMs: 20, availableOutgoingBitrate: Infinity }), "Economy");
+  for (let i = 0; i < 6; i++) assert.equal(policy.observe({ rttMs: 20, availableOutgoingBitrate: Infinity }), "Constrained");
 });
 
 test("responds to CPU encoder pressure without a network estimate", () => {
   const policy = new AdaptiveVideoPolicy();
   assert.equal(policy.observe({ qualityLimitationReason: "cpu" }), "Balanced");
-  assert.equal(policy.observe({ qualityLimitationReason: "cpu" }), "Economy");
+  assert.equal(policy.observe({ qualityLimitationReason: "cpu" }), "Constrained");
+  for(let i=0;i<8;i++)assert.equal(policy.observe({ qualityLimitationReason:"cpu" }),"Constrained");
   const stats = new Map([["encoder", { type:"outbound-rtp", kind:"video", qualityLimitationReason:"cpu" }]]) as unknown as RTCStatsReport;
   assert.equal(connectionSample(stats).qualityLimitationReason, "cpu");
+});
+
+test("mild CPU or bandwidth pressure preserves full-size text while severe pressure reduces resolution",()=>{
+  assert.equal(videoEncoding("Constrained","text").scaleResolutionDownBy,1);
+  assert.equal(videoEncoding("Constrained","motion").maxFramerate,20);
+  assert.equal(videoEncoding("Sharp","text").maxFramerate,15);
+  assert.equal(videoEncoding("Economy","auto").scaleResolutionDownBy,2);
+});
+
+test("missing samples break a congestion streak",()=>{
+  const policy=new AdaptiveVideoPolicy();
+  policy.observe({rttMs:650});policy.observe({});
+  assert.equal(policy.observe({rttMs:650}),"Balanced");
 });
 
 test("uses selected transport pair and detects relay on the local side", () => {

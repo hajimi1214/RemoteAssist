@@ -1,6 +1,33 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { RefObject, ReactNode, KeyboardEvent, PointerEvent } from "react";
 import { remoteLayout } from "./ux";
+import type { VideoTelemetry } from "./videoTelemetry";
+import type { VideoPreference } from "./connectionQuality";
+
+export function QualityPreference({value,onChange}: {value:VideoPreference;onChange:(value:VideoPreference)=>void}) {
+  return <label className="quality-preference"><span>画质偏好</span><select value={value} onChange={ev=>onChange(ev.target.value as VideoPreference)}><option value="auto">自动平衡</option><option value="text">文字优先</option><option value="motion">流畅优先</option></select><small>文字优先尽量保留分辨率；流畅优先保留帧率。网络不足时仍会自动降级。</small></label>;
+}
+
+export function ConnectionDiagnostics({sample}: {sample:VideoTelemetry|null}) {
+  if(!sample)return null;
+  const metric=(value:number|undefined,unit:string)=>value==null?"暂不可用":`${value} ${unit}`;
+  const limits:Record<string,string>={none:"未报告限制",cpu:"编码处理压力",bandwidth:"带宽压力",other:"其他限制"};
+  return <details className="connection-diagnostics"><summary>连接与画质详情</summary><p>最近采样间隔的统计，仅保留在本机内存。编解码耗时为单帧平均值，不等于端到端操作延迟。</p><dl>
+    <div><dt>编码格式</dt><dd>{sample.codec??"协商中"}</dd></div>
+    <div><dt>实际分辨率</dt><dd>{sample.width&&sample.height?`${sample.width} × ${sample.height}`:"待测量"}</dd></div>
+    <div><dt>{sample.direction==="send"?"编码帧率":"解码帧率"}</dt><dd>{metric(sample.fps,"fps")}</dd></div>
+    <div><dt>{sample.direction==="send"?"视频发送码率":"视频接收码率"}</dt><dd>{metric(sample.bitrateKbps,"kbps")}</dd></div>
+    <div><dt>网络往返时间</dt><dd>{metric(sample.rttMs==null?undefined:Math.round(sample.rttMs),"ms")}</dd></div>
+    {sample.direction==="send"?<><div><dt>平均编码耗时</dt><dd>{metric(sample.encodeMs,"ms")}</dd></div><div><dt>平均发送排队</dt><dd>{metric(sample.sendQueueMs,"ms")}</dd></div><div><dt>编码器限制</dt><dd>{sample.qualityLimitation?limits[sample.qualityLimitation]??"未知":"暂不可用"}</dd></div></>:<>
+      <div><dt>间隔丢包率</dt><dd>{metric(sample.packetLossPercent,"%")}</dd></div>
+      <div><dt>网络抖动</dt><dd>{metric(sample.jitterMs==null?undefined:Math.round(sample.jitterMs*10)/10,"ms")}</dd></div>
+      <div><dt>平均解码耗时</dt><dd>{metric(sample.decodeMs,"ms")}</dd></div>
+      <div><dt>平均缓冲停留</dt><dd>{metric(sample.jitterBufferMs,"ms")}</dd></div>
+      <div><dt>间隔丢弃帧数</dt><dd>{metric(sample.framesDropped,"帧")}</dd></div>
+      <div><dt>累计画面冻结</dt><dd>{metric(sample.freezes,"次")}</dd></div>
+    </>}
+  </dl><p>静止桌面可能几乎不产生新帧，低 fps 或低码率不一定代表连接故障。</p></details>;
+}
 
 export type IconName = "monitor" | "devices" | "shield" | "history" | "arrow" | "settings" | "grid" | "copy" | "expand" | "stop" | "check" | "sun" | "moon";
 export function Icon({ name }: { name: IconName }) {

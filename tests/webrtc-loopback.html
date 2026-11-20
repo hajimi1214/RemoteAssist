@@ -7,7 +7,9 @@
 <h1>Local WebRTC verification</h1>
 <p>Uses a generated canvas and simulated input delivery. No screen capture or OS input is performed.</p>
 <button id="run">Run loopback checks</button>
+<button id="timeouts">Run watchdog checks (about 35 seconds)</button>
 <pre id="result" role="status">Ready</pre>
 <video id="video" muted autoplay playsinline></video>
+<div id="diagnostics"></div>
 <script type="module" src="./webrtc-loopback.ts"></script>
 </html>

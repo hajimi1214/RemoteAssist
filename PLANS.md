@@ -18,7 +18,8 @@
 - M6: Security modernization, dependency refresh, deployment hardening, and VelaMost-inspired responsive UI. PASS
 - M7: 0.4 adaptive encoding, separate pointer/control channels, native input cleanup, bounded session lifecycle, safe migrations, and deployment checks. PASS (local verification; see STATUS.md).
 - M8: 0.5 responsive Chinese UI, themes, accessibility/keyboard improvements, remote-view sizing, and clearer connection/device workflows. PASS (local browser verification; see STATUS.md).
-- M9: Actual cloud/two-machine acceptance, weak-network benchmarks, native display calibration, durable audit metadata. NOT VERIFIED
+- M9: 0.6 communication/quality refinement: diagnostics, quality preferences, gradual transitions, heartbeat/negotiation watchdogs and latest-pointer coalescing. PASS (local validation; see STATUS.md).
+- M10: Actual cloud/two-machine acceptance, weak-network benchmarks, native display calibration, durable audit metadata and measured native-media prototyping. NOT VERIFIED
 
 ## Remaining Manual Verification
 

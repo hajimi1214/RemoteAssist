@@ -1,6 +1,6 @@
 # RemoteAssist
 
-Version 0.5 adds a Chinese responsive workspace, system/light/dark themes, larger text, accessible forms and session navigation, connection-code feedback, and a remote viewer with fit/100%/150%/fullscreen controls. Read [0.5 research](docs/research-and-decisions-0.5.md) and [browser validation](docs/validation-0.5.md) for scope and limitations.
+Version 0.6 adds measured video diagnostics, host quality preferences, gradual quality changes, correlated heartbeat timeouts, negotiation deadlines, and latest-position mouse delivery. Read [communication and quality decisions](docs/communication-quality-0.6.md). The responsive workspace, themes and viewer controls are documented in [0.5 research](docs/research-and-decisions-0.5.md).
 
 RemoteAssist is a visible Windows remote assistance client. It requires sign in, device registration, host-started primary-display sharing, an 8-digit temporary code, and explicit host approval before remote input is accepted. The controller then explicitly enables local input capture; Escape or Tab releases it.
 
@@ -46,6 +46,8 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --en
 Do not hardcode TURN credentials in source. Put deployment secrets only in `deploy/.env` or equivalent server environment variables.
 
 Version 0.4 changes the signaling authentication protocol. Upgrade the server and both clients together; build the Windows package with your actual HTTPS signaling domain. Example-domain packages only validate packaging and cannot connect to your server.
+
+Version 0.6 clients use correlated DataChannel heartbeat probes; upgrade both endpoints to 0.6 together. The existing 0.4+ signaling server protocol remains compatible.
 
 See [research and decisions](docs/research-and-decisions-0.4.md) for the WebRTC standards, Sunshine behavior, and recent papers behind the changes, and [validation](docs/validation-0.4.md) for the real-browser loopback test and its limits.
 

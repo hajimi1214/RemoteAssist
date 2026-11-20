@@ -1,9 +1,10 @@
 import { InputEventGate, RemoteInputEvent } from "./inputEvents";
-import { IceServer } from "./signaling";
-import { AdaptiveVideoPolicy, connectionRoute, connectionSample, VideoQuality, videoProfiles } from "./connectionQuality";
+import type { IceServer } from "./signaling";
+import { AdaptiveVideoPolicy, connectionRoute, connectionSample, VideoPreference, VideoQuality, videoEncoding } from "./connectionQuality";
+import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS, NEGOTIATION_TIMEOUT_MS, HeartbeatTracker, LatestPointer } from "./transportTiming";
+import { VideoStatsSampler, VideoTelemetry } from "./videoTelemetry";
 
 export type SignalType = "offer" | "answer" | "ice" | "ping" | "pong" | "disconnect" | "rejected" | "expired" | "ready";
-
 export interface SignalMessage {
   type: SignalType;
   sessionId: string;
@@ -11,322 +12,344 @@ export interface SignalMessage {
   ts: number;
   payload?: unknown;
 }
-
 export interface PeerCallbacks {
   onRemoteStream?: (stream: MediaStream) => void;
   onConnectionStatus?: (status: string) => void;
   onRelayStatus?: (status: "P2P" | "TURN Relay" | "Unknown") => void;
   onLatency?: (ms: number) => void;
   onQuality?: (quality: VideoQuality | "Browser managed") => void;
+  onTelemetry?: (sample: VideoTelemetry) => void;
+  onFailure?: (reason: string) => void;
 }
+export interface PeerOptions {
+  preference?: VideoPreference;
+  // Refresh only at negotiation time, after any potentially long approval wait.
+  loadIceServers?: () => Promise<IceServer[]>;
+}
+const MAX_MESSAGE_BYTES = 16 * 1024;
+const MAX_INPUT_BUFFER = 64 * 1024;
+const MAX_POINTER_BUFFER = 8 * 1024;
+const utf8 = new TextEncoder();
 
-const maxDataChannelMessageBytes = 16 * 1024;
-const utf8Encoder = new TextEncoder();
-
-type ParsedDataChannelMessage =
-  | { ok: true; value: unknown }
-  | { ok: false };
-
-function parseDataChannelMessage(data: unknown): ParsedDataChannelMessage {
-  if (typeof data !== "string" || data.length > maxDataChannelMessageBytes) return { ok: false };
-  if (utf8Encoder.encode(data).byteLength > maxDataChannelMessageBytes) return { ok: false };
+function parseMessage(data: unknown): Record<string, unknown> | undefined {
+  if (typeof data !== "string" || data.length > MAX_MESSAGE_BYTES || utf8.encode(data).byteLength > MAX_MESSAGE_BYTES) return;
   try {
-    return { ok: true, value: JSON.parse(data) as unknown };
-  } catch {
-    return { ok: false };
-  }
-}
-
-function isPingMessage(value: unknown): value is { type: "ping"; sessionToken: string; ts: number } {
-  if (!value || typeof value !== "object") return false;
-  const message = value as Record<string, unknown>;
-  return message.type === "ping" && typeof message.sessionToken === "string" && Number.isFinite(message.ts);
+    const value = JSON.parse(data);
+    if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  } catch { /* Invalid peer input is ignored. */ }
 }
 
 class RemoteIceQueue {
   private pending: RTCIceCandidateInit[] = [];
-
-  async addOrQueue(pc: RTCPeerConnection | undefined, candidate: RTCIceCandidateInit): Promise<void> {
+  async accept(pc: RTCPeerConnection | undefined, candidate: RTCIceCandidateInit) {
     if (!pc?.remoteDescription) {
       if (this.pending.length >= 128) throw new Error("too_many_ice_candidates");
       this.pending.push(candidate);
-      return;
-    }
-    await pc.addIceCandidate(candidate);
+    } else await pc.addIceCandidate(candidate);
   }
-
-  async flush(pc: RTCPeerConnection): Promise<void> {
-    const pending = this.pending;
-    this.pending = [];
-    for (const candidate of pending) {
-      await pc.addIceCandidate(candidate);
-    }
+  async flush(pc: RTCPeerConnection) {
+    const candidates=this.pending;this.pending=[];
+    for (const candidate of candidates) await pc.addIceCandidate(candidate);
   }
-
-  clear(): void { this.pending = []; }
+  clear() { this.pending=[]; }
 }
 
-export class HostPeer {
-  private pc?: RTCPeerConnection;
-  private inputChannel?: RTCDataChannel;
-  private pointerChannel?: RTCDataChannel;
-  private signalQueue: Promise<void> = Promise.resolve();
-  private readonly remoteIce = new RemoteIceQueue();
-  private closed = false;
-  private qualityTimer?: number;
-  private videoSender?: RTCRtpSender;
-  private readonly qualityPolicy = new AdaptiveVideoPolicy();
+abstract class SessionPeer {
+  protected pc?: RTCPeerConnection;
+  protected inputChannel?: RTCDataChannel;
+  protected pointerChannel?: RTCDataChannel;
+  protected closed=false;
+  protected readonly remoteIce=new RemoteIceQueue();
+  protected readonly statsSampler=new VideoStatsSampler();
+  private signals: Promise<void>=Promise.resolve();
+  private queuedSignals=0;
+  private negotiationTimer?: number;
 
   constructor(
-    private readonly sessionId: string,
-    private readonly hostToken: string,
-    private readonly ws: WebSocket,
-    private readonly iceServers: IceServer[],
-    private readonly callbacks: PeerCallbacks = {}
+    protected readonly sessionId: string,
+    protected readonly sessionToken: string,
+    protected readonly ws: WebSocket,
+    protected readonly iceServers: IceServer[],
+    protected readonly callbacks: PeerCallbacks = {},
+    protected readonly options: PeerOptions = {}
   ) {}
 
-  async start(stream: MediaStream, inputGate: InputEventGate): Promise<void> {
-    if (this.closed) return;
-    this.pc = new RTCPeerConnection({ iceServers: this.iceServers });
-    stream.getTracks().forEach((track) => {
-      if (track.kind === "video") track.contentHint = "text";
-      const sender = this.pc!.addTrack(track, stream);
-      if (track.kind === "video") this.videoSender = sender;
-    });
-    this.inputChannel = this.pc.createDataChannel("input", { ordered: true });
-    const failInput = () => { if (!this.closed) { this.close(); this.callbacks.onConnectionStatus?.("failed"); } };
-    this.inputChannel.onclose = failInput;
-    this.inputChannel.onerror = failInput;
-    this.pointerChannel = this.pc.createDataChannel("pointer", { ordered: false, maxRetransmits: 0 });
-    this.pointerChannel.onmessage = (ev) => {
-      const parsed = parseDataChannelMessage(ev.data);
-      if (!parsed.ok || !parsed.value || typeof parsed.value !== "object" || (parsed.value as Record<string, unknown>).type !== "mouse_move") return;
-      void inputGate.accept(parsed.value).catch(() => undefined);
-    };
-    const channel = this.inputChannel;
-    this.inputChannel.onmessage = (ev) => {
-      const parsed = parseDataChannelMessage(ev.data);
-      if (!parsed.ok) return;
-      void inputGate.accept(parsed.value).then(() => {
-        if (isPingMessage(parsed.value) && channel.readyState === "open") {
-          channel.send(JSON.stringify({ type: "pong", sessionToken: parsed.value.sessionToken, ts: parsed.value.ts }));
-        }
-      }).catch(() => undefined);
-    };
-    this.installPeerHandlers();
-    const offer = await this.pc.createOffer();
-    await this.pc.setLocalDescription(offer);
-    this.send("offer", offer);
-    this.startQualityMonitor();
-  }
-
   async handleSignal(msg: SignalMessage): Promise<void> {
-    this.signalQueue = this.signalQueue.then(() => this.processSignal(msg)).catch(() => {
-      this.callbacks.onConnectionStatus?.("signaling error");
-    });
-    return this.signalQueue;
+    if(this.closed || msg.sessionId!==this.sessionId)return;
+    if(["disconnect","rejected","expired"].includes(msg.type)){this.fail("session_ended");return;}
+    if(!["offer","answer","ice"].includes(msg.type))return;
+    if(++this.queuedSignals>128){this.queuedSignals--;this.fail("signaling_overload");return;}
+    this.signals=this.signals.then(async()=>{if(!this.closed)await this.processSignal(msg);})
+      .catch(()=>{if(!this.closed)this.fail("negotiation_failed");})
+      .finally(()=>{this.queuedSignals--;});
+    return this.signals;
   }
+  protected abstract processSignal(msg: SignalMessage): Promise<void>;
 
-  private async processSignal(msg: SignalMessage): Promise<void> {
-    if (this.closed) return;
-    if (msg.type === "answer") {
-      if (!this.pc) return;
-      await this.pc.setRemoteDescription(msg.payload as RTCSessionDescriptionInit);
-      await this.remoteIce.flush(this.pc);
-    }
-    if (msg.type === "ice" && msg.payload) {
-      await this.remoteIce.addOrQueue(this.pc, msg.payload as RTCIceCandidateInit);
-    }
+  protected beginNegotiation() {
+    if(this.negotiationTimer!=null)return;
+    this.negotiationTimer=window.setTimeout(()=>this.fail("negotiation_timeout"),NEGOTIATION_TIMEOUT_MS);
   }
-
-  close(): void {
-    this.closed = true;
-    if (this.qualityTimer != null) window.clearTimeout(this.qualityTimer);
+  protected installPeerHandlers() {
+    if(!this.pc)return;
+    this.pc.onicecandidate=(ev)=>{if(ev.candidate)this.sendSignal("ice",ev.candidate.toJSON());};
+    this.pc.onconnectionstatechange=()=>{
+      if(this.closed)return;
+      const state=this.pc!.connectionState;
+      if(state==="failed"||state==="disconnected"){this.fail("connection_lost");return;}
+      // Reliable input-channel readiness is the usable-connection boundary.
+      if(state!=="connected")this.callbacks.onConnectionStatus?.(state);
+    };
+  }
+  protected inputOpened() {
+    if(this.closed)return;
+    window.clearTimeout(this.negotiationTimer);this.negotiationTimer=undefined;
+    this.callbacks.onConnectionStatus?.("connected");
+  }
+  protected installInputFailureHandlers() {
+    if(!this.inputChannel)return;
+    this.inputChannel.onclose=()=>{if(!this.closed)this.fail("input_channel_closed");};
+    this.inputChannel.onerror=()=>{if(!this.closed)this.fail("input_channel_failed");};
+  }
+  protected async freshIceServers(): Promise<IceServer[]> {
+    return this.options.loadIceServers ? this.options.loadIceServers() : this.iceServers;
+  }
+  protected sendSignal(type: SignalType,payload?:unknown) {
+    if(this.closed)return;
+    if(this.ws.readyState!==WebSocket.OPEN){this.fail("signaling_unavailable");return;}
+    try {
+      if(this.ws.bufferedAmount>256*1024){this.fail("signaling_congested");return;}
+      this.ws.send(JSON.stringify({type,sessionId:this.sessionId,sessionToken:this.sessionToken,ts:Date.now(),payload}));
+    } catch { this.fail("signaling_unavailable"); }
+  }
+  protected sendReliable(value: unknown): boolean {
+    if(this.closed||this.inputChannel?.readyState!=="open")return false;
+    if(this.inputChannel.bufferedAmount>MAX_INPUT_BUFFER){this.fail("input_congested");return false;}
+    try {this.inputChannel.send(JSON.stringify(value));return true;}catch{this.fail("input_channel_failed");return false;}
+  }
+  protected fail(reason: string) {
+    if(this.closed)return;
+    this.close();
+    this.callbacks.onFailure?.(reason);
+    this.callbacks.onConnectionStatus?.("failed");
+  }
+  close() {
+    if(this.closed)return;
+    this.closed=true;
+    window.clearTimeout(this.negotiationTimer);
     this.remoteIce.clear();
-    if (this.pc) { this.pc.onconnectionstatechange = null; this.pc.onicecandidate = null; }
-    if (this.inputChannel) { this.inputChannel.onmessage = null; this.inputChannel.onclose = null; this.inputChannel.onerror = null; }
-    if (this.pointerChannel) this.pointerChannel.onmessage = null;
-    this.pointerChannel?.close();
-    this.inputChannel?.close();
+    if(this.pc){this.pc.onconnectionstatechange=null;this.pc.onicecandidate=null;this.pc.ontrack=null;this.pc.ondatachannel=null;}
+    for(const channel of [this.inputChannel,this.pointerChannel]){
+      if(channel){channel.onopen=null;channel.onmessage=null;channel.onclose=null;channel.onerror=null;channel.close();}
+    }
     this.pc?.close();
   }
+}
 
-  private installPeerHandlers(): void {
-    if (!this.pc) return;
-    this.pc.onicecandidate = (ev) => {
-      if (ev.candidate) this.send("ice", ev.candidate.toJSON());
-    };
-    this.pc.onconnectionstatechange = () => {
-      this.callbacks.onConnectionStatus?.(this.pc?.connectionState ?? "unknown");
-      void this.updateRelayStatus().catch(() => undefined);
-    };
+export class HostPeer extends SessionPeer {
+  private videoSender?: RTCRtpSender;
+  private videoTrack?: MediaStreamTrack;
+  private qualityTimer?: number;
+  private heartbeatTimer?: number;
+  private lastHeartbeat=0;
+  private preference: VideoPreference;
+  private appliedProfile="";
+  private readonly policy=new AdaptiveVideoPolicy();
+
+  constructor(sessionId:string,hostToken:string,ws:WebSocket,iceServers:IceServer[],callbacks:PeerCallbacks={},options:PeerOptions={}){
+    super(sessionId,hostToken,ws,iceServers,callbacks,options);this.preference=options.preference??"auto";
   }
-
-  private async updateRelayStatus(): Promise<void> {
-    const stats = await this.pc?.getStats();
-    if (!stats) return;
-    this.callbacks.onRelayStatus?.(connectionRoute(stats));
+  setPreference(preference: VideoPreference) {
+    this.preference=preference;
+    this.appliedProfile="";
+    if(this.videoTrack)this.videoTrack.contentHint=preference==="motion"?"motion":"text";
   }
-
-  private startQualityMonitor(): void {
-    let applied: VideoQuality | undefined;
-    const sample = async () => {
-      if (this.closed || !this.pc || !this.videoSender) return;
-      try {
-        if (this.pc.connectionState === "connected") {
-          const stats = await this.pc.getStats();
-          if (this.closed) return;
-          const desired = this.qualityPolicy.observe(connectionSample(stats));
-          if (desired !== applied) {
-            const parameters = this.videoSender.getParameters();
-            if (parameters.encodings?.length) {
-              Object.assign(parameters.encodings[0], videoProfiles[desired]);
-              parameters.degradationPreference = "maintain-resolution";
-              await this.videoSender.setParameters(parameters);
-              if (this.closed) return;
-              applied = desired;
-              this.callbacks.onQuality?.(desired);
-            }
+  async start(stream:MediaStream,gate:InputEventGate):Promise<void>{
+    if(this.closed||this.pc)return;
+    this.beginNegotiation();
+    try {
+      const servers=await this.freshIceServers();
+      if(this.closed)return;
+      if(!stream.getVideoTracks().some(track=>track.readyState==="live"))throw new Error("capture_ended");
+      this.pc=new RTCPeerConnection({iceServers:servers,bundlePolicy:"max-bundle"});
+      stream.getTracks().forEach(track=>{
+        const sender=this.pc!.addTrack(track,stream);
+        if(track.kind==="video"){this.videoSender=sender;this.videoTrack=track;track.contentHint=this.preference==="motion"?"motion":"text";}
+      });
+      this.inputChannel=this.pc.createDataChannel("input",{ordered:true});
+      this.pointerChannel=this.pc.createDataChannel("pointer",{ordered:false,maxRetransmits:0});
+      this.installInputFailureHandlers();
+      this.inputChannel.onopen=()=>{
+        this.inputOpened();if(this.closed)return;this.lastHeartbeat=performance.now();
+        this.heartbeatTimer=window.setInterval(()=>{
+          if(performance.now()-this.lastHeartbeat>=HEARTBEAT_TIMEOUT_MS)this.fail("heartbeat_timeout");
+        },HEARTBEAT_INTERVAL_MS);
+      };
+      this.pointerChannel.onmessage=(ev)=>{
+        const msg=parseMessage(ev.data);
+        if(msg?.type==="mouse_move")void gate.accept(msg).catch(()=>undefined);
+      };
+      this.inputChannel.onmessage=(ev)=>{
+        const msg=parseMessage(ev.data);if(!msg)return;
+        void gate.accept(msg).then(()=>{
+          if(this.closed)return;
+          if(msg.type==="ping"){
+            this.lastHeartbeat=performance.now();
+            this.sendReliable({type:"pong",sessionToken:msg.sessionToken,ts:msg.ts,probeId:msg.probeId});
           }
+        }).catch(()=>{
+          // A failed authenticated keepalive means the native authorization lease
+          // cannot be maintained; do not leave a seemingly usable session running.
+          if(msg.type==="ping"&&!this.closed)this.fail("input_authorization_lost");
+        });
+      };
+      this.installPeerHandlers();
+      const offer=await this.pc.createOffer();
+      if(this.closed)return;
+      await this.pc.setLocalDescription(offer);
+      if(this.closed)return;
+      this.sendSignal("offer",offer);
+      this.startQualityMonitor();
+    } catch {
+      if(!this.closed)this.fail("negotiation_failed");
+    }
+  }
+  protected async processSignal(msg:SignalMessage){
+    if(msg.type==="answer"){
+      if(!this.pc)return;
+      await this.pc.setRemoteDescription(msg.payload as RTCSessionDescriptionInit);
+      if(!this.closed)await this.remoteIce.flush(this.pc);
+    }else if(msg.type==="ice"&&msg.payload){
+      await this.remoteIce.accept(this.pc,msg.payload as RTCIceCandidateInit);
+    }
+  }
+  override close(){
+    if(this.qualityTimer!=null)window.clearTimeout(this.qualityTimer);
+    if(this.heartbeatTimer!=null)window.clearInterval(this.heartbeatTimer);
+    super.close();
+  }
+  private startQualityMonitor(){
+    const sample=async()=>{
+      if(this.closed||!this.pc||!this.videoSender)return;
+      try {
+        if(this.pc.connectionState==="connected"){
+          const stats=await this.pc.getStats();if(this.closed)return;
           this.callbacks.onRelayStatus?.(connectionRoute(stats));
+          this.callbacks.onTelemetry?.(this.statsSampler.sample(stats,"send"));
+          const quality=this.policy.observe(connectionSample(stats));
+          const key=quality+":"+this.preference;
+          if(key!==this.appliedProfile){
+            const parameters=this.videoSender.getParameters();
+            if(parameters.encodings?.length){
+              Object.assign(parameters.encodings[0],videoEncoding(quality,this.preference));
+              parameters.degradationPreference=this.preference==="motion"?"maintain-framerate":"maintain-resolution";
+              await this.videoSender.setParameters(parameters);
+              if(this.closed)return;
+              this.appliedProfile=key;this.callbacks.onQuality?.(quality);
+            }else this.callbacks.onQuality?.("Browser managed");
+          }
         }
-      } catch {
-        if (!this.closed) this.callbacks.onQuality?.("Browser managed");
-      } finally {
-        if (!this.closed) this.qualityTimer = window.setTimeout(() => { void sample(); }, 3_000);
+      }catch{
+        if(!this.closed)this.callbacks.onQuality?.("Browser managed");
+      }finally{
+        if(!this.closed)this.qualityTimer=window.setTimeout(()=>void sample(),3_000);
       }
     };
     void sample();
   }
-
-  private send(type: SignalType, payload?: unknown): void {
-    if (this.closed || this.ws.readyState !== WebSocket.OPEN) return;
-    this.ws.send(JSON.stringify({ type, sessionId: this.sessionId, sessionToken: this.hostToken, ts: Date.now(), payload }));
-  }
 }
 
-export class ControllerPeer {
-  private pc?: RTCPeerConnection;
-  private inputChannel?: RTCDataChannel;
-  private pointerChannel?: RTCDataChannel;
-  private inputSequence = 0;
-  private pingTimer?: number;
-  private lastPing = 0;
-  private lastPointerMove = 0;
-  private signalQueue: Promise<void> = Promise.resolve();
-  private readonly remoteIce = new RemoteIceQueue();
-  private closed = false;
+export class ControllerPeer extends SessionPeer {
+  private inputSequence=0;
+  private pingTimer?:number;
+  private telemetryTimer?:number;
+  private heartbeat?:HeartbeatTracker;
+  private readonly pointer=new LatestPointer<RemoteInputEvent>((event)=>this.deliverInput(event));
 
-  constructor(
-    private readonly sessionId: string,
-    private readonly controllerToken: string,
-    private readonly ws: WebSocket,
-    private readonly iceServers: IceServer[],
-    private readonly callbacks: PeerCallbacks = {}
-  ) {}
-
-  async handleSignal(msg: SignalMessage): Promise<void> {
-    this.signalQueue = this.signalQueue.then(() => this.processSignal(msg)).catch(() => {
-      this.callbacks.onConnectionStatus?.("signaling error");
-    });
-    return this.signalQueue;
-  }
-
-  private async processSignal(msg: SignalMessage): Promise<void> {
-    if (this.closed) return;
-    if (msg.type === "offer") {
-      if (this.pc) return; // This protocol permits one host-approved negotiation per session.
-      this.pc = new RTCPeerConnection({ iceServers: this.iceServers });
+  protected async processSignal(msg:SignalMessage){
+    if(msg.type==="offer"){
+      if(this.pc)return;
+      this.beginNegotiation();
+      const servers=await this.freshIceServers();
+      if(this.closed)return;
+      this.pc=new RTCPeerConnection({iceServers:servers,bundlePolicy:"max-bundle"});
       this.installPeerHandlers();
-      this.pc.ontrack = (ev) => this.callbacks.onRemoteStream?.(ev.streams[0]);
-      this.pc.ondatachannel = (ev) => {
-        if (ev.channel.label === "pointer" && !this.pointerChannel) { this.pointerChannel = ev.channel; return; }
-        if (ev.channel.label !== "input" || this.inputChannel) { ev.channel.close(); return; }
-        this.inputChannel = ev.channel;
-        const failInput = () => { if (!this.closed) { this.close(); this.callbacks.onConnectionStatus?.("failed"); } };
-        this.inputChannel.onclose = failInput;
-        this.inputChannel.onerror = failInput;
-        this.startLatencyProbe();
+      this.pc.ontrack=(ev)=>this.callbacks.onRemoteStream?.(ev.streams[0]??new MediaStream([ev.track]));
+      this.pc.ondatachannel=(ev)=>{
+        if(ev.channel.label==="pointer"&&!this.pointerChannel){this.pointerChannel=ev.channel;return;}
+        if(ev.channel.label!=="input"||this.inputChannel){ev.channel.close();return;}
+        this.inputChannel=ev.channel;this.installInputFailureHandlers();
+        this.inputChannel.onmessage=(message)=>{
+          const parsed=parseMessage(message.data);
+          if(parsed?.type!=="pong"||parsed.sessionToken!==this.sessionToken||!this.heartbeat)return;
+          const rtt=this.heartbeat.acknowledge(parsed.probeId,performance.now());
+          if(rtt!=null)this.callbacks.onLatency?.(rtt);
+        };
+        const open=()=>{this.inputOpened();if(!this.closed)this.startLatencyProbe();};
+        this.inputChannel.onopen=open;
+        if(this.inputChannel.readyState==="open")open();
       };
       await this.pc.setRemoteDescription(msg.payload as RTCSessionDescriptionInit);
+      if(this.closed)return;
       await this.remoteIce.flush(this.pc);
-      const answer = await this.pc.createAnswer();
+      const answer=await this.pc.createAnswer();
+      if(this.closed)return;
       await this.pc.setLocalDescription(answer);
-      this.send("answer", answer);
-      return;
-    }
-    if (msg.type === "ice" && msg.payload) {
-      await this.remoteIce.addOrQueue(this.pc, msg.payload as RTCIceCandidateInit);
+      if(this.closed)return;
+      this.sendSignal("answer",answer);
+      this.startTelemetry();
+    }else if(msg.type==="ice"&&msg.payload){
+      await this.remoteIce.accept(this.pc,msg.payload as RTCIceCandidateInit);
     }
   }
-
-  sendInput(event: RemoteInputEvent): void {
-    if (this.closed || this.inputChannel?.readyState !== "open") return;
-    if (event.type === "mouse_move") {
-      const now = Date.now();
-      if (now - this.lastPointerMove < 20) return;
-      this.lastPointerMove = now;
-    }
-    const channel = event.type === "mouse_move" && this.pointerChannel?.readyState === "open" ? this.pointerChannel : this.inputChannel;
-    if (channel.bufferedAmount > (event.type === "mouse_move" ? 8 * 1024 : 64 * 1024)) {
-      if (event.type === "mouse_move") return;
-      this.close();
-      this.callbacks.onConnectionStatus?.("failed");
-      return;
-    }
-    channel.send(JSON.stringify({ ...event, sequence: ++this.inputSequence }));
+  sendInput(event:RemoteInputEvent){
+    if(this.closed||this.inputChannel?.readyState!=="open")return;
+    if(event.type==="mouse_move"){this.pointer.push(event);return;}
+    if(event.type==="mouse_down"||event.type==="mouse_up"||event.type==="release_all"||event.type==="disconnect")this.pointer.discard();
+    this.deliverInput(event);
   }
-
-  close(): void {
-    this.closed = true;
-    if (this.pingTimer) window.clearInterval(this.pingTimer);
-    this.remoteIce.clear();
-    if (this.pc) { this.pc.onconnectionstatechange = null; this.pc.onicecandidate = null; this.pc.ontrack = null; this.pc.ondatachannel = null; }
-    if (this.inputChannel) { this.inputChannel.onmessage = null; this.inputChannel.onclose = null; this.inputChannel.onerror = null; }
-    this.pointerChannel?.close();
-    this.inputChannel?.close();
-    this.pc?.close();
+  private deliverInput(event:RemoteInputEvent){
+    if(this.closed)return;
+    const pointerChannel=event.type==="mouse_move"&&this.pointerChannel?.readyState==="open"?this.pointerChannel:undefined;
+    if(pointerChannel){
+      if(pointerChannel.bufferedAmount>MAX_POINTER_BUFFER)return;
+      try{pointerChannel.send(JSON.stringify({...event,sequence:++this.inputSequence}));}
+      catch{this.fail("input_channel_failed");}
+    }else{
+      if(event.type==="mouse_move"&&(this.inputChannel?.bufferedAmount??0)>MAX_POINTER_BUFFER)return;
+      this.sendReliable({...event,sequence:++this.inputSequence});
+    }
   }
-
-  private installPeerHandlers(): void {
-    if (!this.pc) return;
-    this.pc.onicecandidate = (ev) => {
-      if (ev.candidate) this.send("ice", ev.candidate.toJSON());
+  override close(){
+    this.pointer.close();
+    if(this.pingTimer!=null)window.clearInterval(this.pingTimer);
+    if(this.telemetryTimer!=null)window.clearTimeout(this.telemetryTimer);
+    super.close();
+  }
+  private startLatencyProbe(){
+    if(this.pingTimer!=null)window.clearInterval(this.pingTimer);
+    this.heartbeat=new HeartbeatTracker(performance.now());
+    const probe=()=>{
+      if(this.closed)return;
+      const now=performance.now();
+      if(this.heartbeat!.expired(now)){this.fail("heartbeat_timeout");return;}
+      this.sendReliable({type:"ping",sessionToken:this.sessionToken,ts:Date.now(),probeId:this.heartbeat!.probe(now)});
     };
-    this.pc.onconnectionstatechange = () => {
-      this.callbacks.onConnectionStatus?.(this.pc?.connectionState ?? "unknown");
-      void this.updateRelayStatus().catch(() => undefined);
+    probe();
+    this.pingTimer=window.setInterval(probe,HEARTBEAT_INTERVAL_MS);
+  }
+  private startTelemetry(){
+    const sample=async()=>{
+      if(this.closed||!this.pc)return;
+      try{
+        if(this.pc.connectionState==="connected"){
+          const stats=await this.pc.getStats();if(this.closed)return;
+          const telemetry=this.statsSampler.sample(stats,"receive");
+          this.callbacks.onRelayStatus?.(telemetry.route);this.callbacks.onTelemetry?.(telemetry);
+        }
+      }catch{/* Statistics are best effort and cannot grant or resume input. */}
+      finally{if(!this.closed)this.telemetryTimer=window.setTimeout(()=>void sample(),2_000);}
     };
-  }
-
-  private startLatencyProbe(): void {
-    if (this.pingTimer) window.clearInterval(this.pingTimer);
-    this.pingTimer = window.setInterval(() => {
-      if (this.inputChannel?.readyState !== "open") return;
-      this.lastPing = Date.now();
-      this.inputChannel.send(JSON.stringify({ type: "ping", sessionToken: this.controllerToken, ts: this.lastPing }));
-    }, 2000);
-    this.inputChannel!.onmessage = (ev) => {
-      const parsed = parseDataChannelMessage(ev.data);
-      if (!parsed.ok || !parsed.value || typeof parsed.value !== "object") return;
-      const msg = parsed.value as Record<string, unknown>;
-      if (msg.type === "pong" && msg.sessionToken === this.controllerToken && msg.ts === this.lastPing && this.lastPing > 0) {
-        this.callbacks.onLatency?.(Date.now() - this.lastPing);
-        this.lastPing = 0;
-      }
-    };
-  }
-
-  private async updateRelayStatus(): Promise<void> {
-    const stats = await this.pc?.getStats();
-    if (!stats) return;
-    this.callbacks.onRelayStatus?.(connectionRoute(stats));
-  }
-
-  private send(type: SignalType, payload?: unknown): void {
-    if (this.closed || this.ws.readyState !== WebSocket.OPEN) return;
-    this.ws.send(
-      JSON.stringify({ type, sessionId: this.sessionId, sessionToken: this.controllerToken, ts: Date.now(), payload })
-    );
+    void sample();
   }
 }

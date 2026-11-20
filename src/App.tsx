@@ -1,18 +1,20 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
 import { inputFromPointer, InputEventGate, keyInput, wheelInput } from "./inputEvents";
-import { AssistRequest, AuthResult, Device, IceServer, SignalingClient, SignalingHttpError, User } from "./signaling";
+import { AssistRequest, AuthResult, Device, SignalingClient, SignalingHttpError, User } from "./signaling";
 import { ControllerPeer, HostPeer, SignalMessage } from "./webrtc";
 
 import { AuthShell, Dashboard, MyDevices, SessionsPage, SettingsPage } from "./pages";
-import { BrandMark, ConfirmDialog, Icon, RemoteScreen, StatusMessage } from "./ui";
+import { BrandMark, ConfirmDialog, Icon, RemoteScreen, StatusMessage, ConnectionDiagnostics, QualityPreference } from "./ui";
+import type { VideoPreference } from "./connectionQuality";
+import type { VideoTelemetry } from "./videoTelemetry";
 import { usePreferences } from "./preferences";
-import { pages, friendlyError, connectionLabel, normalizeConnectionCode, remainingTime } from "./ux";
+import { pages, friendlyError, connectionLabel, normalizeConnectionCode, remainingTime, transportFailure } from "./ux";
 import type { View, AssistMode } from "./ux";
 type AuthMode = "signin" | "register";
 
 const signaling = new SignalingClient();
-const appVersion = "0.5.0-alpha";
+const appVersion = "0.6.0-alpha";
 
 export function App() {
   const [auth, setAuth, authLoaded] = useStoredAuth();
@@ -250,6 +252,7 @@ function RemoteAssist({ auth, mode: tab, onMode, onActivity }: { auth: AuthResul
 }
 
 function ShareComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (active: boolean) => void }) {
+  const latestAuth=useRef(auth);latestAuth.current=auth;
   const [status, setStatus] = useState("Idle");
   const [permission, setPermission] = useState("Not sharing");
   const [code, setCode] = useState("");
@@ -258,7 +261,6 @@ function ShareComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (ac
   const streamRef = useRef<MediaStream | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const hostPeerRef = useRef<HostPeer | null>(null);
-  const iceServersRef = useRef<IceServer[]>([]);
   const sessionRef = useRef<{ id: string; hostToken: string } | null>(null);
   const sharingRef = useRef(false);
   const generationRef = useRef(0);
@@ -266,6 +268,8 @@ function ShareComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (ac
   const expiryTimer = useRef<number | undefined>(undefined);
   const readyTimer = useRef<number | undefined>(undefined);
   const [quality, setQuality] = useState("Balanced");
+  const [preference,setPreference]=useState<VideoPreference>("auto");
+  const [telemetry,setTelemetry]=useState<VideoTelemetry|null>(null);
   const [busy, setBusy] = useState(false);
   const [approving, setApproving] = useState(false);
   const [error, setError] = useState("");
@@ -295,8 +299,6 @@ function ShareComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (ac
       if (!capture || capture.readyState !== "live" || capture.getSettings().displaySurface !== "monitor") {
         throw new Error("Choose your primary full display. Window and tab control are not supported yet.");
       }
-      const iceServers = await signaling.iceServers(auth.accessToken);
-      if (!sharingRef.current || generationRef.current !== generation) return;
       const created = await signaling.createShareSession();
       if (!sharingRef.current || generationRef.current !== generation) { await signaling.disconnect(created.id, created.hostToken).catch(() => undefined); return; }
       sessionRef.current = created;
@@ -306,8 +308,6 @@ function ShareComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (ac
       setStatus(`Code expires at ${new Date(created.expiresAt).toLocaleTimeString()}`);
       const ws = new WebSocket(signaling.wsURL(created.id, "host"));
       ws.onopen = () => ws.send(JSON.stringify({ type: "authenticate", token: created.hostToken }));
-      // Fetch ICE before opening the socket, so no signaling handlers are installed late.
-      iceServersRef.current = iceServers;
       wsRef.current = ws;
       ws.onmessage = (ev) => {
         let msg: SignalMessage;
@@ -356,10 +356,12 @@ function ShareComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (ac
       setPendingApproval(false);
       setPermission("Remote input authorized");
       const gate = new InputEventGate(approved.controllerToken, () => sharingRef.current);
-      const peer = new HostPeer(current.id, current.hostToken, wsRef.current!, iceServersRef.current, {
+      const peer = new HostPeer(current.id, current.hostToken, wsRef.current!, [], {
         onConnectionStatus: (status) => { setStatus(status); if (["failed","disconnected","signaling error"].includes(status)) void stopSharing("Connection lost"); },
-        onQuality: setQuality
-      });
+        onQuality: setQuality,
+        onTelemetry:setTelemetry,
+        onFailure:(reason)=>setError(transportFailure(reason))
+      },{preference,loadIceServers:()=>signaling.iceServers(latestAuth.current.accessToken)});
       hostPeerRef.current = peer;
       await peer.start(streamRef.current!, gate);
     } catch (err) {
@@ -390,6 +392,7 @@ function ShareComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (ac
     setPendingApproval(false);
     setSession(null);
     setQuality("Balanced");
+    setTelemetry(null);
     setBusy(false); setApproving(false); setExpiresAt(0); setCopyStatus(""); onActivity(false);
     await invoke("clear_input_authorization").catch(() => undefined);
     if (current) await signaling.disconnect(current.id, current.hostToken).catch(() => undefined);
@@ -401,6 +404,7 @@ function ShareComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (ac
     <section className="panel share-panel" id="share-panel" role="tabpanel" aria-labelledby="share-tab">
       <div className="panel-heading"><div><span className="eyebrow">SHARE WITH CONFIDENCE</span><h2>把主屏共享给信任的人</h2><p>选择主显示器的整个屏幕。当前暂不支持窗口、标签页或副屏控制。</p></div><span className={`presence ${code ? "online" : "offline"}`} role="status"><i />{code ? "屏幕共享中" : busy ? "准备共享" : "尚未共享"}</span></div>
       {error && <StatusMessage error>{error}</StatusMessage>}
+      <QualityPreference value={preference} onChange={(value)=>{setPreference(value);hostPeerRef.current?.setPreference(value);}} />
       <ol className="session-steps" aria-label="共享步骤"><li className={code?"complete":"current"}><span>1</span>选择屏幕</li><li className={pendingApproval||session?.controllerToken?"complete":code?"current":""}><span>2</span>发送连接码</li><li className={session?.controllerToken?"complete":pendingApproval?"current":""}><span>3</span>确认控制</li></ol>
       {!code && <div className="share-start"><span className="large-monitor"><Icon name="monitor" /></span><div><strong>从一次明确的共享开始</strong><p>系统会让你选择屏幕。确认后生成临时连接码，对方输入后仍需你授权。</p><button className="primary-action" disabled={busy} onClick={() => void startSharing()}><Icon name="monitor" />{busy?"正在准备共享…":"选择主显示器"}</button></div></div>}
       {code && <div className="share-active"><span className="eyebrow">临时连接码</span><div className="code-row"><output className="code-box" aria-label={`连接码 ${code.split("").join(" ")}`}>{code.slice(0,4)} {code.slice(4)}</output><button className="secondary-action" onClick={()=>void copyCode()}><Icon name="copy" />复制连接码</button></div><p>仅发送给你信任的人。<span className="countdown" aria-label={`剩余有效时间 ${remainingTime(expiresAt,clock)}`}>{session?.controllerToken?"会话剩余":"连接码剩余"} <b>{remainingTime(expiresAt,clock)}</b></span></p>{copyStatus&&<p role="status">{copyStatus}</p>}</div>}
@@ -413,17 +417,20 @@ function ShareComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (ac
           </div>
         </div>
       )}
-      <dl className="status-grid"><dt>连接状态</dt><dd role="status">{connectionLabel(status)}</dd><dt>输入权限</dt><dd>{permission==="Remote input authorized"?"已允许远程控制":"尚未允许控制"}</dd>{session?.controllerToken && <><dt>自适应画质</dt><dd>{{Balanced:"平衡",Sharp:"清晰",Economy:"节省带宽","Browser managed":"自动"}[quality]??quality}</dd></>}</dl>
+      <dl className="status-grid"><dt>连接状态</dt><dd role="status">{connectionLabel(status)}</dd><dt>输入权限</dt><dd>{permission==="Remote input authorized"?"已允许远程控制":"尚未允许控制"}</dd>{session?.controllerToken && <><dt>自适应画质</dt><dd>{{Balanced:"平衡",Constrained:"优先保清晰",Sharp:"清晰",Economy:"节省带宽","Browser managed":"自动"}[quality]??quality}</dd></>}</dl>
+      <ConnectionDiagnostics sample={telemetry} />
       {(code||busy) && <div className="session-end-row"><span>停止后，画面与远程输入都会立即断开。</span><button className="danger-action" onClick={() => void stopSharing("Stopped by host")}><Icon name="stop" />停止共享</button></div>}
     </section>
   );
 }
 
 function ControlComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (active: boolean) => void }) {
+  const latestAuth=useRef(auth);latestAuth.current=auth;
   const [code, setCode] = useState("");
   const [status, setStatus] = useState("Idle");
   const [relay, setRelay] = useState<"P2P" | "TURN Relay" | "Unknown">("Unknown");
   const [latency, setLatency] = useState<number | null>(null);
+  const [telemetry,setTelemetry]=useState<VideoTelemetry|null>(null);
   const [session, setSession] = useState<{ id: string; controllerToken: string } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const peerRef = useRef<ControllerPeer | null>(null);
@@ -441,8 +448,6 @@ function ControlComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (
     setBusy(true); setError(""); onActivity(true);
     const generation = ++generationRef.current;
     try {
-      const iceServers = await signaling.iceServers(auth.accessToken);
-      if (!connectingRef.current || generationRef.current !== generation) return;
       const joined = await signaling.join(code);
       if (!connectingRef.current || generationRef.current !== generation) { await signaling.disconnect(joined.id, joined.controllerToken).catch(() => undefined); return; }
       sessionRef.current = joined;
@@ -451,12 +456,14 @@ function ControlComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (
       setStatus("Waiting for host authorization");
       const ws = new WebSocket(signaling.wsURL(joined.id, "controller"));
       wsRef.current = ws;
-      const peer = new ControllerPeer(joined.id, joined.controllerToken, ws, iceServers, {
+      const peer = new ControllerPeer(joined.id, joined.controllerToken, ws, [], {
         onRemoteStream: (stream) => { if (videoRef.current) videoRef.current.srcObject = stream; },
         onConnectionStatus: (status) => { setStatus(status); if (["failed","disconnected","signaling error"].includes(status)) disconnect("Connection lost"); },
         onRelayStatus: setRelay,
-        onLatency: setLatency
-      });
+        onLatency: setLatency,
+        onTelemetry:setTelemetry,
+        onFailure:(reason)=>setError(transportFailure(reason))
+      },{loadIceServers:()=>signaling.iceServers(latestAuth.current.accessToken)});
       peerRef.current = peer;
       ws.onopen = () => ws.send(JSON.stringify({ type: "authenticate", token: joined.controllerToken }));
       ws.onmessage = (ev) => {
@@ -522,6 +529,7 @@ function ControlComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (
     ws?.close();
     if (videoRef.current) videoRef.current.srcObject = null;
     setLatency(null);
+    setTelemetry(null);
     setRelay("Unknown");
     if(reason!=="Closed")setStatus(reason);
     setSession(null);
@@ -545,6 +553,7 @@ function ControlComputer({ auth, onActivity }: { auth: AuthResult; onActivity: (
       {busy&&<button className="secondary-action" onClick={()=>disconnect("Disconnected")}>取消连接</button>}
       <RemoteScreen videoRef={videoRef} connected={!!session} status={connectionLabel(status)} onPointer={sendPointer} onKey={sendKey} onWheel={sendWheel} onRelease={releaseInputs} onDisconnect={()=>disconnect("Stopped by controller")} />
       <dl className="connection-details"><div><dt>连接状态</dt><dd>{connectionLabel(status)}</dd></div><div><dt>传输路径</dt><dd>{relay==="P2P"?"设备直连":relay==="TURN Relay"?"中继连接":"等待连接"}</dd></div><div><dt>往返延迟</dt><dd>{latency == null ? "待测量" : `${latency} ms`}</dd></div></dl>
+      <ConnectionDiagnostics sample={telemetry} />
     </section>
   );
 }

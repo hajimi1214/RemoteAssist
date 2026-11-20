@@ -25,7 +25,7 @@ export function AuthShell({ mode, error, onError, onMode, onAuth, signaling }: {
   }
   function changeMode() { onError(""); setForm({...form,password:"",confirm:""}); onMode(mode === "signin" ? "register" : "signin"); }
   return <main className="auth-page">
-    <header className="auth-topbar"><a className="brand-lockup" href="#auth-form"><BrandMark /><span className="brand-wordmark"><b>Remote</b><strong>Assist</strong></span></a><span className="version-tag">WINDOWS · 0.5 ALPHA</span></header>
+    <header className="auth-topbar"><a className="brand-lockup" href="#auth-form"><BrandMark /><span className="brand-wordmark"><b>Remote</b><strong>Assist</strong></span></a><span className="version-tag">WINDOWS · 0.6 ALPHA</span></header>
     <section className="auth-layout">
       <div className="auth-showcase">
         <span className="eyebrow light-eyebrow">CONNECTED, WITH CONSENT</span>

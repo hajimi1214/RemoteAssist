@@ -1,5 +1,12 @@
 import { HostPeer, ControllerPeer } from "../src/webrtc";
 import { InputEventGate } from "../src/inputEvents";
+import { createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { ConnectionDiagnostics } from "../src/ui";
+import "../src/styles.css";
+
+const diagnosticsRoot=createRoot(document.querySelector("#diagnostics")!);
+import.meta.hot?.dispose(()=>diagnosticsRoot.unmount());
 
 const output = document.querySelector<HTMLPreElement>("#result")!;
 const video = document.querySelector<HTMLVideoElement>("#video")!;
@@ -37,6 +44,9 @@ button.onclick = async () => {
   let quality = "";
   let hostConnected = false;
   let controllerConnected = false;
+  let hostIceLoads=0;let controllerIceLoads=0;
+  let sendStats: import("../src/videoTelemetry").VideoTelemetry|undefined;
+  let receiveStats: import("../src/videoTelemetry").VideoTelemetry|undefined;
   const sessionToken = "local-loopback-test-token";
   const gate = new InputEventGate(sessionToken, () => authorized, 120, async (command, args) => { if (command !== "renew_input_lease") delivered.push({ command, args }); });
   // Signaling is delivered between the two real browser peers; server wire
@@ -47,20 +57,39 @@ button.onclick = async () => {
     controller = new ControllerPeer("loopback", sessionToken, controllerWire, [], {
       onRemoteStream: (stream) => { video.srcObject = stream; },
       onConnectionStatus: (value) => { controllerConnected = value === "connected"; },
-      onLatency: (value) => { latency = value; }
-    });
+      onLatency: (value) => { latency = value; },
+      onTelemetry:(sample)=>{receiveStats=sample;diagnosticsRoot.render(createElement(ConnectionDiagnostics,{sample}));}
+    },{loadIceServers:async()=>{controllerIceLoads++;return[];}});
     host = new HostPeer("loopback", "local-host-test-token", hostWire, [], {
       onConnectionStatus: (value) => { hostConnected = value === "connected"; },
-      onQuality: (value) => { quality = value; }
-    });
+      onQuality: (value) => { quality = value; },
+      onTelemetry:(sample)=>{sendStats=sample;}
+    },{loadIceServers:async()=>{hostIceLoads++;return[];}});
+    check(hostIceLoads===0&&controllerIceLoads===0,"ICE credentials are not loaded before negotiation");
     await host.start(stream, gate);
     await until(() => hostConnected && controllerConnected && video.videoWidth > 0 && latency >= 0, "video and DataChannels");
     check(true, "real PeerConnection negotiation, received video, ping/pong RTT");
     await until(() => quality !== "", "RTCRtpSender parameters");
     check(quality !== "Browser managed", `sender accepts adaptive encoding parameters (${quality})`);
+    await until(()=>receiveStats?.bitrateKbps!=null&&sendStats?.codec!=null,"video telemetry interval");
+    check(hostIceLoads===1&&controllerIceLoads===1,"both peers load fresh ICE credentials at negotiation");
+    check(!!receiveStats?.codec&&(receiveStats?.width??0)>0&&(receiveStats?.fps??-1)>=0,"real receive codec dimensions fps and interval bitrate measured");
+    host.setPreference("text");
+    await delay(3300);
+    check(quality!=="Browser managed","text-oriented encoder preference accepted during streaming");
     controller.sendInput({ type: "mouse_move", sessionToken, ts: Date.now(), payload: { x: .4, y: .5, button: 0 } });
     await until(() => delivered.some((item) => (item.args?.event as {type?:string})?.type === "mouse_move"), "lossy pointer delivery");
     check(true, "pointer channel delivers validated normalized motion");
+    controller.sendInput({type:"mouse_move",sessionToken,ts:Date.now(),payload:{x:.2,y:.5,button:0}});
+    controller.sendInput({type:"mouse_move",sessionToken,ts:Date.now(),payload:{x:.8,y:.5,button:0}});
+    await until(()=>delivered.some(item=>(item.args?.event as {payload?:{x?:number}})?.payload?.x===.8),"final coalesced pointer position");
+    check(true,"pointer burst preserves its final position");
+    controller.sendInput({type:"mouse_move",sessionToken,ts:Date.now(),payload:{x:.3,y:.5,button:0}});
+    controller.sendInput({type:"mouse_down",sessionToken,ts:Date.now(),payload:{x:.6,y:.5,button:0}});
+    await delay(100);
+    const buttonAt=delivered.findIndex(item=>(item.args?.event as {type?:string})?.type==="mouse_down");
+    check(buttonAt>=0&&!delivered.slice(buttonAt+1).some(item=>(item.args?.event as {payload?:{x?:number}})?.payload?.x===.3),"click cancels older pending pointer movement");
+    controller.sendInput({type:"mouse_up",sessionToken,ts:Date.now(),payload:{x:.6,y:.5,button:0}});
     controller.sendInput({ type: "key_down", sessionToken, ts: Date.now(), payload: { key:"a", code:"KeyA" } });
     controller.sendInput({ type: "key_up", sessionToken, ts: Date.now(), payload: { key:"a", code:"KeyA" } });
     controller.sendInput({ type: "release_all", sessionToken, ts: Date.now() });
@@ -91,4 +120,37 @@ button.onclick = async () => {
     host?.close(); controller?.close(); stream.getTracks().forEach((track) => track.stop());
     clearInterval(rendering); button.disabled = false;
   }
+};
+
+document.querySelector<HTMLButtonElement>("#timeouts")!.onclick=async()=>{
+  const run=document.querySelector<HTMLButtonElement>("#timeouts")!;run.disabled=true;button.disabled=true;
+  output.textContent="Running watchdog checks…\n";
+  const canvas=document.createElement("canvas");canvas.width=160;canvas.height=90;
+  canvas.getContext("2d")!.fillRect(0,0,160,90);
+  const stream=canvas.captureStream(5);
+  const peers:Array<HostPeer|ControllerPeer>=[];
+  try {
+    let timedOut="";
+    const silentWire={readyState:WebSocket.OPEN,send:()=>{}} as unknown as WebSocket;
+    const noAnswer=new HostPeer("timeout","host-test-token",silentWire,[],{onFailure:reason=>{timedOut=reason;}});
+    peers.push(noAnswer);
+    await noAnswer.start(stream,new InputEventGate("controller-test-token",()=>true,120,async()=>{}));
+    for(let i=0;i<300&&!timedOut;i++)await delay(100);
+    check(timedOut==="negotiation_timeout","missing SDP answer ends negotiation within its deadline");
+    let host!:HostPeer;let controller!:ControllerPeer;let lost="";let connected=false;
+    const hostWire={readyState:WebSocket.OPEN,send:(s:string)=>queueMicrotask(()=>void controller.handleSignal(JSON.parse(s)))}as WebSocket;
+    const controllerWire={readyState:WebSocket.OPEN,send:(s:string)=>queueMicrotask(()=>void host.handleSignal(JSON.parse(s)))}as WebSocket;
+    const token="watchdog-controller-token";
+    // Simulate a native layer that never acknowledges keepalive: no pong can
+    // be produced, while the real data channel and video transport still exist.
+    const gate=new InputEventGate(token,()=>true,120,(command)=>command==="renew_input_lease"?new Promise(()=>{}):Promise.resolve());
+    host=new HostPeer("watchdog","host-test-token",hostWire,[],{onFailure:reason=>{lost=reason;}});
+    controller=new ControllerPeer("watchdog",token,controllerWire,[],{onConnectionStatus:status=>{if(status==="connected")connected=true;},onFailure:reason=>{if(!lost)lost=reason;}});
+    peers.push(host,controller);await host.start(stream,gate);
+    await until(()=>connected,"watchdog input channel open");
+    await until(()=>!!lost,"watchdog termination");
+    check(lost==="heartbeat_timeout","missing authenticated keepalive ends an otherwise-open connection");
+    output.textContent+="RESULT: PASS\n";
+  }catch(error){output.textContent+=`RESULT: FAIL ${error instanceof Error?error.message:String(error)}\n`;}
+  finally{for(const peer of peers)peer.close();stream.getTracks().forEach(track=>track.stop());run.disabled=false;button.disabled=false;}
 };

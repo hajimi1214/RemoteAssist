@@ -53,6 +53,19 @@ export function connectionLabel(status: string): string {
   return labels[status] ?? (status.startsWith("Code expires at ") ? "等待对方输入连接码" : "正在连接");
 }
 
+export function transportFailure(reason:string):string {
+  const messages:Record<string,string>={
+    negotiation_timeout:"画面连接超时，请检查双方网络或中继服务，再重新发起协助。",
+    heartbeat_timeout:"对方响应中断，已安全结束控制。请检查网络后重新连接。",
+    input_congested:"输入通道积压，已停止控制以避免延迟操作。请等待网络恢复后重试。",
+    input_authorization_lost:"本机输入授权已失效，已停止控制。请重新发起并确认授权。",
+    negotiation_failed:"画面协商未完成，请检查服务与网络后重试。",
+    connection_lost:"网络连接已中断，远程输入已停止。",
+    signaling_unavailable:"信令连接已断开，协助已停止。"
+  };
+  return messages[reason]??"通信通道不可用，已安全结束本次协助。请重新连接。";
+}
+
 export function remoteLayout(container: { width: number; height: number }, source: { width: number; height: number }, mode: "fit" | "100" | "150") {
   if (![container.width, container.height, source.width, source.height].every((n) => Number.isFinite(n) && n > 0)) return { width: 0, height: 0, scale: 1 };
   const scale = mode === "fit" ? Math.min(container.width / source.width, container.height / source.height) : mode === "150" ? 1.5 : 1;

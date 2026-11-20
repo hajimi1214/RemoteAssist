@@ -1,4 +1,5 @@
-export type VideoQuality = "Economy" | "Balanced" | "Sharp";
+export type VideoQuality = "Economy" | "Constrained" | "Balanced" | "Sharp";
+export type VideoPreference = "auto" | "text" | "motion";
 
 export interface ConnectionSample {
   rttMs?: number;
@@ -8,11 +9,23 @@ export interface ConnectionSample {
 
 export const videoProfiles = {
   Economy: { maxBitrate: 650_000, maxFramerate: 12, scaleResolutionDownBy: 2 },
+  Constrained: { maxBitrate: 1_100_000, maxFramerate: 12, scaleResolutionDownBy: 1 },
   Balanced: { maxBitrate: 1_800_000, maxFramerate: 20, scaleResolutionDownBy: 1 },
   Sharp: { maxBitrate: 4_000_000, maxFramerate: 30, scaleResolutionDownBy: 1 }
 } satisfies Record<VideoQuality, Pick<RTCRtpEncodingParameters, "maxBitrate" | "maxFramerate" | "scaleResolutionDownBy">>;
 
-const qualityRank: Record<VideoQuality, number> = { Economy: 0, Balanced: 1, Sharp: 2 };
+const qualityLevels: VideoQuality[] = ["Economy", "Constrained", "Balanced", "Sharp"];
+const qualityRank: Record<VideoQuality, number> = { Economy: 0, Constrained: 1, Balanced: 2, Sharp: 3 };
+
+export function videoEncoding(quality: VideoQuality, preference: VideoPreference) {
+  const profile = { ...videoProfiles[quality] };
+  if (preference === "text") profile.maxFramerate = Math.min(profile.maxFramerate, 15);
+  if (preference === "motion" && quality === "Constrained") {
+    profile.maxFramerate = 20;
+    profile.scaleResolutionDownBy = 1.5;
+  }
+  return profile;
+}
 
 // Hysteresis avoids resolution flicker when bandwidth oscillates near a threshold.
 export class AdaptiveVideoPolicy {
@@ -24,11 +37,17 @@ export class AdaptiveVideoPolicy {
     const bandwidth = finitePositive(sample.availableOutgoingBitrate);
     const rtt = typeof sample.rttMs === "number" && Number.isFinite(sample.rttMs) && sample.rttMs >= 0 ? sample.rttMs : undefined;
     const constrained = sample.qualityLimitationReason === "cpu" || sample.qualityLimitationReason === "bandwidth";
-    if (bandwidth == null && rtt == null && !constrained) return this.current;
+    if (bandwidth == null && rtt == null && !constrained) {
+      this.candidate = undefined;
+      this.samples = 0;
+      return this.current;
+    }
 
     let desired = this.current;
-    if (constrained || (bandwidth != null && bandwidth < 1_200_000) || (rtt != null && rtt > 300)) {
+    if ((bandwidth != null && bandwidth < 900_000) || (rtt != null && rtt > 500)) {
       desired = "Economy";
+    } else if (constrained || (bandwidth != null && bandwidth < 1_800_000) || (rtt != null && rtt > 300)) {
+      desired = "Constrained";
     } else if (bandwidth != null && bandwidth >= 6_000_000 && rtt != null && rtt >= 0 && rtt < 120) {
       desired = "Sharp";
     } else if (bandwidth != null && bandwidth >= 2_500_000 && rtt != null && rtt < 220) {
@@ -43,7 +62,8 @@ export class AdaptiveVideoPolicy {
     this.candidate = desired;
     const needed = qualityRank[desired] < qualityRank[this.current] ? 2 : 3;
     if (this.samples >= needed) {
-      this.current = desired;
+      // One level per transition avoids halving text resolution on a brief dip.
+      this.current = qualityLevels[qualityRank[this.current] + Math.sign(qualityRank[desired] - qualityRank[this.current])];
       this.samples = 0;
       this.candidate = undefined;
     }
