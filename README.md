@@ -1,6 +1,6 @@
 # RemoteAssist
 
-Version 0.11 adds desktop/grid/list device layouts, mobile relative touchpad control, four negotiated quality profiles and DXGI changed-region capture. Its sharp mode targets 4K/60 but does not upscale or bypass congestion controls; stable 4K60 and comparative UU performance remain unverified. Upgrade the service and both clients together; see [0.11 behavior and measured limits](docs/direct-desktop-0.11.md). Earlier same-account access is documented in [0.10 behavior](docs/direct-desktop-0.10.md).
+Version 0.12 adds cost-aware multi-region DXGI deltas, removes a synchronous GPU query from every frame, shows measured connection health in the fullscreen panel, and converts HDR desktop capture to tone-mapped SDR when needed. The sharp profile still targets up to 4K/60; actual throughput depends on hardware, encoder and network. See [0.12 behavior and measured limits](docs/direct-desktop-0.12.md). The 0.11 device and touchpad improvements are in [0.11 notes](docs/direct-desktop-0.11.md).
 
 Version 0.8 opens directly into a guest workspace and asks for login in a dismissible dialog when a protected feature is used. It adds custom window controls, responsive page layouts, local copyable feedback, bounded pointer retries and adaptation to sender queue pressure. Session creation/join now require an authenticated account on the server too; upgrade service and clients together. See [0.8 behavior and validation](docs/guest-workspace-0.8.md).
 

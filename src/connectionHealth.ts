@@ -2,9 +2,12 @@ import type { VideoTelemetry } from "./videoTelemetry";
 
 export interface HealthAdvice { severity:"pending"|"normal"|"warning"; title:string; detail:string }
 export function connectionHealth(sample:VideoTelemetry):HealthAdvice {
-  if((sample.packetLossPercent??0)>=3)return{severity:"warning",title:"网络存在丢包",detail:"尝试有线网络或更稳定的 Wi‑Fi；画质会继续自动调整。"};
-  if((sample.sendQueueMs??0)>50||(sample.jitterBufferMs??0)>120)return{severity:"warning",title:"传输缓冲较高",detail:"可能存在排队或网络抖动。先减少其他下载，再观察缓冲是否下降。"};
-  if(sample.qualityLimitation==="cpu"||(sample.encodeMs??0)>50||(sample.decodeMs??0)>50)return{severity:"warning",title:"画面处理压力较高",detail:"可尝试文字优先，并关闭占用 GPU 或 CPU 的其他应用。"};
+  const receive=sample.direction==="receive";
+  // Only use counters belonging to this side of the media path. This avoids
+  // calling ordinary receive-side jitter a host send-queue problem, or vice versa.
+  if(receive&&(sample.packetLossPercent??0)>=3)return{severity:"warning",title:"网络存在丢包",detail:"尝试有线网络或更稳定的 Wi‑Fi；画质会继续自动调整。"};
+  if((!receive&&(sample.sendQueueMs??0)>50)||(receive&&(sample.jitterBufferMs??0)>120))return{severity:"warning",title:receive?"接收缓冲较高":"发送排队较高",detail:receive?"可能存在网络抖动或接收端处理压力；先观察缓冲与实际画面是否同时改善。":"发送端数据正在排队，可能增加画面延迟；先减少其他下载，再观察排队是否下降。"};
+  if((!receive&&(sample.qualityLimitation==="cpu"||(sample.encodeMs??0)>50))||(receive&&(sample.decodeMs??0)>50))return{severity:"warning",title:receive?"接收端解码压力较高":"电脑端编码压力较高",detail:receive?"当前接收设备处理视频较慢；可先尝试流畅模式或关闭占用 GPU 的应用。":"电脑端编码处理较慢；可先尝试流畅模式或关闭占用 GPU/CPU 的应用。"};
   if((sample.rttMs??0)>250)return{severity:"warning",title:"网络往返较慢",detail:"长距离链路或中继可能增加延迟；此数值不是端到端操作延迟。"};
   if(sample.fps===0&&sample.bitrateKbps===0)return{severity:"normal",title:"当前画面更新较少",detail:"静止桌面可能没有新帧；仅凭低帧率无法判断是否卡顿。"};
   if(sample.bitrateKbps==null&&sample.fps==null&&sample.rttMs==null)return{severity:"pending",title:"正在收集连接数据",detail:"获得连续采样后将显示趋势与状态提示。"};

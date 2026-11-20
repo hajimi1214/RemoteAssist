@@ -1,0 +1,11 @@
+# Native performance and HDR path — 0.12
+
+The sender converts DXGI frames to SDR BGRA8 packets. For SDR BGRA desktop output, source bytes are copied losslessly. For scRGB `R16G16B16A16_FLOAT`, each changed pixel is converted through a cached half-float-to-sRGB lookup table with a continuous shoulder above reference white; alpha is forced opaque. Negative/non-finite channels map to black. No frames are logged or persisted.
+
+Sparse dirty metadata becomes a disjoint set of at most 64 output rectangles. Overlap is merged to a containing box until the set is non-overlapping. A cost comparison includes fixed packet headers, each rectangle's 16-byte header and raw BGRA payload; if multi-region output loses to one box, count exceeds the wire cap, or damage is broad, the sender falls back to one box or a full image. Move rectangles and invalid metadata always fall back to full. The native path performs `CopySubresourceRegion` for selected areas and one staging `Map`; JS validates exact baseline/sequence, dimensions, payload lengths and overlap before applying GPU texture changes.
+
+The CanvasCaptureMediaStreamTrack remains manually paced (`captureStream(0)` + `requestFrame`) to avoid queuing frames. Per-frame `gl.getError()` was removed because it can force a synchronous browser/GPU roundtrip. Context loss and setup/resize allocation errors still end capture cleanly. Browser-level GPU scheduling and encoder selection remain device-dependent.
+
+Opt-in capture sample on a 2560×1600 SDR desktop: 120 packets, 1 full / 119 delta / 0 multi-region packets, 52,255,948 transferred bytes versus 1,966,082,400 bytes if those same packets used full images, in 1.162s. This does not measure full-frame FPS, WebRTC encoding, network or input-to-photon latency. Natural desktop changes in this sample each fit one rectangle; multi-rectangle behavior is validated by synthetic dirty-region coverage tests, not an observed natural multi-rect packet.
+
+The Desktop Duplication source returned SDR DXGI format 87. HDR float format conversion passed synthetic binary16/color unit tests but was not exercised by this physical smoke. Tone mapping uses CPU lookup/packing on changed pixels; moving 4K CPU cost is unknown.

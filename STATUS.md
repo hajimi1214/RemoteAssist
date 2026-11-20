@@ -2,22 +2,27 @@
 
 ## Current milestone
 
-M14 — 0.11.0-alpha negotiated quality profiles, dirty-region capture packets, responsive device layouts and mobile touchpad controls. Reviewed 2026-11-20.
+M15 — 0.12.0-alpha sparse multi-region capture, HDR-to-SDR conversion and in-viewer connection health. Reviewed 2026-11-20.
 
-## 0.11 update
+## 0.12 update
 
-- Device center now offers desktop, grid and list layouts with account-local preference, combined status/platform filters, search and favorites. The viewer adds touchpad input and a four-profile real sender-control channel; acknowledgments distinguish applied encoder settings from browser-managed settings.
-- Native DXGI capture reuses a texture and transfers validated dirty-region updates for small changes, falling back to full frames for broad changes, moves or uncertain metadata. No frame pixels enter logs or disk.
-- Actual opt-in primary-display capture sample on this 2560×1600 desktop: 108 changed-image packets over 2.148s, comprising 33 full and 75 delta updates. Bytes were 541,482,112 vs 1,769,474,160 full-frame-equivalent bytes (~69.4% less for this local sample). This is payload evidence only, not an FPS/codec/network benchmark.
-- Browser synthetic direct session: received 2560×1600 at ~30fps from a ~30fps generator, exact 1280×720 fullscreen geometry, zero packet loss, sharp sender profile accepted with `applied=true`; no OS input was generated. Device layouts and account filters were exercised. Added a compact profile for shorter desktop workspaces; final physical font-scale variants still need checks.
+- Sparse disjoint DXGI dirty rectangles use multiple patches when their packet cost beats one bounding box; overlaps merge, and broad damage, moves, excessive count or invalid metadata fall back. The native path maps once and the WebView validates each region before texture updates.
+- HDR scRGB half-float frames have an SDR BGRA conversion with a cached lookup table and a bounded highlight shoulder. Synthetic binary16/color tests pass; this physical smoke returned SDR format 87, so HDR hardware output/fidelity was not verified.
+- Removed `gl.getError()` from every frame; setup/resize checks and context-loss teardown remain. Expected sync-query savings have not been isolated in a GPU benchmark.
+- Fullscreen tools include measured sender/receiver health advice and identify static desktops as quiet rather than stalled.
+- Opt-in capture sample on this 2560×1600 desktop: 120 packets in 1.162s; 1 full, 119 single-region delta, 0 multi-region packets; 52,255,948 bytes versus 1,966,082,400 full-frame-equivalent bytes (~97.3% less for this sample). Payload counts are not an FPS or latency result.
 
-PASS: frontend 76/76 and production build; Go tests/build/vet; Rust check and 9 normal tests (one real capture test ignored by default). The opt-in capture smoke passed separately. Android ARM64 APK (v2 development signature), Windows portable EXE and NSIS installer built for 0.11; hashes are in the ignored local release folder.
+PASS: frontend 78/78 and production build; Go tests/build/vet; Rust check and 17 tests (one real capture smoke ignored by default). Android ARM64 debug APK and Windows portable/installer built for 0.12; hashes in `.local/releases/0.12.0-alpha/SHA256.json`.
 
-NOT VERIFIED: sustained 4K60, 4K source, end-to-end input latency, comparison against UU, weak-network conditions, physical Android 0.11 interaction, cloud deployment or production signing. Details: [0.11 notes](docs/direct-desktop-0.11.md), [capture packet design](docs/native-performance-0.11.md).
+NOT VERIFIED: stable 4K60, multi-region savings on a natural desktop sample, HDR path on HDR output, moving-4K CPU/tone-map cost, input-to-photon delay, UU comparison, weak-network and physical Android 0.12 behavior. Details: [0.12 notes](docs/direct-desktop-0.12.md) and [native capture](docs/native-performance-0.12.md).
 
 ## Next acceptance
 
-Reconnect a physical Android device to matching 0.11 clients and measure moving-content capture/encode/decode FPS and input latency on direct and relayed networks. Do not label the 4K60 target as achieved until measured from a real 4K source.
+Test the 0.12 APK on a physical Android tablet and measure HDR/SDR moving content, capture and decode FPS, and input latency separately. Do not infer 4K60 from the target or payload savings.
+
+## 0.11 baseline
+
+Added account-local desktop/grid/list device layouts, relative touchpad input, four negotiated sender profiles, validated dirty-region frame packets and actual-versus-target telemetry. Details and sample limits: [0.11 notes](docs/direct-desktop-0.11.md).
 
 ## 0.10 baseline
 

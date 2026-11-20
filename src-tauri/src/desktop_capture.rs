@@ -70,30 +70,138 @@ mod tests {
     use super::*;
 
     #[test]
-    fn small_dirty_metadata_is_conservatively_aggregated() {
-        let bounds = dirty_bounds(
-            &[
-                RECT {
-                    left: 10,
-                    top: 20,
-                    right: 30,
-                    bottom: 40,
-                },
-                RECT {
-                    left: 25,
-                    top: 15,
-                    right: 45,
-                    bottom: 35,
-                },
-            ],
-            100,
-            100,
-        )
-        .unwrap();
-        assert_eq!(
-            (bounds.left, bounds.top, bounds.right, bounds.bottom),
-            (10, 15, 45, 40)
-        );
+    fn binary16_decoder_handles_zero_subnormal_normal_and_special_values() {
+        assert_eq!(half_to_f32(0x0000), 0.0);
+        assert_eq!(half_to_f32(0x8000), -0.0);
+        assert!((half_to_f32(0x0001) - 5.960_464_5e-8).abs() < 1e-13);
+        assert_eq!(half_to_f32(0x3800), 0.5);
+        assert_eq!(half_to_f32(0x3c00), 1.0);
+        assert!(half_to_f32(0x7c00).is_infinite());
+        assert!(half_to_f32(0x7e00).is_nan());
+    }
+
+    #[test]
+    fn hdr_tone_map_preserves_sdr_midtones_and_compresses_highlights_monotonically() {
+        assert_eq!(linear_sc_rgb_to_srgb8(0.0), 0);
+        assert_eq!(linear_sc_rgb_to_srgb8(-1.0), 0);
+        assert_eq!(linear_sc_rgb_to_srgb8(f32::NAN), 0);
+        assert_eq!(linear_sc_rgb_to_srgb8(f32::INFINITY), 0);
+        // scRGB reference white maps to 0.9 linear, encoded as ~0.955 sRGB.
+        assert!((linear_sc_rgb_to_srgb8(1.0) as i16 - 243).abs() <= 1);
+        assert!((linear_sc_rgb_to_srgb8(0.18) as i16 - 111).abs() <= 1);
+        let samples = [0.0, 0.001, 0.01, 0.18, 0.5, 1.0, 1.1, 2.0, 8.0, 65_504.0];
+        let mapped: Vec<_> = samples
+            .iter()
+            .map(|value| linear_sc_rgb_to_srgb8(*value))
+            .collect();
+        assert!(mapped.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert!(mapped[5] < mapped[6] && mapped[6] < mapped[7]);
+        assert_eq!(mapped[9], 255);
+    }
+
+    #[test]
+    fn hdr_tone_map_is_dense_and_monotonic_across_positive_half_values() {
+        let mut previous = 0u8;
+        let mut used = [false; 256];
+        for bits in 0..=0x4800u16 {
+            let mapped = linear_sc_rgb_to_srgb8(half_to_f32(bits));
+            assert!(
+                mapped >= previous,
+                "tone map reversed at binary16 {bits:#06x}"
+            );
+            assert!(
+                mapped - previous <= 1,
+                "tone map banded at binary16 {bits:#06x}"
+            );
+            used[mapped as usize] = true;
+            previous = mapped;
+        }
+        assert!(used.iter().filter(|value| **value).count() >= 240);
+    }
+
+    #[test]
+    fn hdr_pixel_conversion_outputs_opaque_bgra_and_ignores_source_alpha() {
+        let red = hdr_lut()[0x3c00]; // 1.0
+        let green = hdr_lut()[0x3800]; // 0.5
+        let blue = hdr_lut()[0x0000]; // 0.0
+        let pixel = hdr_rgba16_to_bgra8([0x3c00, 0x3800, 0x0000, 0x0000]);
+        assert_eq!(pixel, [blue, green, red, 255]);
+        let transparent = hdr_rgba16_to_bgra8([0x3c00, 0x3800, 0x0000, 0x7c00]);
+        assert_eq!(transparent[3], 255);
+        assert_eq!(&pixel[..3], &transparent[..3]);
+    }
+
+    #[test]
+    fn sparse_dirty_regions_stay_separate_and_cover_every_changed_pixel() {
+        let input = [
+            RECT {
+                left: 0,
+                top: 0,
+                right: 2,
+                bottom: 2,
+            },
+            RECT {
+                left: 8,
+                top: 8,
+                right: 10,
+                bottom: 10,
+            },
+        ];
+        let regions = dirty_regions(&input, 10, 10).unwrap();
+        assert_eq!(regions.len(), 2);
+        assert_regions_cover_and_do_not_overlap(&input, &regions, 10, 10);
+    }
+
+    #[test]
+    fn overlapping_dirty_rectangles_merge_until_the_output_is_disjoint() {
+        let input = [
+            RECT {
+                left: 1,
+                top: 1,
+                right: 5,
+                bottom: 5,
+            },
+            RECT {
+                left: 4,
+                top: 2,
+                right: 8,
+                bottom: 6,
+            },
+            RECT {
+                left: 7,
+                top: 4,
+                right: 9,
+                bottom: 8,
+            },
+        ];
+        let regions = dirty_regions(&input, 12, 12).unwrap();
+        assert_eq!(regions.len(), 1);
+        assert_regions_cover_and_do_not_overlap(&input, &regions, 12, 12);
+    }
+
+    #[test]
+    fn nearby_regions_use_one_box_when_headers_cost_more_than_extra_pixels() {
+        let input = [
+            RECT {
+                left: 1,
+                top: 1,
+                right: 3,
+                bottom: 3,
+            },
+            RECT {
+                left: 4,
+                top: 1,
+                right: 6,
+                bottom: 3,
+            },
+        ];
+        let regions = dirty_regions(&input, 20, 20).unwrap();
+        assert_eq!(regions.len(), 1);
+        assert_regions_cover_and_do_not_overlap(&input, &regions, 20, 20);
+    }
+
+    #[test]
+    fn widespread_and_invalid_metadata_fall_back_to_full_frame() {
         for rect in [
             RECT {
                 left: -1,
@@ -120,20 +228,62 @@ mod tests {
                 bottom: 100,
             },
         ] {
-            assert!(dirty_bounds(&[rect], 100, 100).is_none());
+            assert!(dirty_regions(&[rect], 100, 100).is_none());
         }
-        assert!(dirty_bounds(&[], 100, 100).is_none());
-        assert!(dirty_bounds(
+        assert!(dirty_regions(&[], 100, 100).is_none());
+        assert!(dirty_regions(
             &[RECT {
                 left: 0,
                 top: 0,
                 right: 1,
                 bottom: 1
-            }; 257],
+            }; MAX_DIRTY_RECTS + 1],
             100,
             100
         )
         .is_none());
+    }
+
+    #[test]
+    fn rect_count_over_wire_limit_uses_one_cost_checked_box() {
+        let rects: Vec<_> = (0..MAX_DELTA_RECTS + 1)
+            .map(|index| RECT {
+                left: (index as i32) * 3,
+                top: 0,
+                right: (index as i32) * 3 + 1,
+                bottom: 1,
+            })
+            .collect();
+        assert_eq!(dirty_regions(&rects, 1000, 100).unwrap().len(), 1);
+    }
+
+    fn assert_regions_cover_and_do_not_overlap(
+        input: &[RECT],
+        output: &[RECT],
+        width: u32,
+        height: u32,
+    ) {
+        for rect in output {
+            assert!(rect.left >= 0 && rect.top >= 0);
+            assert!(rect.right > rect.left && rect.bottom > rect.top);
+            assert!(rect.right as u32 <= width && rect.bottom as u32 <= height);
+        }
+        for (index, left) in output.iter().enumerate() {
+            for right in output.iter().skip(index + 1) {
+                assert!(!rectangles_overlap(left, right));
+            }
+        }
+        for y in 0..height as i32 {
+            for x in 0..width as i32 {
+                let changed = input.iter().any(|rect| {
+                    x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
+                });
+                let transmitted = output.iter().any(|rect| {
+                    x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
+                });
+                assert!(!changed || transmitted, "dirty pixel ({x},{y}) omitted");
+            }
+        }
     }
 
     /// Explicit operator-only smoke check. No frame contents are written or logged.
@@ -150,6 +300,8 @@ mod tests {
         let mut frames = 0;
         let mut full_frames = 0;
         let mut delta_frames = 0;
+        let mut multi_rect_frames = 0;
+        let mut total_delta_rects = 0;
         let mut cursor_packets = 0;
         let mut bytes = 0;
         let mut raw_equivalent = 0u64;
@@ -191,13 +343,34 @@ mod tests {
                     u32::from_le_bytes(frame[20..24].try_into().unwrap()),
                     sequence
                 );
-                assert_eq!(u32::from_le_bytes(frame[24..28].try_into().unwrap()), 1);
-                let x = u32::from_le_bytes(frame[28..32].try_into().unwrap());
-                let y = u32::from_le_bytes(frame[32..36].try_into().unwrap());
-                let w = u32::from_le_bytes(frame[36..40].try_into().unwrap());
-                let h = u32::from_le_bytes(frame[40..44].try_into().unwrap());
-                assert!(w > 0 && h > 0 && x + w <= width && y + h <= height);
-                assert_eq!(frame.len(), 44 + w as usize * h as usize * 4);
+                let count = u32::from_le_bytes(frame[24..28].try_into().unwrap()) as usize;
+                assert!((1..=MAX_DELTA_RECTS).contains(&count));
+                if count > 1 {
+                    multi_rect_frames += 1;
+                }
+                total_delta_rects += count;
+                let mut offset = 28usize;
+                let mut previous_regions = Vec::with_capacity(count);
+                for _ in 0..count {
+                    let x = u32::from_le_bytes(frame[offset..offset + 4].try_into().unwrap());
+                    let y = u32::from_le_bytes(frame[offset + 4..offset + 8].try_into().unwrap());
+                    let w = u32::from_le_bytes(frame[offset + 8..offset + 12].try_into().unwrap());
+                    let h = u32::from_le_bytes(frame[offset + 12..offset + 16].try_into().unwrap());
+                    offset += 16;
+                    assert!(w > 0 && h > 0 && x + w <= width && y + h <= height);
+                    let region = RECT {
+                        left: x as i32,
+                        top: y as i32,
+                        right: (x + w) as i32,
+                        bottom: (y + h) as i32,
+                    };
+                    assert!(previous_regions
+                        .iter()
+                        .all(|other| !rectangles_overlap(other, &region)));
+                    previous_regions.push(region);
+                    offset += w as usize * h as usize * 4;
+                }
+                assert_eq!(frame.len(), offset);
                 delta_frames += 1;
             }
             sequence = next;
@@ -210,11 +383,15 @@ mod tests {
         assert!(frames > 0, "at least one actual desktop frame is required");
         drop(capture);
         eprintln!(
-            "capture_smoke dimensions={}x{} frames={} full={} delta={} cursor={} bytes={} raw_equivalent_bytes={} elapsed_ms={}",
+            "capture_smoke dimensions={}x{} frames={} full={} delta={} multi_rect_frames={} total_delta_rects={} cursor={} bytes={} raw_equivalent_bytes={} elapsed_ms={}",
             dimensions.0,
             dimensions.1,
             frames,
-            full_frames,delta_frames,cursor_packets,
+            full_frames,
+            delta_frames,
+            multi_rect_frames,
+            total_delta_rects,
+            cursor_packets,
             bytes,
             raw_equivalent,
             started.elapsed().as_millis()
@@ -232,19 +409,42 @@ struct Desktop {
 const FULL_V1: u32 = 0x4000_0000;
 const DELTA_V1: u32 = 0x8000_0000;
 const MAX_DIRTY_RECTS: usize = 256;
+const MAX_DELTA_RECTS: usize = 64;
+const MAX_DIRTY_COVERAGE_PERCENT: u64 = 60;
 
-// Invalid or widespread metadata falls back to a full frame. A conservative
-// bounding box may include clean pixels, but can never omit a reported change.
-fn dirty_bounds(rects: &[RECT], width: u32, height: u32) -> Option<RECT> {
-    if rects.is_empty() || rects.len() > MAX_DIRTY_RECTS {
+fn rectangles_overlap(left: &RECT, right: &RECT) -> bool {
+    left.left < right.right
+        && left.right > right.left
+        && left.top < right.bottom
+        && left.bottom > right.top
+}
+
+fn merged_bounds(left: &RECT, right: &RECT) -> RECT {
+    RECT {
+        left: left.left.min(right.left),
+        top: left.top.min(right.top),
+        right: left.right.max(right.right),
+        bottom: left.bottom.max(right.bottom),
+    }
+}
+
+fn rect_area(rect: &RECT) -> u64 {
+    (rect.right - rect.left) as u64 * (rect.bottom - rect.top) as u64
+}
+
+/// Return a conservative non-overlapping dirty-region patch only when its wire
+/// cost is below both a single bounding box and a complete frame. Intersecting
+/// regions merge to their bounding box; disjoint screen areas remain separate.
+fn dirty_regions(rects: &[RECT], width: u32, height: u32) -> Option<Vec<RECT>> {
+    if rects.is_empty()
+        || rects.len() > MAX_DIRTY_RECTS
+        || width == 0
+        || height == 0
+        || width > i32::MAX as u32
+        || height > i32::MAX as u32
+    {
         return None;
     }
-    let mut bounds = RECT {
-        left: width as i32,
-        top: height as i32,
-        right: 0,
-        bottom: 0,
-    };
     for rect in rects {
         if rect.left < 0
             || rect.top < 0
@@ -255,14 +455,117 @@ fn dirty_bounds(rects: &[RECT], width: u32, height: u32) -> Option<RECT> {
         {
             return None;
         }
-        bounds.left = bounds.left.min(rect.left);
-        bounds.top = bounds.top.min(rect.top);
-        bounds.right = bounds.right.max(rect.right);
-        bounds.bottom = bounds.bottom.max(rect.bottom);
     }
-    let area = (bounds.right - bounds.left) as u64 * (bounds.bottom - bounds.top) as u64;
-    (area * 100 <= u64::from(width) * u64::from(height) * 60).then_some(bounds)
+
+    // The bounding box of overlapping rectangles is always a safe superset.
+    // Restart the scan after each merge because its expanded bounds can overlap
+    // regions that were previously disjoint.
+    let mut regions = rects.to_vec();
+    loop {
+        let mut merged = false;
+        'scan: for index in 0..regions.len() {
+            for other in index + 1..regions.len() {
+                if rectangles_overlap(&regions[index], &regions[other]) {
+                    regions[index] = merged_bounds(&regions[index], &regions[other]);
+                    regions.swap_remove(other);
+                    merged = true;
+                    break 'scan;
+                }
+            }
+        }
+        if !merged {
+            break;
+        }
+    }
+
+    let mut bounds = regions[0];
+    let mut dirty_area = 0u64;
+    for rect in &regions {
+        bounds = merged_bounds(&bounds, rect);
+        dirty_area += rect_area(rect);
+    }
+    let screen_area = u64::from(width) * u64::from(height);
+    let full_cost = 20u64 + screen_area * 4;
+    let bbox_cost = 44u64 + rect_area(&bounds) * 4;
+    let multi_cost = 28u64 + (regions.len() as u64) * 16 + dirty_area * 4;
+
+    // Many tiny rectangles cost more headers than a single conservative box.
+    // A count above the decoder limit must also use the one-rectangle format.
+    if regions.len() > MAX_DELTA_RECTS || bbox_cost <= multi_cost {
+        regions.clear();
+        regions.push(bounds);
+        if bbox_cost >= full_cost
+            || rect_area(&bounds) * 100 > screen_area * MAX_DIRTY_COVERAGE_PERCENT
+        {
+            return None;
+        }
+        return Some(regions);
+    }
+
+    if multi_cost >= full_cost || dirty_area * 100 > screen_area * MAX_DIRTY_COVERAGE_PERCENT {
+        return None;
+    }
+    Some(regions)
 }
+/// Decode an IEEE-754 binary16 value without adding a runtime dependency.
+fn half_to_f32(value: u16) -> f32 {
+    let sign = u32::from(value & 0x8000) << 16;
+    let exponent = (value >> 10) & 0x1f;
+    let fraction = value & 0x03ff;
+    let bits = match exponent {
+        0 if fraction == 0 => sign,
+        0 => {
+            let highest = 15 - fraction.leading_zeros() as i32;
+            let exponent32 = (highest + 103) as u32;
+            let mantissa = u32::from(fraction - (1 << highest)) << (23 - highest);
+            sign | (exponent32 << 23) | mantissa
+        }
+        0x1f => sign | 0x7f80_0000 | (u32::from(fraction) << 13),
+        _ => sign | (u32::from(exponent + 112) << 23) | (u32::from(fraction) << 13),
+    };
+    f32::from_bits(bits)
+}
+
+/// scRGB reference white (1.0 linear) maps to 0.9 linear SDR white. Values
+/// above reference white use a continuous exponential shoulder into [0.9, 1),
+/// then the standard sRGB transfer curve. Negative/non-finite channels become
+/// black; alpha is ignored because the remote desktop is opaque.
+fn linear_sc_rgb_to_srgb8(value: f32) -> u8 {
+    if !value.is_finite() || value <= 0.0 {
+        return 0;
+    }
+    let linear = if value <= 1.0 {
+        value * 0.9
+    } else {
+        0.9 + 0.1 * (1.0 - (-(value - 1.0)).exp())
+    };
+    let encoded = if linear <= 0.003_130_8 {
+        12.92 * linear
+    } else {
+        1.055 * linear.powf(1.0 / 2.4) - 0.055
+    };
+    (encoded.mul_add(255.0, 0.5).floor().clamp(0.0, 255.0)) as u8
+}
+
+fn hdr_lut() -> &'static [u8; 65_536] {
+    static TABLE: std::sync::OnceLock<Box<[u8; 65_536]>> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        Box::new(std::array::from_fn(|value| {
+            linear_sc_rgb_to_srgb8(half_to_f32(value as u16))
+        }))
+    })
+}
+
+fn hdr_rgba16_to_bgra8(rgba: [u16; 4]) -> [u8; 4] {
+    let table = hdr_lut();
+    [
+        table[rgba[2] as usize],
+        table[rgba[1] as usize],
+        table[rgba[0] as usize],
+        255,
+    ]
+}
+
 impl Desktop {
     fn open() -> Result<Self, String> {
         unsafe {
@@ -289,9 +592,9 @@ impl Desktop {
                         )
                         .map_err(|_| "d3d_unavailable")?;
                         let device = device.ok_or("d3d_unavailable")?;
-                        // Request a format our shader can consume explicitly.
-                        // Windows converts a different fullscreen scan-out format
-                        // to BGRA8, rather than returning HDR/10-bit bytes to JS.
+                        // Prefer BGRA8 when the duplication API can provide it.
+                        // HDR outputs may still arrive as R16G16B16A16_FLOAT; copy()
+                        // tone-maps that source to the browser's SDR BGRA8 canvas.
                         let duplication = match output.cast::<IDXGIOutput5>() {
                             Ok(output5) => output5
                                 .DuplicateOutput1(&device, 0, &[DXGI_FORMAT_B8G8R8A8_UNORM])
@@ -368,16 +671,22 @@ impl Desktop {
         {
             return Err("display_dimensions_unsupported".into());
         }
-        // These variants all carry the same B,G,R,A byte order. No CPU color
-        // conversion or loss of text resolution is required for the SDR canvas.
-        if !matches!(
+        // SDR duplication variants are already BGRA8. HDR output is scRGB
+        // R16G16B16A16_FLOAT and is tone-mapped to SDR BGRA8 below; unsupported
+        // formats still fail closed instead of reinterpreting their bytes.
+        let source_bytes_per_pixel = if matches!(
             desc.Format,
             DXGI_FORMAT_B8G8R8A8_UNORM
                 | DXGI_FORMAT_B8G8R8A8_UNORM_SRGB
                 | DXGI_FORMAT_B8G8R8A8_TYPELESS
         ) {
+            4usize
+        } else if desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT {
+            8usize
+        } else {
             return Err(format!("display_format_unsupported_{}", desc.Format.0));
-        }
+        };
+        let hdr_sc_rgb = source_bytes_per_pixel == 8;
         let resized = self.dimensions != (desc.Width, desc.Height);
         if resized {
             let mut staging = None;
@@ -392,21 +701,24 @@ impl Desktop {
             self.staging = staging;
             self.dimensions = (desc.Width, desc.Height);
         }
-        let region = if resized {
+        let regions = if resized {
             None
         } else {
             self.changed_region(info, desc.Width, desc.Height)
         };
-        let region = region.unwrap_or(RECT {
-            left: 0,
-            top: 0,
-            right: desc.Width as i32,
-            bottom: desc.Height as i32,
+        let regions = regions.unwrap_or_else(|| {
+            vec![RECT {
+                left: 0,
+                top: 0,
+                right: desc.Width as i32,
+                bottom: desc.Height as i32,
+            }]
         });
-        let full = region.left == 0
-            && region.top == 0
-            && region.right as u32 == desc.Width
-            && region.bottom as u32 == desc.Height;
+        let full = regions.len() == 1
+            && regions[0].left == 0
+            && regions[0].top == 0
+            && regions[0].right as u32 == desc.Width
+            && regions[0].bottom as u32 == desc.Height;
         let sequence = self
             .sequence
             .checked_add(1)
@@ -415,34 +727,34 @@ impl Desktop {
         if full {
             self.context.CopyResource(staging, &texture);
         } else {
-            let source = D3D11_BOX {
-                left: region.left as u32,
-                top: region.top as u32,
-                front: 0,
-                right: region.right as u32,
-                bottom: region.bottom as u32,
-                back: 1,
-            };
-            self.context.CopySubresourceRegion(
-                staging,
-                0,
-                region.left as u32,
-                region.top as u32,
-                0,
-                &texture,
-                0,
-                Some(&source),
-            );
+            for region in &regions {
+                let source = D3D11_BOX {
+                    left: region.left as u32,
+                    top: region.top as u32,
+                    front: 0,
+                    right: region.right as u32,
+                    bottom: region.bottom as u32,
+                    back: 1,
+                };
+                self.context.CopySubresourceRegion(
+                    staging,
+                    0,
+                    region.left as u32,
+                    region.top as u32,
+                    0,
+                    &texture,
+                    0,
+                    Some(&source),
+                );
+            }
         }
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
         self.context
             .Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
             .map_err(|_| "capture_map_failed")?;
-        let region_width = (region.right - region.left) as usize;
-        let region_height = (region.bottom - region.top) as usize;
-        let row = region_width * 4;
-        let len = row * region_height;
-        if mapped.pData.is_null() || (mapped.RowPitch as usize) < desc.Width as usize * 4 {
+        if mapped.pData.is_null()
+            || (mapped.RowPitch as usize) < desc.Width as usize * source_bytes_per_pixel
+        {
             self.context.Unmap(staging, 0);
             return Err("capture_stride_invalid".into());
         }
@@ -452,23 +764,50 @@ impl Desktop {
         bytes.extend_from_slice(&sequence.to_le_bytes());
         if !full {
             bytes.extend_from_slice(&self.sequence.to_le_bytes());
-            bytes.extend_from_slice(&1u32.to_le_bytes());
-            for value in [
-                region.left as u32,
-                region.top as u32,
-                region_width as u32,
-                region_height as u32,
-            ] {
-                bytes.extend_from_slice(&value.to_le_bytes());
-            }
+            bytes.extend_from_slice(&(regions.len() as u32).to_le_bytes());
         }
-        bytes.reserve(len);
-        for y in region.top as usize..region.bottom as usize {
-            bytes.extend_from_slice(std::slice::from_raw_parts(
-                (mapped.pData as *const u8)
-                    .add(y * mapped.RowPitch as usize + region.left as usize * 4),
-                row,
-            ));
+        let pixel_bytes = regions
+            .iter()
+            .map(|region| rect_area(region) as usize * 4)
+            .sum::<usize>();
+        bytes.reserve(if full {
+            pixel_bytes
+        } else {
+            pixel_bytes + regions.len() * 16
+        });
+        for region in &regions {
+            let region_width = (region.right - region.left) as usize;
+            let region_height = (region.bottom - region.top) as usize;
+            let row = region_width * 4;
+            if !full {
+                for value in [
+                    region.left as u32,
+                    region.top as u32,
+                    region_width as u32,
+                    region_height as u32,
+                ] {
+                    bytes.extend_from_slice(&value.to_le_bytes());
+                }
+            }
+            for y in region.top as usize..region.bottom as usize {
+                let source_row = (mapped.pData as *const u8).add(
+                    y * mapped.RowPitch as usize + region.left as usize * source_bytes_per_pixel,
+                );
+                if hdr_sc_rgb {
+                    for x in 0..region_width {
+                        let pixel = source_row.add(x * 8) as *const u16;
+                        let rgba = [
+                            u16::from_le(std::ptr::read_unaligned(pixel)),
+                            u16::from_le(std::ptr::read_unaligned(pixel.add(1))),
+                            u16::from_le(std::ptr::read_unaligned(pixel.add(2))),
+                            u16::from_le(std::ptr::read_unaligned(pixel.add(3))),
+                        ];
+                        bytes.extend_from_slice(&hdr_rgba16_to_bgra8(rgba));
+                    }
+                } else {
+                    bytes.extend_from_slice(std::slice::from_raw_parts(source_row, row));
+                }
+            }
         }
         self.context.Unmap(staging, 0);
         self.sequence = sequence;
@@ -480,7 +819,7 @@ impl Desktop {
         info: &DXGI_OUTDUPL_FRAME_INFO,
         width: u32,
         height: u32,
-    ) -> Option<RECT> {
+    ) -> Option<Vec<RECT>> {
         if info.TotalMetadataBufferSize == 0
             || info.TotalMetadataBufferSize as usize > MAX_DIRTY_RECTS * std::mem::size_of::<RECT>()
         {
@@ -518,7 +857,7 @@ impl Desktop {
         {
             return None;
         }
-        dirty_bounds(
+        dirty_regions(
             &rects[..required as usize / std::mem::size_of::<RECT>()],
             width,
             height,

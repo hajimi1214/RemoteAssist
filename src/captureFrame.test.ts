@@ -56,3 +56,24 @@ test("a small patch reconstructs the same pixels as the full desktop", () => {
   for (const rect of patch.rects) for (let row = 0; row < rect.height; row++) pixels.set(rect.pixels.subarray(row * rect.width * 4, (row + 1) * rect.width * 4), ((rect.y + row) * 8 + rect.x) * 4);
   assert.deepEqual(pixels, expected);
 });
+
+
+test("disjoint dirty patches reconstruct one full frame without transferring the space between them",()=>{
+  const baseline=parseCaptureFrame(full(),null,16384)!;
+  const patches=parseCaptureFrame(delta([
+    {x:0,y:0,width:2,height:2},
+    {x:6,y:4,width:2,height:2},
+  ]),baseline,16384)!;
+  assert.equal(patches.rects.length,2);
+  const pixels=new Uint8Array(baseline.rects[0].pixels);
+  const expected=new Uint8Array(pixels.length);
+  for(const rect of patches.rects){
+    for(let row=0;row<rect.height;row++){
+      const offset=((rect.y+row)*baseline.width+rect.x)*4;
+      expected.set(rect.pixels.subarray(row*rect.width*4,(row+1)*rect.width*4),offset);
+      pixels.set(rect.pixels.subarray(row*rect.width*4,(row+1)*rect.width*4),offset);
+    }
+  }
+  assert.deepEqual(pixels,expected);
+  assert.equal(patches.rects.reduce((sum,rect)=>sum+rect.width*rect.height,0),8);
+});

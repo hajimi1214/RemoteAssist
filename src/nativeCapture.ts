@@ -16,9 +16,12 @@ export async function startNativeStream(token: string, onFailure: () => void): P
   };
   let program: WebGLProgram | null = null, buffer: WebGLBuffer | null = null, texture: WebGLTexture | null = null;
   let stream: MediaStream | undefined, timer: ReturnType<typeof setTimeout> | undefined, stopped = false;
+  const contextLost = () => { if (!stopped) { stop(); onFailure(); } };
+  canvas.addEventListener("webglcontextlost", contextLost);
   const stop = () => {
     if (stopped) return;
     stopped = true; clearTimeout(timer); stream?.getTracks().forEach(track => track.stop());
+    canvas.removeEventListener("webglcontextlost", contextLost);
     gl.deleteTexture(texture); gl.deleteBuffer(buffer); gl.deleteProgram(program); shaders.forEach(value => gl.deleteShader(value));
     gl.getExtension("WEBGL_lose_context")?.loseContext();
   };
@@ -35,6 +38,8 @@ export async function startNativeStream(token: string, onFailure: () => void): P
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     const dimensionsUniform = gl.getUniformLocation(program, "dimensions"), cursorUniform = gl.getUniformLocation(program, "cursor"), visibleUniform = gl.getUniformLocation(program, "cursorVisible");
     const maximumTexture = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+    // These capability queries happen once at setup, never in the per-frame GPU path.
+    if (gl.isContextLost() || gl.getError() !== gl.NO_ERROR) throw new Error("GPU capture setup failed");
     let width = 0, height = 0;
     let baseline: CaptureBaseline | null = null;
     const render = (raw: ArrayBuffer) => {
@@ -46,13 +51,14 @@ export async function startNativeStream(token: string, onFailure: () => void): P
         width = nextWidth; height = nextHeight; canvas.width = width; canvas.height = height; gl.viewport(0,0,width,height);
         // Reallocate only on a real display-size change, not on every frame.
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        // A display-size change is rare; checking allocation errors here avoids a
+        // synchronous GPU query after every ordinary upload and draw.
+        if (gl.isContextLost() || gl.getError() !== gl.NO_ERROR) throw new Error("GPU capture allocation failed");
       }
       const x = frame.cursorX, y = frame.cursorY;
       gl.uniform2f(dimensionsUniform, width, height); gl.uniform2f(cursorUniform, x / width, y / height); gl.uniform1i(visibleUniform, x >= 0 && y >= 0 && x < width && y < height ? 1 : 0);
       for (const rect of frame.rects) gl.texSubImage2D(gl.TEXTURE_2D, 0, rect.x, rect.y, rect.width, rect.height, gl.RGBA, gl.UNSIGNED_BYTE, rect.pixels);
       gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
-      if (gl.isContextLost()) throw new Error("GPU context lost");
-      if (gl.getError() !== gl.NO_ERROR) throw new Error("GPU capture upload failed");
       baseline = { width, height, sequence: frame.sequence };
       return true;
     };

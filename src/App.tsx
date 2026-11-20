@@ -27,7 +27,7 @@ import type { View, AssistMode } from "./ux";
 type AuthMode = "signin" | "register";
 
 const signaling = new SignalingClient();
-const appVersion = "0.11.0-alpha";
+const appVersion = "0.12.0-alpha";
 const navigationIcons: Record<View, IconName> = { Dashboard:"grid", "My Devices":"devices", "Remote Assist":"monitor", Sessions:"history", Settings:"settings" };
 
 export function App() {
@@ -293,7 +293,7 @@ function ControlComputer({ auth, target, controller, viewOnly, onBack, onActivit
       };
       ws.onclose = () => disconnect("Disconnected");
       ws.onerror = () => disconnect("Connection failed");
-      readyTimer.current=window.setTimeout(()=>{setError("设备暂未就绪。请确认电脑已升级到 0.10、保持登录且没有暂停远程访问。");disconnect("failed");},55_000);
+      readyTimer.current=window.setTimeout(()=>{setError("设备暂未就绪。请确认电脑客户端已升级到 0.10 或更新版本、保持登录且没有暂停远程访问。");disconnect("failed");},55_000);
     } catch (err) { if (generationRef.current === generation) { setError(friendlyError(err)); disconnect("failed"); } }
   }
 

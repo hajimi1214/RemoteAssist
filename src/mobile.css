@@ -187,3 +187,13 @@
 .touch-operation-message:empty { display: none; }
 .touch-operation-message:not(:empty) { margin-block-start: 12px; border-inline-start: 2px solid var(--blue); padding-inline-start: 8px; }
 @media (max-width: 350px) { .screen-quality-options label,.touch-mode-options label { padding-inline: 7px; gap: 6px; } .screen-quality-options small,.touch-mode-options small { font-size: .5625rem; } .mobile-shortcuts { gap: 5px; } }
+
+.modern-screen .screen-health-summary { display: flex; align-items: flex-start; gap: 9px; min-inline-size: 0; padding: 10px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--subtle); color: var(--ink); }
+.modern-screen .screen-health-summary.warning { color: var(--red); border-color: color-mix(in srgb,var(--red),transparent 76%); background: var(--red-soft); }
+.modern-screen .screen-health-summary.normal { color: var(--green); border-color: color-mix(in srgb,var(--green),transparent 78%); background: var(--green-soft); }
+.modern-screen .screen-health-summary.pending { color: var(--muted); }
+.modern-screen .screen-health-mark { display: grid; place-items: center; flex: 0 0 auto; inline-size: 20px; block-size: 20px; margin-block-start: 1px; }
+.modern-screen .screen-health-mark .ui-icon { inline-size: 17px; block-size: 17px; }
+.modern-screen .screen-health-copy { display: grid; gap: 3px; min-inline-size: 0; }
+.modern-screen .screen-health-copy strong { font-size: .6875rem; line-height: 1.35; }
+.modern-screen .screen-health-copy small { color: var(--muted); font-size: .5625rem; line-height: 1.5; }
