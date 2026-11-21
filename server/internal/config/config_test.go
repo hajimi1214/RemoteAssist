@@ -15,8 +15,15 @@ func TestResourceLimitsRejectExtremeEnvironmentValues(t *testing.T) {
 	t.Setenv("LOGIN_FAIL_LIMIT_PER_MINUTE", "2147483647")
 	t.Setenv("SESSION_ACTIVE_TTL", "900h")
 	cfg := FromEnv()
-	if cfg.MaxMessageBytes != 65536 || cfg.RateLimitPerMinute != 120 || cfg.LoginFailLimit != 10 || cfg.ActiveSessionTTL != 30*time.Minute {
+	if cfg.MaxMessageBytes != 65536 || cfg.RateLimitPerMinute != 120 || cfg.LoginFailLimit != 10 || cfg.ActiveSessionTTL != 8*time.Hour {
 		t.Fatal("unsafe resource limit was accepted")
+	}
+}
+
+func TestFromEnvDefaultsActiveSessionToWorkday(t *testing.T) {
+	t.Setenv("SESSION_ACTIVE_TTL", "")
+	if got := FromEnv().ActiveSessionTTL; got != 8*time.Hour {
+		t.Fatalf("default active session TTL=%s, want 8h", got)
 	}
 }
 

@@ -48,7 +48,7 @@ func FromEnv() Config {
 		Addr:               env("SIGNALING_ADDR", ":8080"),
 		PublicBaseURL:      env("PUBLIC_BASE_URL", "http://localhost:8080"),
 		CodeTTL:            durationEnv("SESSION_CODE_TTL", 5*time.Minute),
-		ActiveSessionTTL:   boundedDurationEnv("SESSION_ACTIVE_TTL", 30*time.Minute, time.Minute, 8*time.Hour),
+		ActiveSessionTTL:   boundedDurationEnv("SESSION_ACTIVE_TTL", 8*time.Hour, time.Minute, 8*time.Hour),
 		MaxMessageBytes:    int64(boundedIntEnv("WS_MAX_MESSAGE_BYTES", 65536, 1024, 262144)),
 		RateLimitPerMinute: boundedIntEnv("RATE_LIMIT_PER_MINUTE", 120, 1, 10000),
 		LoginFailLimit:     boundedIntEnv("LOGIN_FAIL_LIMIT_PER_MINUTE", 10, 1, 100),

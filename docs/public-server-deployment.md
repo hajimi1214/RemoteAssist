@@ -46,7 +46,7 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml down
 
 Version 0.4 requires both Windows clients and the signaling server to be upgraded together. WebSocket credentials now travel in the bounded first authentication frame; URL-token clients from 0.3 are rejected. Keep a single signaling replica: active sessions are in memory and end when the server restarts.
 
-`SESSION_ACTIVE_TTL` defaults to 30 minutes from session creation (supported range 1 minute to 8 hours). This is separate from the five-minute invitation code. Both the server and Windows input gate enforce the active deadline.
+`SESSION_ACTIVE_TTL` defaults to 8 hours from session creation (supported range 1 minute to 8 hours). This is separate from the five-minute legacy invitation code. Same-account direct sessions do not require that code. Both the server and Windows input gate enforce the active deadline.
 
 ```powershell
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml build signaling

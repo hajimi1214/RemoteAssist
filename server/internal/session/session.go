@@ -71,7 +71,7 @@ func NewStore(cfg StoreConfig) *Store {
 		cfg.CodeTTL = 5 * time.Minute
 	}
 	if cfg.ActiveTTL <= 0 {
-		cfg.ActiveTTL = 30 * time.Minute
+		cfg.ActiveTTL = 8 * time.Hour
 	}
 	if cfg.CleanupInterval <= 0 {
 		cfg.CleanupInterval = 30 * time.Second

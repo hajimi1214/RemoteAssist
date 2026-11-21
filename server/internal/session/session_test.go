@@ -64,6 +64,24 @@ func TestCreateJoinApproveDisconnect(t *testing.T) {
 	}
 }
 
+func TestStoreDefaultsActiveSessionTTLToEightHours(t *testing.T) {
+	now := time.Date(2026, 11, 21, 0, 0, 0, 0, time.UTC)
+	store := NewStore(StoreConfig{Now: func() time.Time { return now }, CleanupInterval: time.Hour})
+	defer store.Stop()
+
+	created, err := store.CreateDeviceSession("owner", "host", "controller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := store.AcceptDeviceSession(created.ID, "owner", "host", created.HostToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := now.Add(8 * time.Hour); !active.ExpiresAt.Equal(want) {
+		t.Fatalf("default active expiry=%s, want %s", active.ExpiresAt, want)
+	}
+}
+
 func TestExpiredSessionRejectsJoin(t *testing.T) {
 	now := time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC)
 	store := NewStore(StoreConfig{CodeTTL: time.Minute, Now: func() time.Time { return now }})

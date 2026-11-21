@@ -224,7 +224,7 @@ export function App() {
       </section>
       <footer className="workspace-footer"><span>RemoteAssist {appVersion}</span><button className="feedback-trigger" onClick={() => setFeedbackOpen(true)}>使用反馈<Icon name="arrow"/></button><span>{sessionActive?"协助进行中 · 离开页面将结束连接":"同账号直连 · 随时结束"}</span></footer>
       {serverOpen && <ServerDialog onClose={()=>setServerOpen(false)} onSave={async url=>{await signOut();localStorage.setItem("remoteassist.serverURL",url);window.location.reload();}}/>}
-      {loginTarget && <AuthDialog mode={authMode} error={loginError} onError={setLoginError} onMode={setAuthMode} onAuth={handleAuth} signaling={signaling} onClose={() => { setLoginTarget(null); setLoginError(""); }} purpose="登录后直接连接同账号在线电脑。电脑保持客户端运行即可。"/>}
+      {loginTarget && <AuthDialog mode={authMode} error={loginError} onError={setLoginError} onMode={setAuthMode} onAuth={handleAuth} signaling={signaling} onClose={() => { setLoginTarget(null); setLoginError(""); }} purpose={secureCredentialStorage?"登录后可直接连接同账号在线电脑。此 Windows 电脑默认记住登录，被控电脑需开机并运行客户端。":"登录后可直接连接同账号在线电脑。被控电脑需开机并运行客户端。"}/>}
       {feedbackOpen && <FeedbackDialog version={appVersion} page={pages[view].title} connection={signedIn ? serviceStatus : "未登录"} onClose={() => setFeedbackOpen(false)}/>}
     </main></div>
   );

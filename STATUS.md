@@ -2,7 +2,16 @@
 
 ## Current milestone
 
-M22 — adaptive 1440p60 game-quality target and source-sized bitrate budgets. Reviewed 2026-11-21.
+M23 — Chinese same-account direct connection flow and eight-hour active sessions. Reviewed 2026-11-21.
+
+## Same-account connection experience
+
+- Reviewed UU Remote's official PC and phone guides. Both devices sign in, the online host appears in the device list, the user taps “进入桌面”, then adjusts display and control settings inside the session. RemoteAssist already uses this same-account direct flow without codes or per-session confirmation.
+- UU advertises remote wake. RemoteAssist still requires the Windows computer to be awake with its visible client running; waking a powered-down or sleeping computer is not implemented.
+- Windows remembered sign-in is enabled by default in Credential Manager. The active session now defaults to eight hours instead of 30 minutes, matching the existing server and native maximum. Explicit stop/pause, logout, device ownership checks and native lease expiry remain effective.
+- PASS: 101/101 frontend tests and production build; all Go tests; Docker Compose config validation. Windows Credential Manager is selected by default in the login flow.
+- NOT VERIFIED: a full eight-hour two-PC session, connection continuity through sleep/network loss/server restart, or remote wake on compatible hardware.
+- Reference: [UU remote desktop guide](https://uuyc.163.com/help/20241203/40220_1197651.html), [UU mobile-to-PC guide](https://uuyc.163.com/help/20241203/40220_1197649.html).
 
 ## Game quality profile
 
