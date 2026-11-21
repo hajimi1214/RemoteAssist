@@ -70,6 +70,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn staging_layout_rebuilds_for_format_changes_even_when_dimensions_match() {
+        let mut desc = D3D11_TEXTURE2D_DESC {
+            Width: 3840,
+            Height: 2160,
+            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            ..Default::default()
+        };
+        assert!(staging_needs_rebuild((0, 0), None, &desc));
+        assert!(!staging_needs_rebuild(
+            (3840, 2160),
+            Some(DXGI_FORMAT_B8G8R8A8_UNORM),
+            &desc
+        ));
+        desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        assert!(staging_needs_rebuild(
+            (3840, 2160),
+            Some(DXGI_FORMAT_B8G8R8A8_UNORM),
+            &desc
+        ));
+        assert!(!staging_needs_rebuild(
+            (3840, 2160),
+            Some(DXGI_FORMAT_R16G16B16A16_FLOAT),
+            &desc
+        ));
+        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        assert!(staging_needs_rebuild(
+            (3840, 2160),
+            Some(DXGI_FORMAT_R16G16B16A16_FLOAT),
+            &desc
+        ));
+        desc.Width = 1920;
+        assert!(staging_needs_rebuild(
+            (3840, 2160),
+            Some(DXGI_FORMAT_B8G8R8A8_UNORM),
+            &desc
+        ));
+        assert!(staging_needs_rebuild((1920, 2160), None, &desc));
+    }
+
+    #[test]
     fn binary16_decoder_handles_zero_subnormal_normal_and_special_values() {
         assert_eq!(half_to_f32(0x0000), 0.0);
         assert_eq!(half_to_f32(0x8000), -0.0);
@@ -476,7 +516,16 @@ struct Desktop {
     duplication: IDXGIOutputDuplication,
     staging: Option<ID3D11Texture2D>,
     dimensions: (u32, u32),
+    staging_format: Option<DXGI_FORMAT>,
     sequence: u32,
+}
+
+fn staging_needs_rebuild(
+    dimensions: (u32, u32),
+    format: Option<DXGI_FORMAT>,
+    source: &D3D11_TEXTURE2D_DESC,
+) -> bool {
+    dimensions != (source.Width, source.Height) || format != Some(source.Format)
 }
 const FULL_V1: u32 = 0x4000_0000;
 const DELTA_V1: u32 = 0x8000_0000;
@@ -708,6 +757,7 @@ impl Desktop {
                             duplication,
                             staging: None,
                             dimensions: (0, 0),
+                            staging_format: None,
                             sequence: 0,
                         });
                     }
@@ -780,8 +830,8 @@ impl Desktop {
             return Err(format!("display_format_unsupported_{}", desc.Format.0));
         };
         let hdr_sc_rgb = source_bytes_per_pixel == 8;
-        let resized = self.dimensions != (desc.Width, desc.Height);
-        if resized {
+        let layout_changed = staging_needs_rebuild(self.dimensions, self.staging_format, &desc);
+        if layout_changed {
             let mut staging = None;
             let mut cpu = desc;
             cpu.Usage = D3D11_USAGE_STAGING;
@@ -793,8 +843,11 @@ impl Desktop {
                 .map_err(|_| "capture_buffer_failed")?;
             self.staging = staging;
             self.dimensions = (desc.Width, desc.Height);
+            self.staging_format = Some(desc.Format);
         }
-        let regions = if resized {
+        // A new source layout requires a full pixel baseline even at the same
+        // dimensions; never apply fresh-format damage over the previous image.
+        let regions = if layout_changed {
             None
         } else {
             self.changed_region(info, desc.Width, desc.Height)

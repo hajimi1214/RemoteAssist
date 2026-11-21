@@ -8,7 +8,7 @@ import type { VideoTelemetry } from "./videoTelemetry";
 import type { VideoPreference } from "./connectionQuality";
 import { appendTrend, connectionHealth, trendSegments } from "./connectionHealth";
 import type { TrendPoint } from "./connectionHealth";
-import { relativeMouseSample } from "./gameInput";
+import { RelativeMouseAccumulator, shouldForwardRemoteKey } from "./gameInput";
 import type { QualityMode } from "./qualityMode";
 import { readPreference, writePreference } from "./preferenceStore";
 
@@ -139,18 +139,20 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
   const [gamePointerLocked,setGamePointerLocked]=useState(false);
   const [gameMouseNotice,setGameMouseNotice]=useState("");
   const [gameSensitivity,setGameSensitivity]=useState(()=>{const v=Number(readPreference("remoteassist.gameSensitivity"));return Number.isFinite(v)&&v>=.25&&v<=4?v:1;});
+  const gameMouse = useRef(new RelativeMouseAccumulator());
   const [touchMode,setTouchMode]=useState<TouchMode>("direct");
   const [compact,setCompact]=useState(false),[autoCompact,setAutoCompact]=useState(true);
   const [inputEnabled, setInputEnabled] = useState(false);
   const [manualPaused, setManualPaused] = useState(false);
   const [backgroundPaused, setBackgroundPaused] = useState(false);
   const helpId = useId();
-  const releaseRef = useRef(onRelease); releaseRef.current = onRelease;
+  const releaseRef = useRef(onRelease); releaseRef.current = ()=>{gameMouse.current.reset();onRelease();};
   const wheelRef = useRef(onWheel); wheelRef.current = onWheel;
   const inputRef = useRef(false); inputRef.current = inputEnabled&&!toolsOpen;
   const live = useRef({connected,autoControl,manualPaused,source}); live.current={connected,autoControl,manualPaused,source};
   const hasVideo = connected && source.width > 0 && source.height > 0;
   const immersive = fullscreen || expanded;
+  useEffect(()=>{gameMouse.current.reset();},[gameSensitivity,inputEnabled,gamePointerLocked,connected,toolsOpen]);
   useEffect(()=>{
     clearTimeout(compactTimer.current);setCompact(false);
     if(autoCompact&&immersive&&connected&&!toolsOpen)compactTimer.current=setTimeout(()=>setCompact(true),3500);
@@ -178,6 +180,7 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
     let wasLocked=false;
     const change=()=>{
       const locked=document.pointerLockElement===videoRef.current;
+      gameMouse.current.reset();
       setGamePointerLocked(locked);
       if(wasLocked&&!locked)releaseRef.current();
       wasLocked=locked;
@@ -237,14 +240,14 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
     window.addEventListener("blur",suspend);window.addEventListener("focus",resume);document.addEventListener("visibilitychange",visibility);window.addEventListener("orientationchange",geometry);
     return()=>{window.removeEventListener("blur",suspend);window.removeEventListener("focus",resume);document.removeEventListener("visibilitychange",visibility);window.removeEventListener("orientationchange",geometry);};
   },[]);
-  function suspendInput(){onRelease();if(document.pointerLockElement===videoRef.current)document.exitPointerLock();setManualPaused(true);setInputEnabled(false);}
+  function suspendInput(){releaseRef.current();if(document.pointerLockElement===videoRef.current)document.exitPointerLock();setManualPaused(true);setInputEnabled(false);}
   function toggleInput(){if(inputEnabled){suspendInput();return;}onRelease();setManualPaused(false);setBackgroundPaused(false);setInputEnabled(hasVideo);setToolsOpen(false);videoRef.current?.focus({preventScroll:true});}
-  function toggleTools(){onRelease();if(document.pointerLockElement===videoRef.current)document.exitPointerLock();setToolsOpen(open=>!open);}
+  function toggleTools(){releaseRef.current();if(document.pointerLockElement===videoRef.current)document.exitPointerLock();setToolsOpen(open=>!open);}
   async function toggleGamePointer(){
     const video=videoRef.current as (HTMLVideoElement & {requestPointerLock: (options?:{unadjustedMovement?:boolean})=>Promise<void>|void}) | null;
     if(!video||!gameInputSupported||!hasVideo||!inputEnabled)return;
     if(document.pointerLockElement===video){document.exitPointerLock();return;}
-    onRelease();setToolsOpen(false);video.focus({preventScroll:true});setGameMouseNotice("");
+    releaseRef.current();setToolsOpen(false);video.focus({preventScroll:true});setGameMouseNotice("");
     try { await video.requestPointerLock({unadjustedMovement:true}); }
     catch {
       try { await video.requestPointerLock();setGameMouseNotice("浏览器未提供未加速移动，已使用标准指针锁定模式。"); }
@@ -264,8 +267,8 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
     const escape=(event:globalThis.KeyboardEvent)=>{if(event.key!=="Escape"||!live.current.connected)return;if(document.pointerLockElement===videoRef.current){event.preventDefault();event.stopPropagation();document.exitPointerLock();return;}event.preventDefault();event.stopPropagation();releaseRef.current();setInputEnabled(false);setManualPaused(true);setExpanded(false);setTool("input");setToolsOpen(true);toolToggle.current?.focus({preventScroll:true});if(document.fullscreenElement===surface.current)void document.exitFullscreen().catch(()=>{});};
     document.addEventListener("keydown",escape,true);return()=>document.removeEventListener("keydown",escape,true);
   },[]);
-  function key(type:"key_down"|"key_up",event:KeyboardEvent<HTMLVideoElement>){if(event.key!=="Escape"&&inputEnabled&&!toolsOpen)onKey(type,event);}
-  function gameButton(type:"mouse_down"|"mouse_up",event:PointerEvent<HTMLVideoElement>){onGameMouse({type,payload:{button:event.button,relative:true}});}
+  function key(type:"key_down"|"key_up",event:KeyboardEvent<HTMLVideoElement>){if(event.key!=="Escape"&&inputEnabled&&!toolsOpen){if(!shouldForwardRemoteKey(type,event.repeat,gamePointerLocked)){event.preventDefault();return;}onKey(type,event);}}
+  function gameButton(type:"mouse_down"|"mouse_up",event:PointerEvent<HTMLVideoElement>){gameMouse.current.reset();onGameMouse({type,payload:{button:event.button,relative:true}});}
   function selectToolWithKey(event:KeyboardEvent<HTMLButtonElement>,index:number){
     const count=screenTools.length;
     const next=event.key==="ArrowRight"?(index+1)%count:event.key==="ArrowLeft"?(index+count-1)%count:event.key==="Home"?0:event.key==="End"?count-1:-1;
@@ -297,10 +300,10 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
       <div className="video-space" style={hasVideo?{width:mode==="fill"?size.width:Math.max(size.width,layout.width),height:mode==="fill"?size.height:Math.max(size.height,layout.height)}:undefined}>
         <video ref={videoRef} autoPlay playsInline tabIndex={hasVideo&&!toolsOpen?0:-1} aria-label="远程桌面画面" aria-describedby={helpId}
           style={hasVideo?{width:layout.width,height:layout.height}:{width:"100%",height:"100%"}}
-          onPointerMove={event=>{if(inputEnabled&&!toolsOpen&&gamePointerLocked){const sample=relativeMouseSample(event.movementX,event.movementY,gameSensitivity);if(sample)onGameMouse(sample);}else if(inputEnabled&&!toolsOpen&&event.pointerType!=="touch"&&event.pointerType!=="pen")onPointer("mouse_move",event);}}
+          onPointerMove={event=>{if(inputEnabled&&!toolsOpen&&gamePointerLocked){const sample=gameMouse.current.sample(event.movementX,event.movementY,gameSensitivity);if(sample)onGameMouse(sample);}else if(inputEnabled&&!toolsOpen&&event.pointerType!=="touch"&&event.pointerType!=="pen")onPointer("mouse_move",event);}}
           onPointerDown={event=>{if(inputEnabled&&!toolsOpen&&gamePointerLocked){event.preventDefault();gameButton("mouse_down",event);}else if(inputEnabled&&!toolsOpen&&event.pointerType!=="touch"&&event.pointerType!=="pen")onPointer("mouse_down",event);}}
           onPointerUp={event=>{if(inputEnabled&&!toolsOpen&&gamePointerLocked){event.preventDefault();gameButton("mouse_up",event);}else if(inputEnabled&&!toolsOpen&&event.pointerType!=="touch"&&event.pointerType!=="pen")onPointer("mouse_up",event);}}
-          onPointerCancel={()=>onRelease()} onBlur={()=>onRelease()} onContextMenu={event=>{if(inputEnabled)event.preventDefault();}} onKeyDown={event=>key("key_down",event)} onKeyUp={event=>key("key_up",event)}/>
+          onPointerCancel={()=>releaseRef.current()} onBlur={()=>releaseRef.current()} onContextMenu={event=>{if(inputEnabled)event.preventDefault();}} onKeyDown={event=>key("key_down",event)} onKeyUp={event=>key("key_up",event)}/>
       </div>
       {!hasVideo&&<div className="screen-empty"><span className="screen-empty-icon"><Icon name="monitor"/></span><strong>{connected?"正在准备电脑画面":"远程画面将在这里显示"}</strong><p>{status}</p></div>}
       {hasVideo&&inputEnabled&&touchMode==="touchpad"&&<span className="touchpad-mode-badge">触控板 · 单指移动 / 双指滚动</span>}

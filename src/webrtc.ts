@@ -1,12 +1,15 @@
-import { InputEventGate, RemoteInputEvent } from "./inputEvents";
-import type { IceServer } from "./signaling";
-import { AdaptiveVideoPolicy, connectionRoute, connectionSample, VideoPreference, VideoQuality } from "./connectionQuality";
-import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS, NEGOTIATION_TIMEOUT_MS, POINTER_INTERVAL_MS, HeartbeatTracker, LatestPointer } from "./transportTiming";
-import { VideoStatsSampler, VideoTelemetry } from "./videoTelemetry";
-import { compatibleQualityMode, isQualityMode, sessionEncoding } from "./qualityMode";
-import type { QualityMode } from "./qualityMode";
-import { clampGameDelta, validGameDelta } from "./gameInput";
-import { receiveJitterBufferTarget } from "./receiveBuffer";
+import { InputEventGate } from "./inputEvents.ts";
+import type { RemoteInputEvent } from "./inputEvents.ts";
+import type { IceServer } from "./signaling.ts";
+import { AdaptiveVideoPolicy, connectionRoute, connectionSample } from "./connectionQuality.ts";
+import type { VideoPreference, VideoQuality } from "./connectionQuality.ts";
+import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS, NEGOTIATION_TIMEOUT_MS, POINTER_INTERVAL_MS, HeartbeatTracker, LatestPointer } from "./transportTiming.ts";
+import { VideoStatsSampler } from "./videoTelemetry.ts";
+import type { VideoTelemetry } from "./videoTelemetry.ts";
+import { compatibleQualityMode, isQualityMode, sessionEncoding } from "./qualityMode.ts";
+import type { QualityMode } from "./qualityMode.ts";
+import { clampGameDelta, validGameDelta } from "./gameInput.ts";
+import { receiveJitterBufferTarget } from "./receiveBuffer.ts";
 
 function gameMouse(message: {type?: unknown; payload?: unknown}): boolean {
   return message.type === "mouse_relative" || ((message.type === "mouse_down" || message.type === "mouse_up") &&
@@ -442,9 +445,10 @@ export class ControllerPeer extends SessionPeer {
       if(this.pointerChannel?.readyState!=="open"||!validGameDelta(event.payload?.dx)||!validGameDelta(event.payload?.dy))return false;
       this.pointer.discard();this.relativePointer.push(event);return true;
     }
-    if(event.type!=="mouse_move")this.relativePointer.discard();
     if(event.type==="mouse_move"){this.relativePointer.discard();this.pointer.push(event);return true;}
-    if(event.type==="release_all"||event.type==="disconnect"||event.type==="text_input")this.relativePointer.discard();
+    // A key/wheel/quality message is independent of camera displacement. Clearing
+    // on every key edge discarded pending motion while moving and aiming together.
+    if(event.type==="mouse_down"||event.type==="mouse_up"||event.type==="release_all"||event.type==="disconnect"||event.type==="text_input")this.relativePointer.discard();
     if(event.type==="mouse_down"||event.type==="mouse_up"||event.type==="release_all"||event.type==="disconnect"||event.type==="text_input")this.pointer.discard();
     return this.deliverInput(event);
   }

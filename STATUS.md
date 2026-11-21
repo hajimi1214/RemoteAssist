@@ -2,7 +2,15 @@
 
 ## Current milestone
 
-M19 — 0.15.1-alpha searchable settings center, precise controls and truthful preference persistence. Reviewed 2026-11-21.
+M20 — 0.15.1-alpha pointer-lock input and desktop-capture correctness follow-up. Reviewed 2026-11-21.
+
+## 0.15.1 input/capture follow-up
+
+- Rebuild the DXGI staging texture when the source pixel format changes, even if dimensions stay the same; send a complete baseline after the change so SDR/HDR pixels cannot be mixed across a partial update.
+- Accumulate fractional relative mouse movement across browser samples, with bounded large deltas and resets when sensitivity, pointer-lock/input state, focus, geometry, or mouse-button edges change. Ignore repeated key-down events only while game pointer lock is active.
+- Keep relative camera samples queued across independent keyboard, wheel and quality events; mouse-button, release, disconnect and text-input barriers still discard queued motion.
+- PASS: 97/97 frontend tests and production TypeScript/Vite build; Rust format check and locked check; 21 Rust tests passed, one visible-desktop capture smoke test ignored by default.
+- NOT VERIFIED: camera control in a representative physical game, actual Windows display-format/HDR transitions, or real remote gameplay. The existing physical-game/P2P/TURN acceptance remains outstanding.
 
 ## 0.15.1 settings and UX
 
