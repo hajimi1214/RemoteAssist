@@ -80,6 +80,8 @@ button.onclick = async () => {
     check(receiveStats?.captureTiming?.replyP95Ms===7.5,"bounded host capture timing reaches the controller");
     await until(() => gameSupported && gameModeApplied, "game capability and encoder profile acknowledgement");
     check(true,"game capability negotiation applies saved game mode");
+    await until(()=>sendStats?.qualityMode==="game"&&sendStats?.targetFps===60,"game encoder ceiling telemetry");
+    check(sendStats?.targetBitrateKbps===1125,"game bitrate ceiling follows 640x360 source pixels");
     await until(() => quality !== "", "RTCRtpSender parameters");
     check(quality !== "Browser managed", `sender accepts adaptive encoding parameters (${quality})`);
     await until(()=>receiveStats?.bitrateKbps!=null&&sendStats?.codec!=null,"video telemetry interval");

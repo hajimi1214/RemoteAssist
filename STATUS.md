@@ -2,7 +2,14 @@
 
 ## Current milestone
 
-M21 — capture-path and selected-transport diagnostics for game performance. Reviewed 2026-11-21.
+M22 — adaptive 1440p60 game-quality target and source-sized bitrate budgets. Reviewed 2026-11-21.
+
+## Game quality profile
+
+- Raise the game mode's highest encoding target from 1080p60 at 12 Mbps to 1440p60 at 18 Mbps. Existing congestion feedback still steps down through the bounded Balanced, Constrained and Economy profiles.
+- Scale each game's bitrate ceiling by the source pixels that remain after aspect-preserving profile scaling. A 720p host does not receive the 1440p profile's full bitrate ceiling.
+- PASS: 101/101 frontend tests and production build; Chrome WebRTC loopback confirms the 640×360 source uses the 60 fps ceiling and a 1.125 Mbps game-profile bitrate ceiling; settings preview displays the 1440p60 target.
+- NOT VERIFIED: visual quality, sustained frame rate, encoder selection, or input-to-display behavior on physical two-PC game sessions. 1440p60 and 18 Mbps are ceilings, not achieved performance.
 
 ## Capture and route diagnostics
 

@@ -13,13 +13,17 @@ test("game quality is retained only for hosts that advertise game input",()=>{
   assert.equal(compatibleQualityMode("sharp",false),"sharp");
 });
 
-test("game profile prioritizes a bounded 1080p60 target without upscaling",()=>{
+test("game profile targets 1440p60 at full size and respects source dimensions",()=>{
   const full=sessionEncoding("game","Sharp",{width:3840,height:2160});
-  assert.equal(full.scaleResolutionDownBy,2);assert.equal(full.maxFramerate,60);assert.equal(full.maxBitrate,12_000_000);
-  const small=sessionEncoding("game","Sharp",{width:1280,height:720});
-  assert.equal(small.scaleResolutionDownBy,1);assert.equal(small.maxFramerate,60);
+  assert.equal(full.scaleResolutionDownBy,1.5);assert.equal(full.maxFramerate,60);assert.equal(full.maxBitrate,18_000_000);
+  const native=sessionEncoding("game","Sharp",{width:2560,height:1440});
+  assert.equal(native.scaleResolutionDownBy,1);assert.equal(native.maxBitrate,18_000_000);
+  const smaller=sessionEncoding("game","Sharp",{width:1280,height:720});
+  assert.equal(smaller.scaleResolutionDownBy,1);assert.equal(smaller.maxBitrate,4_500_000);
+  const tall=sessionEncoding("game","Sharp",{width:1440,height:2560});
+  assert.equal(tall.scaleResolutionDownBy,2560/1440);assert.equal(tall.maxBitrate,5_695_313);
   const constrained=sessionEncoding("game","Constrained",{width:3840,height:2160});
-  assert.equal(constrained.scaleResolutionDownBy,3);assert.equal(constrained.maxFramerate,45);
+  assert.equal(constrained.scaleResolutionDownBy,3);assert.equal(constrained.maxFramerate,45);assert.equal(constrained.maxBitrate,2_500_000);
 });
 test("clear mode preserves 4K60 target with bounded bitrate", () => {
   const encoding=sessionEncoding("sharp","Sharp",{width:3840,height:2160});

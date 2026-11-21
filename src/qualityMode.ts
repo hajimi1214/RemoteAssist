@@ -13,13 +13,18 @@ export function compatibleQualityMode(mode: QualityMode, gameInputSupported: boo
 export function sessionEncoding(mode: QualityMode, quality: VideoQuality, source: VideoSourceSize = {}, preference: VideoPreference = "auto") {
   if (mode === "game") {
     const [width, height, maxFramerate, maxBitrate] = {
-      Sharp: [1920, 1080, 60, 12_000_000],
+      Sharp: [2560, 1440, 60, 18_000_000],
       Balanced: [1600, 900, 60, 7_000_000],
       Constrained: [1280, 720, 45, 2_500_000],
       Economy: [960, 540, 30, 850_000],
     }[quality];
-    return { maxFramerate, maxBitrate, scaleResolutionDownBy: Math.max(1,
-      validDimension(source.width) / width, validDimension(source.height) / height) };
+    const sourceWidth = validDimension(source.width);
+    const sourceHeight = validDimension(source.height);
+    const scaleResolutionDownBy = Math.max(1, sourceWidth / width, sourceHeight / height);
+    const sourcePixelRatio = sourceWidth && sourceHeight
+      ? Math.min(1, sourceWidth * sourceHeight / (scaleResolutionDownBy ** 2 * width * height))
+      : 1;
+    return { maxFramerate, maxBitrate: Math.round(maxBitrate * sourcePixelRatio), scaleResolutionDownBy };
   }
   const encoding = videoEncoding(quality, mode === "smooth" ? "motion" : preference, source);
   const width = Number.isFinite(source.width) && source.width! > 0 ? source.width! : 0;

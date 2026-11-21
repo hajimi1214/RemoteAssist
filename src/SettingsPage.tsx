@@ -39,7 +39,7 @@ const qualityDetails: Record<QualityMode, string> = {
   sharp: "优先保留画面细节，最高 4K / 60 fps 目标。",
   smooth: "优先动态流畅度，必要时降低分辨率。",
   economy: "降低传输负载，适合带宽受限的网络。",
-  game: "最高 1080p60 编码目标；主机不支持时会回退，实际游戏兼容性需实测。",
+  game: "最高 1440p60 编码目标；主机不支持时会回退，实际游戏兼容性需实测。",
 };
 
 type Props = {
@@ -166,7 +166,7 @@ export function SettingsPage({ user, device, version, serviceStatus, preferences
 
         {section === "streaming" && <>
           <Panel icon="monitor" title="默认远程画质" description="新连接优先使用此档位，连接中也可单独调整。">
-            <div className="settings-field"><span><label htmlFor={`${id}-quality`}>画质档位</label><small id={`${id}-quality-help`}>{qualityDetails[quality]}</small></span><select id={`${id}-quality`} name="quality-mode" value={quality} aria-describedby={`${id}-quality-help`} onChange={event => { const mode = event.target.value as QualityMode; setQuality(mode); writePreference("remoteassist.qualityMode", mode); }}><option value="auto">自动平衡（推荐）</option><option value="sharp">清晰优先</option><option value="smooth">流畅优先</option><option value="economy">省带宽</option><option value="game">游戏（1080p60 目标）</option></select></div>
+            <div className="settings-field"><span><label htmlFor={`${id}-quality`}>画质档位</label><small id={`${id}-quality-help`}>{qualityDetails[quality]}</small></span><select id={`${id}-quality`} name="quality-mode" value={quality} aria-describedby={`${id}-quality-help`} onChange={event => { const mode = event.target.value as QualityMode; setQuality(mode); writePreference("remoteassist.qualityMode", mode); }}><option value="auto">自动平衡（推荐）</option><option value="sharp">清晰优先</option><option value="smooth">流畅优先</option><option value="economy">省带宽</option><option value="game">游戏（1440p60 目标）</option></select></div>
             <Note>画质和帧率取决于两端设备与网络。拥塞时会自动调整，设定目标不代表实测性能。</Note>
           </Panel>
           <Panel icon="devices" title="触控与游戏视角" description="选择适合手机、平板和鼠标的默认行为。">
