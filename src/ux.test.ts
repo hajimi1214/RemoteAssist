@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeConnectionCode, remainingTime, remoteLayout, friendlyError } from "./ux.ts";
-
-test("accepts pasted spaced and full-width connection codes without extra digits", () => {
-  assert.equal(normalizeConnectionCode("１２３４ ５６７８"), "12345678");
-  assert.equal(normalizeConnectionCode("1234-5678\n99"), "12345678");
-});
+import { remainingTime, remoteLayout, friendlyError } from "./ux.ts";
 test("countdown clamps expired/invalid sessions and rounds seconds safely", () => {
   assert.equal(remainingTime(60_001, 1), "01:00");
   assert.equal(remainingTime(1, 2), "00:00");

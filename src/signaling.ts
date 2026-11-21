@@ -8,28 +8,6 @@ export type SessionState =
   | "EXPIRED"
   | "REJECTED";
 
-export interface ShareSession {
-  id: string;
-  code: string;
-  hostToken: string;
-  state: SessionState;
-  expiresAt: string;
-}
-
-export interface JoinSession {
-  id: string;
-  controllerToken: string;
-  state: SessionState;
-  expiresAt: string;
-}
-
-export interface ApproveSession {
-  id: string;
-  state: SessionState;
-  controllerToken: string;
-  expiresAt: string;
-}
-
 export interface IceServer {
   urls: string[];
   username?: string;
@@ -70,15 +48,14 @@ export interface Device {
   current: boolean;
 }
 
-export interface AssistRequest {
+export interface DirectSession {
   id: string;
+  controllerToken: string;
+  state: SessionState;
+  expiresAt: string;
   hostDeviceId: string;
   controllerDeviceId: string;
-  controllerDeviceName: string;
-  status: string;
-  createdAt: string;
 }
-export interface DirectSession extends JoinSession { hostDeviceId:string; controllerDeviceId:string }
 export interface DirectPending {id:string;hostToken:string;expiresAt:string;controllerDeviceName:string;hostDeviceId:string;controllerDeviceId:string}
 
 const defaultBaseURL = configuredServer() || import.meta.env.VITE_SIGNALING_URL || (import.meta.env.DEV && !androidClient ? "http://localhost:8080" : "");
@@ -169,58 +146,9 @@ export class SignalingClient {
     return body.device;
   }
 
-  async requestAssist(accessToken: string, hostDeviceId: string, controllerDeviceId: string): Promise<AssistRequest> {
-    const body = await this.request<{ request: AssistRequest }>(`/api/v1/devices/${encodeURIComponent(hostDeviceId)}/assist`, {
-      method: "POST",
-      body: JSON.stringify({ controllerDeviceId })
-    }, accessToken);
-    return body.request;
-  }
-
-  async assistRequests(accessToken: string, deviceId: string): Promise<AssistRequest[]> {
-    const body = await this.request<{ requests: AssistRequest[] }>(`/api/v1/devices/${encodeURIComponent(deviceId)}/assist-requests`, {}, accessToken);
-    return body.requests ?? [];
-  }
-
-  async resolveAssistRequest(accessToken: string, id: string, status: "ACCEPTED" | "REJECTED"): Promise<AssistRequest> {
-    const body = await this.request<{ request: AssistRequest }>(`/api/v1/assist-requests/${encodeURIComponent(id)}/resolve`, {
-      method: "POST",
-      body: JSON.stringify({ status })
-    }, accessToken);
-    return body.request;
-  }
-
   async iceServers(accessToken: string): Promise<IceServer[]> {
     const body = await this.request<{ iceServers: IceServer[] }>("/api/v1/ice-config", {}, accessToken);
     return body.iceServers;
-  }
-
-  async createShareSession(accessToken: string): Promise<ShareSession> {
-    return this.request<ShareSession>("/api/v1/share-sessions", {
-      method: "POST",
-      body: JSON.stringify({})
-    }, accessToken);
-  }
-
-  async join(code: string, accessToken: string): Promise<JoinSession> {
-    return this.request<JoinSession>("/api/v1/control-sessions/join", {
-      method: "POST",
-      body: JSON.stringify({ code })
-    }, accessToken);
-  }
-
-  async approve(id: string, hostToken: string): Promise<ApproveSession> {
-    return this.request<ApproveSession>(`/api/v1/share-sessions/${encodeURIComponent(id)}/approve`, {
-      method: "POST",
-      body: JSON.stringify({ token: hostToken })
-    });
-  }
-
-  async reject(id: string, hostToken: string): Promise<void> {
-    await this.request(`/api/v1/share-sessions/${encodeURIComponent(id)}/reject`, {
-      method: "POST",
-      body: JSON.stringify({ token: hostToken })
-    });
   }
 
   async disconnect(id: string, token: string): Promise<void> {

@@ -1,9 +1,8 @@
-import { nativeDesktop, controllerOnly } from "./platform";
+import { nativeDesktop } from "./platform";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { BrandMark, ConnectionIllustration, Icon, StatusMessage } from "./ui";
-import type { AssistMode, View } from "./ux";
+import { BrandMark, Icon, StatusMessage } from "./ui";
 
 export const nativeWindow = nativeDesktop;
 
@@ -42,21 +41,6 @@ export function ModalFrame({ title, children, onClose, className = "", closeLabe
     <button className="dialog-close" type="button" aria-label={closeLabel} title="关闭" onClick={onClose}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
     <div className="dialog-body">{children}</div>
   </dialog>;
-}
-
-export function GuestWorkspace({ onUse }: { onUse: (mode: AssistMode) => void }) {
-  return <section className="guest-workspace">
-    <div className="guest-hero"><div className="guest-intro"><span className="guest-kicker"><i/> YOUR SPACE, CONNECTED</span><h2>远一点，<br/><em>也能在身边。</em></h2><p>打开熟悉的桌面，及时解决眼前的问题。<br/>先看看，需要连接时再登录。</p><div className="guest-assurance"><Icon name="shield"/>对方同意后连接，随时结束。</div></div>
-      <ConnectionIllustration/>
-    </div>
-    <div className="guest-action-grid">{!controllerOnly && <button className="guest-action share-action" onClick={() => onUse("share")}><span className="guest-action-icon"><Icon name="monitor"/></span><span><small>我需要帮助</small><strong>共享这台电脑</strong><span>登录 · 选择主屏 · 邀请对方</span></span><Icon name="arrow"/></button>}<button className="guest-action" onClick={() => onUse("control")}><span className="guest-action-icon mint"><Icon name="devices"/></span><span><small>我来帮忙</small><strong>连接另一台电脑</strong><span>登录 · 输入连接码 · 等待同意</span></span><Icon name="arrow"/></button></div>
-    <div className="guest-detail-grid"><article><span className="detail-symbol"><Icon name="monitor"/></span><div><strong>画质随网络调整</strong><p>按场景选择文字清晰或动态流畅。</p></div></article><article><span className="detail-symbol"><Icon name="history"/></span><div><strong>连接状态看得见</strong><p>查看往返延迟、丢包和画面统计。</p></div></article><article><span className="detail-symbol"><Icon name="shield"/></span><div><strong>控制权始终在你</strong><p>每次明确同意，断开即停止输入。</p></div></article></div>
-  </section>;
-}
-
-export function GuestFeature({ view, onLogin, onUse }: { view: View; onLogin: () => void; onUse: (mode: AssistMode) => void }) {
-  if (view === "Remote Assist") return <section className="guest-feature table-card"><span className="eyebrow">START A CONNECTION</span><h2>这次，谁来帮助谁？</h2><p>选好方向后登录。共享屏幕和远程控制都需要你再次确认。</p><div className="guest-action-grid">{!controllerOnly && <button className="guest-action share-action" onClick={() => onUse("share")}><Icon name="monitor"/><span><strong>共享这台电脑</strong><span>让信任的人帮助你</span></span><Icon name="arrow"/></button>}<button className="guest-action" onClick={() => onUse("control")}><Icon name="devices"/><span><strong>连接另一台电脑</strong><span>使用对方的临时连接码</span></span><Icon name="arrow"/></button></div><div className="guest-feature-tip"><Icon name="shield"/>登录不会自动开启共享。</div></section>;
-  return <section className="guest-feature table-card"><span className="guest-feature-icon"><Icon name={view === "Sessions" ? "history" : "devices"}/></span><h2>{view === "Sessions" ? "每次协助，都有一份小结" : "把常用设备放在一起"}</h2><p>{view === "Sessions" ? "登录后查看本机的协助时间、方向与连接结果，按需保留记录。" : "登录后查看已绑定设备，添加备注，向在线设备发送协助请求。"}</p><button className="primary-action" onClick={onLogin}>登录后使用<Icon name="arrow"/></button><p className="field-hint">你可以继续浏览，随时再登录。</p></section>;
 }
 
 export function FeedbackDialog({ version, page, connection, onClose }: { version: string; page: string; connection: string; onClose: () => void }) {

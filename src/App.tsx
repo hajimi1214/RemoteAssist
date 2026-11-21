@@ -24,7 +24,7 @@ import { AuthDialog } from "./AuthDialog";
 import { FeedbackDialog, nativeWindow, WindowBar } from "./workspaceChrome";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { pages, friendlyError, connectionLabel, transportFailure } from "./ux";
-import type { View, AssistMode } from "./ux";
+import type { View } from "./ux";
 type AuthMode = "signin" | "register";
 
 const signaling = new SignalingClient();
@@ -33,7 +33,7 @@ const navigationIcons: Record<View, IconName> = { Dashboard:"grid", "My Devices"
 
 export function App() {
   const [auth, setAuth, authLoaded] = useStoredAuth();
-  const [loginTarget, setLoginTarget] = useState<{ view: View; mode?: AssistMode } | null>(null);
+  const [loginTarget, setLoginTarget] = useState<{ view: View } | null>(null);
   const [loginError, setLoginError] = useState("");
   const [serverOpen, setServerOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -47,7 +47,6 @@ export function App() {
   const [serviceStatus, setServiceStatus] = useState("Disconnected");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [assistMode, setAssistMode] = useState<AssistMode>(controllerOnly ? "control" : "share");
   const [sessionActive, setSessionActive] = useState(false);
   const [retry, setRetry] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -55,21 +54,18 @@ export function App() {
   const journal=useSessionJournal(auth?.user.id);
   const directHost=useDirectHost(auth,device,signaling);
   const viewRef=useRef(view); viewRef.current=view;
-  const modeRef=useRef(assistMode); modeRef.current=assistMode;
   const authRef = useRef(auth);
   authRef.current = auth;
 
   function clearAccountData() { setTargetDevice(null); authRef.current = null; setUser(null); setDevice(null); setDevices([]);  setServiceStatus("Disconnected"); setView("My Devices"); }
   function updateActivity(active: boolean) { setSessionActive(active); }
   function guard(action: () => void) { action(); }
-  function requestLogin(next: View = view, mode?: AssistMode) { if(androidClient&&!configuredServer()&&!import.meta.env.VITE_SIGNALING_URL){setServerOpen(true);return;} if (!authLoaded) { setNotice("正在恢复登录，请稍候再试。"); return; } setLoginError(""); setAuthMode("signin"); setLoginTarget({ view: next, mode }); }
-  function useAssist(_mode: AssistMode) { if (!authRef.current) requestLogin("My Devices"); else navigate("My Devices"); }
+  function requestLogin(next: View = view) { if(androidClient&&!configuredServer()&&!import.meta.env.VITE_SIGNALING_URL){setServerOpen(true);return;} if (!authLoaded) { setNotice("正在恢复登录，请稍候再试。"); return; } setLoginError(""); setAuthMode("signin"); setLoginTarget({ view: next }); }
   function connectDevice(item:Device,watchOnly=false){if(!auth){requestLogin("My Devices");return;}guard(()=>{setViewOnly(watchOnly);setTargetDevice(item);setView("Remote Assist");});}
   function refreshDevices(){if(!auth||!device)return;const owner=auth.user.id;void signaling.devices(auth.accessToken,device.id).then(list=>{if(authRef.current?.user.id===owner)setDevices(list);}).catch(err=>{if(authRef.current?.user.id===owner)setError(friendlyError(err));});}
-  function navigate(next: View, mode?: AssistMode) {
-    if(controllerOnly && next==="Remote Assist")mode="control";
-    if (next === viewRef.current && (!mode || mode === modeRef.current)) return;
-    guard(() => { if(next!=="Remote Assist")setTargetDevice(null);setView(next); if (mode) setAssistMode(mode); });
+  function navigate(next: View) {
+    if (next === viewRef.current) return;
+    guard(() => { if(next!=="Remote Assist")setTargetDevice(null);setView(next); });
   }
   useEffect(() => { headingRef.current?.focus({ preventScroll:true }); }, [view]);
 
@@ -167,7 +163,7 @@ export function App() {
     setDevice(null); setDevices([]);  setServiceStatus("Connecting");
     setLoginTarget(null); setLoginError(""); setUser(result.user); setError("");
     setNotice("登录成功，选择在线电脑即可直接进入桌面。");
-    if (destination) { setView(destination.view); if (destination.mode) setAssistMode(destination.mode); }
+    if (destination) setView(destination.view);
     await setAuth(result, remember);
   }
 

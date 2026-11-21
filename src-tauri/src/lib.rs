@@ -11,7 +11,6 @@ mod desktop_capture;
 
 const MAX_EVENT_AGE_MS: u64 = 30_000;
 const MAX_EVENTS_PER_SECOND: usize = 120;
-const HOST_CONSENT_VALIDITY_MS: u64 = 30_000;
 const INPUT_LEASE: Duration = Duration::from_secs(8);
 const INITIAL_INPUT_LEASE: Duration = Duration::from_secs(30);
 const AUTH_CREDENTIAL_TARGET: &str = "com.remoteassist.desktop.auth";
@@ -283,7 +282,6 @@ struct PermissionAdapter {
     session_token: Option<String>,
     expires_at_ms: Option<u64>,
     lease_deadline: Option<Instant>,
-    pending_host_consent_until_ms: Option<u64>,
     recent_events: Vec<u64>,
     pressed_keys: BTreeSet<u16>,
     pressed_buttons: BTreeSet<i64>,
@@ -375,73 +373,6 @@ impl serde::Serialize for InputError {
     {
         serializer.serialize_str(&self.to_string())
     }
-}
-
-#[tauri::command]
-fn request_input_authorization(state: State<'_, AppState>) -> Result<bool, InputError> {
-    let accepted = confirm_host_control();
-    let mut permission = state
-        .permission
-        .lock()
-        .map_err(|_| InputError::NotAuthorized)?;
-    permission.pending_host_consent_until_ms = if accepted {
-        Some(now_ms().saturating_add(HOST_CONSENT_VALIDITY_MS))
-    } else {
-        None
-    };
-    Ok(accepted)
-}
-
-#[tauri::command]
-fn set_input_authorized(
-    session_token: String,
-    expires_at_ms: u64,
-    state: State<'_, AppState>,
-) -> Result<(), InputError> {
-    if session_token.len() < 16 || expires_at_ms <= now_ms() {
-        return Err(InputError::InvalidSessionToken);
-    }
-    let mut permission = state
-        .permission
-        .lock()
-        .map_err(|_| InputError::NotAuthorized)?;
-    if !permission
-        .pending_host_consent_until_ms
-        .is_some_and(|expiry| now_ms() <= expiry)
-    {
-        return Err(InputError::NotAuthorized);
-    }
-    release_pressed(&mut permission)?;
-    permission.pending_host_consent_until_ms = None;
-    permission.authorized = true;
-    permission.session_token = Some(session_token);
-    permission.expires_at_ms = Some(expires_at_ms);
-    permission.lease_deadline = Some(Instant::now() + INITIAL_INPUT_LEASE);
-    permission.recent_events.clear();
-    Ok(())
-}
-
-#[cfg(windows)]
-fn confirm_host_control() -> bool {
-    use windows::core::w;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONWARNING, MB_YESNO,
-    };
-
-    let result = unsafe {
-        MessageBoxW(
-            None,
-            w!("是否允许对方操作这台电脑的鼠标和键盘？请确认你选择了主显示器的整个屏幕。当前版本不支持窗口或副屏控制。你可以随时停止共享。"),
-            w!("RemoteAssist — 需要你的明确授权"),
-            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
-        )
-    };
-    result == IDYES
-}
-
-#[cfg(not(windows))]
-fn confirm_host_control() -> bool {
-    false
 }
 
 #[tauri::command]
@@ -603,7 +534,6 @@ async fn accept_direct_capture(
         let mut permission = state.permission.lock().map_err(|_| "input_unavailable")?;
         release_pressed(&mut permission).map_err(|_| "input_release_failed")?;
         permission.authorized = true;
-        permission.pending_host_consent_until_ms = None;
         permission.session_token = Some(acceptance.controller_token.clone());
         permission.expires_at_ms = Some(expiry as u64);
         permission.lease_deadline = Some(Instant::now() + INITIAL_INPUT_LEASE);
@@ -733,7 +663,6 @@ fn revoke_permission(permission: &mut PermissionAdapter) -> Result<(), InputErro
     permission.session_token = None;
     permission.expires_at_ms = None;
     permission.lease_deadline = None;
-    permission.pending_host_consent_until_ms = None;
     permission.recent_events.clear();
     release_pressed(permission)
 }
@@ -1009,8 +938,6 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            request_input_authorization,
-            set_input_authorized,
             clear_input_authorization,
             release_remote_inputs,
             renew_input_lease,
