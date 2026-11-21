@@ -1,8 +1,13 @@
-import { connectionRoute, connectionSample } from "./connectionQuality.ts";
+import { connectionRouteDetails, connectionSample } from "./connectionQuality.ts";
+import type { CaptureTimingSummary } from "./captureTiming.ts";
 
 export interface VideoTelemetry {
   direction: "send" | "receive";
   route: "P2P" | "TURN Relay" | "Unknown";
+  localProtocol?: "udp" | "tcp";
+  remoteProtocol?: "udp" | "tcp";
+  relayProtocol?: "udp" | "tcp" | "tls";
+  captureTiming?: CaptureTimingSummary;
   codec?: string;
   width?: number;
   height?: number;
@@ -36,7 +41,7 @@ export class VideoStatsSampler {
   private previous = new Map<string, Counters>();
 
   sample(stats: RTCStatsReport, direction: "send" | "receive"): VideoTelemetry {
-    const result: VideoTelemetry = { direction, route: connectionRoute(stats) };
+    const result: VideoTelemetry = { direction, ...connectionRouteDetails(stats) };
     const network = connectionSample(stats);
     result.rttMs = numeric(network.rttMs);
     if(direction==="send")result.qualityLimitation=network.qualityLimitationReason;

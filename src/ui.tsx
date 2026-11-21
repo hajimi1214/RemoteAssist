@@ -17,6 +17,19 @@ export function QualityPreference({value,onChange}: {value:VideoPreference;onCha
   return <fieldset className="quality-options"><legend>画质偏好</legend><div>{options.map(option=><label key={option.id} className={value===option.id?"selected":""}><input type="radio" name="quality-preference" value={option.id} checked={value===option.id} onChange={()=>onChange(option.id)}/><span className="quality-symbol"><Icon name={option.icon}/></span><span><strong>{option.title}</strong><small>{option.detail}</small></span><span className="quality-check" aria-hidden="true">{value===option.id&&<Icon name="check"/>}</span></label>)}</div><p>网络不足时仍会自动降级。偏好不会改变共享与控制权限。</p></fieldset>;
 }
 
+function routeDescription(sample: VideoTelemetry): string {
+  const protocolLabel = (value: string) => value.toUpperCase();
+  const mediaProtocols = [...new Set([sample.localProtocol, sample.remoteProtocol].filter((value): value is "udp" | "tcp" => !!value))];
+  const media = mediaProtocols.length ? `媒体 ${mediaProtocols.map(protocolLabel).join("/")}` : "媒体协议未知";
+  if (sample.route === "TURN Relay") return `中继连接 · TURN ${sample.relayProtocol ? protocolLabel(sample.relayProtocol) : "传输未知"} · ${media}`;
+  if (sample.route === "P2P") return `设备直连 · ${mediaProtocols.length ? mediaProtocols.map(protocolLabel).join("/") : "协议未知"}`;
+  return "检测路径";
+}
+
+function captureTimingValue(p50: number, p95: number): string {
+  return `${p50.toFixed(1)} / ${p95.toFixed(1)} ms`;
+}
+
 export function ConnectionDiagnostics({sample}: {sample:VideoTelemetry|null}) {
   const [history,setHistory]=useState<TrendPoint[]>([]);
   const [updated,setUpdated]=useState(0);
@@ -25,7 +38,7 @@ export function ConnectionDiagnostics({sample}: {sample:VideoTelemetry|null}) {
   const advice=connectionHealth(sample);
   const metric=(value:number|undefined,unit:string)=>value==null?"暂不可用":`${value} ${unit}`;
   const limits:Record<string,string>={none:"未报告限制",cpu:"编码处理压力",bandwidth:"带宽压力",other:"其他限制"};
-  return <section className="diagnostics-card"><div className={`health-summary ${advice.severity}`}><span className="health-icon"><Icon name="shield"/></span><div><strong>{advice.title}</strong><p>{advice.detail}</p></div><span className="health-route">{sample.route==="P2P"?"设备直连":sample.route==="TURN Relay"?"中继连接":"检测路径"}</span></div>
+  return <section className="diagnostics-card"><div className={`health-summary ${advice.severity}`}><span className="health-icon"><Icon name="shield"/></span><div><strong>{advice.title}</strong><p>{advice.detail}</p></div><span className="health-route">{routeDescription(sample)}</span></div>
     <details className="connection-diagnostics"><summary><span>连接与画质详情</span><small>{sample.width&&sample.height?`${sample.width} × ${sample.height}`:"等待画面"}{updated?` · ${new Date(updated).toLocaleTimeString("zh-CN")} 采样`:""}</small></summary>
     <div className="trend-grid">{(["rttMs","bitrateKbps"] as const).map(field=><figure key={field}><figcaption><span>{field==="rttMs"?"网络往返趋势":"视频码率趋势"}</span><strong>{metric(field==="rttMs"?sample.rttMs==null?undefined:Math.round(sample.rttMs):sample.bitrateKbps,field==="rttMs"?"ms":"kbps")}</strong></figcaption><svg viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label={`${field==="rttMs"?"网络往返":"视频码率"}最近 ${history.length} 个采样，缺测不连线`}><path d="M0 36H100M0 20H100" className="trend-guide"/>{trendSegments(history,field).map((points,index)=><polyline key={index} points={points} className="trend-line"/>)}</svg><small>最近最多 30 个采样 · 自适应纵轴</small></figure>)}</div>
     <p>最近采样间隔的统计，仅保留在本机内存。编解码耗时为单帧平均值，不等于端到端操作延迟。</p><dl>
@@ -42,7 +55,8 @@ export function ConnectionDiagnostics({sample}: {sample:VideoTelemetry|null}) {
       <div><dt>间隔丢弃帧数</dt><dd>{metric(sample.framesDropped,"帧")}</dd></div>
       <div><dt>累计画面冻结</dt><dd>{metric(sample.freezes,"次")}</dd></div>
     </>}
-  </dl><p>静止桌面可能几乎不产生新帧，低 fps 或低码率不一定代表连接故障。</p></details></section>;
+    {sample.captureTiming&&<><div><dt>电脑取帧响应 P50/P95</dt><dd>{captureTimingValue(sample.captureTiming.replyP50Ms,sample.captureTiming.replyP95Ms)}</dd></div><div><dt>浏览器绘制提交 P50/P95</dt><dd>{captureTimingValue(sample.captureTiming.renderSubmitP50Ms,sample.captureTiming.renderSubmitP95Ms)}</dd></div></>}
+  </dl><p>静止桌面可能几乎不产生新帧，低 fps 或低码率不一定代表连接故障。取帧响应包含电脑端等待、复制与 IPC；绘制提交包含解析和 GPU 命令提交，均不等于实际显示或操作延迟。</p></details></section>;
 }
 
 export type IconName = "monitor" | "devices" | "shield" | "history" | "arrow" | "settings" | "grid" | "copy" | "expand" | "shrink" | "pause" | "play" | "stop" | "check" | "sun" | "moon" | "info" | "alert" | "search";
@@ -287,7 +301,7 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
   const controlState=inputEnabled?"正在操作":manualPaused||backgroundPaused?"已暂停":"仅观看";
   const fullscreenLabel=immersive?"退出全屏":"全屏显示";
   const advice=telemetry?connectionHealth(telemetry):null;
-  const route=telemetry?.route==="P2P"?"设备直连":telemetry?.route==="TURN Relay"?"中继连接":"检测路径";
+  const route=telemetry?routeDescription(telemetry):"检测路径";
   return <div ref={surface} className={`remote-screen modern-screen touch-mode-${touchMode}${inputEnabled&&!toolsOpen?" input-active":""}${connected?" session-present":""}${expanded?" expanded-screen":""}${toolsOpen?" tools-open":""}`}>
     <div className={`screen-floating-bar${compact?" bar-compact":""}`} role="group" aria-label="远程桌面快捷操作" onPointerEnter={revealBar} onFocusCapture={revealBar}>
       <span className="screen-floating-name" title={deviceName}><i className={inputEnabled?"control-ready":""}/><span>{deviceName}<small>{controlState} · 解码 {measured(telemetry?.fps,"fps",1)} · {measured(measuredRtt,"ms")}</small></span></span>
@@ -334,6 +348,7 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
           <div><dt>实际码率</dt><dd>{measured(telemetry?.bitrateKbps,"kbps")}</dd></div><div><dt>网络往返</dt><dd>{measured(measuredRtt,"ms")}</dd></div>
           <div><dt>间隔丢弃帧</dt><dd>{measured(telemetry?.framesDropped,"帧")}</dd></div><div><dt>间隔丢包率</dt><dd>{measured(telemetry?.packetLossPercent,"%",1)}</dd></div>
           <div><dt>平均解码</dt><dd>{measured(telemetry?.decodeMs,"ms",1)}</dd></div><div><dt>平均接收缓冲</dt><dd>{measured(telemetry?.jitterBufferMs,"ms",1)}</dd></div>
+          {telemetry?.captureTiming&&<><div><dt>电脑取帧 P50/P95</dt><dd>{captureTimingValue(telemetry.captureTiming.replyP50Ms,telemetry.captureTiming.replyP95Ms)}</dd></div><div><dt>绘制提交 P50/P95</dt><dd>{captureTimingValue(telemetry.captureTiming.renderSubmitP50Ms,telemetry.captureTiming.renderSubmitP95Ms)}</dd></div></>}
         </dl>
         {advice&&<section className={`screen-health-summary ${advice.severity}`} aria-label="连接健康提示"><span className="screen-health-mark"><Icon name={advice.severity==="warning"?"alert":advice.severity==="pending"?"info":"check"}/></span><span className="screen-health-copy"><strong>{advice.title}</strong><small>{advice.detail}</small></span></section>}
         <p className="screen-stat-note">帧率来自 WebRTC 解码计数，不等于屏幕实际呈现帧率；网络往返时间也不包含采集、编码或显示耗时。</p>

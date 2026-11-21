@@ -3,9 +3,11 @@ import { parseCaptureFrame } from "./captureFrame";
 import type { CaptureBaseline } from "./captureFrame";
 import { captureDamage, damageScissor, visibleCaptureCursor } from "./captureDamage";
 import type { CaptureCursor } from "./captureDamage";
+import { CaptureTimingWindow } from "./captureTiming";
+import type { CaptureTimingSummary } from "./captureTiming";
 
 /** One raw BGRA frame in flight; GPU swizzle feeds the browser's WebRTC encoder. */
-export async function startNativeStream(token: string, onFailure: () => void): Promise<{ stream: MediaStream; stop: () => void; setFrameRate: (fps: number) => void }> {
+export async function startNativeStream(token: string, onFailure: () => void, onTiming?: (summary: CaptureTimingSummary) => void): Promise<{ stream: MediaStream; stop: () => void; setFrameRate: (fps: number) => void }> {
   const canvas = document.createElement("canvas");
   const gl = canvas.getContext("webgl", { alpha: false, antialias: false, preserveDrawingBuffer: true });
   if (!gl) throw new Error("GPU canvas unavailable");
@@ -96,6 +98,8 @@ export async function startNativeStream(token: string, onFailure: () => void): P
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     video.requestFrame();
     let fps = 60, lastPull = performance.now();
+    let timedFrames = 0;
+    const captureTiming = new CaptureTimingWindow();
     const schedulePull = () => {
       timer = setTimeout(() => {
         timer = undefined;
@@ -106,8 +110,19 @@ export async function startNativeStream(token: string, onFailure: () => void): P
       if (stopped) return;
       lastPull = performance.now();
       try {
+        const replyStarted = performance.now();
         const raw = await invoke<ArrayBuffer>("next_desktop_frame", { sessionToken: token });
-        render(raw, () => video.requestFrame());
+        const replyMs = performance.now() - replyStarted;
+        const renderStarted = performance.now();
+        const submitted = render(raw, () => video.requestFrame());
+        if (submitted) {
+          captureTiming.add(replyMs, performance.now() - renderStarted);
+          timedFrames++;
+          if (timedFrames % 30 === 0) {
+            const summary = captureTiming.snapshot();
+            if (summary) onTiming?.(summary);
+          }
+        }
       } catch {
         if (!stopped) { stop(); onFailure(); }
         return;

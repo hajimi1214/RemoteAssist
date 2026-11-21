@@ -49,6 +49,7 @@ button.onclick = async () => {
   let hostIceLoads=0;let controllerIceLoads=0;
   let sendStats: import("../src/videoTelemetry").VideoTelemetry|undefined;
   let receiveStats: import("../src/videoTelemetry").VideoTelemetry|undefined;
+  let captureTimingTimer=0;
   const sessionToken = "local-loopback-test-token";
   const gate = new InputEventGate(sessionToken, () => authorized, 120, async (command, args) => { if (command !== "renew_input_lease") delivered.push({ command, args }); });
   // Signaling is delivered between the two real browser peers; server wire
@@ -69,10 +70,14 @@ button.onclick = async () => {
       onQuality: (value) => { quality = value; },
       onTelemetry:(sample)=>{sendStats=sample;}
     },{gameInput:true,loadIceServers:async()=>{hostIceLoads++;return[];}});
+    host.setCaptureTiming({samples:30,replyP50Ms:2.5,replyP95Ms:7.5,renderSubmitP50Ms:.4,renderSubmitP95Ms:1.1});
+    captureTimingTimer=window.setInterval(()=>host.setCaptureTiming({samples:30,replyP50Ms:2.5,replyP95Ms:7.5,renderSubmitP50Ms:.4,renderSubmitP95Ms:1.1}),1000);
     check(hostIceLoads===0&&controllerIceLoads===0,"ICE credentials are not loaded before negotiation");
     await host.start(stream, gate);
     await until(() => hostConnected && controllerConnected && video.videoWidth > 0 && latency >= 0, "video and DataChannels");
     check(true, "real PeerConnection negotiation, received video, ping/pong RTT");
+    await until(()=>receiveStats?.captureTiming?.samples===30,"host capture timing report");
+    check(receiveStats?.captureTiming?.replyP95Ms===7.5,"bounded host capture timing reaches the controller");
     await until(() => gameSupported && gameModeApplied, "game capability and encoder profile acknowledgement");
     check(true,"game capability negotiation applies saved game mode");
     await until(() => quality !== "", "RTCRtpSender parameters");
@@ -119,7 +124,7 @@ button.onclick = async () => {
     await limitedGate.accept({ type:"key_up", sessionToken, ts:Date.now(), payload:{key:"a",code:"KeyA"} });
     await limitedGate.accept({ type:"release_all", sessionToken, ts:Date.now(),sequence:1 });
     check(safeReleases.length === 3 && safeReleases[2] === "release_remote_inputs", "release events bypass action-rate saturation");
-    host.close(); controller.close();
+    host.close(); controller.close();window.clearInterval(captureTimingTimer);captureTimingTimer=0;
     controller.sendInput({ type:"key_down", sessionToken, ts:Date.now(), payload:{key:"d",code:"KeyD"} });
     await delay(150);
     check(delivered.length === count, "closing peers stops all further input");
@@ -127,6 +132,7 @@ button.onclick = async () => {
   } catch (error) {
     output.textContent += `RESULT: FAIL ${error instanceof Error ? error.message : String(error)}\n`;
   } finally {
+    window.clearInterval(captureTimingTimer);
     host?.close(); controller?.close(); stream.getTracks().forEach((track) => track.stop());
     clearInterval(rendering); button.disabled = false;
   }

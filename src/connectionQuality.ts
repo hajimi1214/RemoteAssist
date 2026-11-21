@@ -144,10 +144,36 @@ export function connectionSample(stats: RTCStatsReport): ConnectionSample {
 }
 
 export function connectionRoute(stats: RTCStatsReport): "P2P" | "TURN Relay" | "Unknown" {
+  return connectionRouteDetails(stats).route;
+}
+
+export function connectionRouteDetails(stats: RTCStatsReport): {
+  route: "P2P" | "TURN Relay" | "Unknown";
+  localProtocol?: "udp" | "tcp";
+  remoteProtocol?: "udp" | "tcp";
+  relayProtocol?: "udp" | "tcp" | "tls";
+} {
   const pair = selectedCandidatePair(stats) as Record<string, unknown> | undefined;
-  if (!pair) return "Unknown";
-  const local = typeof pair.localCandidateId === "string" ? stats.get(pair.localCandidateId) : undefined;
-  const remote = typeof pair.remoteCandidateId === "string" ? stats.get(pair.remoteCandidateId) : undefined;
-  if (local?.candidateType === "relay" || remote?.candidateType === "relay") return "TURN Relay";
-  return local && remote ? "P2P" : "Unknown";
+  if (!pair) return { route: "Unknown" };
+  const local = typeof pair.localCandidateId === "string" ? stats.get(pair.localCandidateId) as Record<string, unknown> | undefined : undefined;
+  const remote = typeof pair.remoteCandidateId === "string" ? stats.get(pair.remoteCandidateId) as Record<string, unknown> | undefined : undefined;
+  const localProtocol = candidateProtocol(local?.protocol);
+  const remoteProtocol = candidateProtocol(remote?.protocol);
+  const relayedCandidate = local?.candidateType === "relay" ? local : remote?.candidateType === "relay" ? remote : undefined;
+  const relayProtocol = turnProtocol(relayedCandidate?.relayProtocol);
+  const route = relayedCandidate ? "TURN Relay" : local && remote ? "P2P" : "Unknown";
+  return {
+    route,
+    ...(localProtocol ? { localProtocol } : {}),
+    ...(remoteProtocol ? { remoteProtocol } : {}),
+    ...(relayProtocol ? { relayProtocol } : {}),
+  };
+}
+
+function candidateProtocol(value: unknown): "udp" | "tcp" | undefined {
+  return value === "udp" || value === "tcp" ? value : undefined;
+}
+
+function turnProtocol(value: unknown): "udp" | "tcp" | "tls" | undefined {
+  return value === "udp" || value === "tcp" || value === "tls" ? value : undefined;
 }

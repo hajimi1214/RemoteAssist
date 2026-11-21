@@ -5,6 +5,7 @@ import { HostPeer } from "./webrtc";
 import type { SignalMessage } from "./webrtc";
 import { InputEventGate } from "./inputEvents";
 import { startNativeStream } from "./nativeCapture";
+import type { CaptureTimingSummary } from "./captureTiming";
 import { nativeDesktop } from "./platform";
 
 type RunningSession = {
@@ -81,11 +82,12 @@ export function useDirectHost(auth: AuthResult | null, device: Device | null, si
           deviceId: device.id, sessionId: pending.id, hostToken: pending.hostToken, requestId: session.requestId
         });
         if (!live(session)) { void invoke("clear_direct_capture", { requestId: session.requestId }).catch(() => {}); return; }
-        const source = await startNativeStream(result.controllerToken, () => fail(session, "屏幕采集已中断，请重新连接。"));
+        let peer: HostPeer | undefined;
+        const source = await startNativeStream(result.controllerToken, () => fail(session, "屏幕采集已中断，请重新连接。"), (summary: CaptureTimingSummary) => peer?.setCaptureTiming(summary));
         if (!live(session)) { source.stop(); return; }
         session.capture = source;
         const gate = new InputEventGate(result.controllerToken, () => live(session));
-        const peer = new HostPeer(pending.id, pending.hostToken, socket, [], {
+        peer = new HostPeer(pending.id, pending.hostToken, socket, [], {
           onCaptureFrameRate: source.setFrameRate,
           onFailure: () => fail(session, "连接已中断，可重新进入设备。")
         }, { preference: "auto", gameInput: device.osName === "Windows", loadIceServers: () => signaling.iceServers(latest.current!.accessToken) });

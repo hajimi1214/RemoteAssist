@@ -10,6 +10,8 @@ import { compatibleQualityMode, isQualityMode, sessionEncoding } from "./quality
 import type { QualityMode } from "./qualityMode.ts";
 import { clampGameDelta, validGameDelta } from "./gameInput.ts";
 import { receiveJitterBufferTarget } from "./receiveBuffer.ts";
+import { parseCaptureTiming } from "./captureTiming.ts";
+import type { CaptureTimingSummary } from "./captureTiming.ts";
 
 function gameMouse(message: {type?: unknown; payload?: unknown}): boolean {
   return message.type === "mouse_relative" || ((message.type === "mouse_down" || message.type === "mouse_up") &&
@@ -177,6 +179,8 @@ export class HostPeer extends SessionPeer {
   private lastInputWarning=-Infinity;
   private rejectedInputs=0;
   private qualityMode:QualityMode="auto";
+  private captureTiming?:CaptureTimingSummary;
+  private captureTimingAt=0;
 
   constructor(sessionId:string,hostToken:string,ws:WebSocket,iceServers:IceServer[],callbacks:PeerCallbacks={},options:PeerOptions={}){
     super(sessionId,hostToken,ws,iceServers,callbacks,options);this.preference=options.preference??"auto";this.qualityMode=options.qualityMode??"auto";
@@ -186,6 +190,10 @@ export class HostPeer extends SessionPeer {
     this.appliedProfile="";
     if(this.videoTrack)this.videoTrack.contentHint=preference==="motion"?"motion":preference==="text"?"text":"detail";
     void this.applyVideoProfile();
+  }
+  setCaptureTiming(summary: CaptureTimingSummary) {
+    this.captureTiming=summary;
+    this.captureTimingAt=performance.now();
   }
   async start(stream:MediaStream,gate:InputEventGate):Promise<void>{
     if(this.closed||this.pc)return;
@@ -234,7 +242,8 @@ export class HostPeer extends SessionPeer {
           }
           if(msg.type==="ping"){
             this.lastHeartbeat=performance.now();
-            this.sendReliable({type:"pong",sessionToken:msg.sessionToken,ts:msg.ts,probeId:msg.probeId,textInputVersion:1,gameInputVersion:this.options.gameInput?1:undefined,qualityControlVersion:1,qualityMode:this.qualityMode,qualityProfileApplied:!!this.appliedProfile});
+            const captureTiming=performance.now()-this.captureTimingAt<=5_000?this.captureTiming:undefined;
+            this.sendReliable({type:"pong",sessionToken:msg.sessionToken,ts:msg.ts,probeId:msg.probeId,textInputVersion:1,gameInputVersion:this.options.gameInput?1:undefined,qualityControlVersion:1,qualityMode:this.qualityMode,qualityProfileApplied:!!this.appliedProfile,captureTiming});
           }
         }).catch(error=>{
           // A failed authenticated keepalive means the native authorization lease
@@ -358,6 +367,7 @@ export class ControllerPeer extends SessionPeer {
   private gameSupported=false;
   private videoReceiver?: RTCRtpReceiver;
   private latestReceiveTelemetry?: VideoTelemetry;
+  private latestCaptureTiming?: CaptureTimingSummary;
   private confirmedGameVideo=false;
   private desiredQuality?:QualityMode;
   private qualitySupported=false;
@@ -407,6 +417,7 @@ export class ControllerPeer extends SessionPeer {
             return;
           }
           if(parsed?.type!=="pong"||parsed.sessionToken!==this.sessionToken||!this.heartbeat)return;
+          this.latestCaptureTiming=parseCaptureTiming(parsed.captureTiming);
           const supported=parsed.qualityControlVersion===1;
           this.gameSupported=parsed.gameInputVersion===1;
           this.callbacks.onGameSupport?.(this.gameSupported);
@@ -495,6 +506,7 @@ export class ControllerPeer extends SessionPeer {
         if(this.pc.connectionState==="connected"){
           const stats=await this.pc.getStats();if(this.closed)return;
           const telemetry=this.statsSampler.sample(stats,"receive");
+          telemetry.captureTiming=this.latestCaptureTiming;
           this.updateReceiveBuffer(this.confirmedGameVideo,telemetry);
           this.callbacks.onRelayStatus?.(telemetry.route);this.callbacks.onTelemetry?.(telemetry);
         }

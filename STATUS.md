@@ -2,7 +2,14 @@
 
 ## Current milestone
 
-M20 — 0.15.1-alpha pointer-lock input and desktop-capture correctness follow-up. Reviewed 2026-11-21.
+M21 — capture-path and selected-transport diagnostics for game performance. Reviewed 2026-11-21.
+
+## 0.16 capture and route diagnostics
+
+- Track up to 300 updated frames locally and report P50/P95 Tauri frame-response time plus browser parse/draw command-submission time. Timing reports travel over the existing authenticated WebRTC data channel and expire after five seconds without fresh host samples.
+- Show the selected ICE candidate protocol and TURN `relayProtocol` when the browser reports them. Unknown protocol details remain unknown. Candidate addresses, frames and input payloads are not added to diagnostics.
+- PASS: 101/101 frontend tests and production build; synthetic Chrome WebRTC loopback delivered host capture timing to the controller, rendered the P50/P95 fields, and identified the selected loopback route as direct UDP.
+- NOT VERIFIED: timings from the native DXGI/Tauri host under game load, actual screen-present cadence, representative gameplay, or direct-vs-TURN performance. Reported Tauri response time includes native wait/copy/IPC, while browser draw timing measures command submission and is not GPU completion or input-to-display latency.
 
 ## 0.15.1 input/capture follow-up
 

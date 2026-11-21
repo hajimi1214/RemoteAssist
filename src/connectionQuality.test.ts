@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AdaptiveVideoPolicy, connectionRoute, connectionSample, videoEncoding } from "./connectionQuality.ts";
+import { AdaptiveVideoPolicy, connectionRoute, connectionRouteDetails, connectionSample, videoEncoding } from "./connectionQuality.ts";
 
 test("degrades after sustained congestion, recovers only after three good samples", () => {
   const policy = new AdaptiveVideoPolicy();
@@ -118,12 +118,23 @@ test("uses selected transport pair and detects relay on the local side", () => {
     ["old", { id: "old", type: "candidate-pair", state: "succeeded", nominated: true }],
     ["transport", { id: "transport", type: "transport", selectedCandidatePairId: "pair" }],
     ["pair", { id: "pair", type: "candidate-pair", localCandidateId: "local", remoteCandidateId: "remote", currentRoundTripTime: .045, availableOutgoingBitrate: 2_000_000 }],
-    ["local", { id: "local", type: "local-candidate", candidateType: "relay" }],
-    ["remote", { id: "remote", type: "remote-candidate", candidateType: "srflx" }]
+    ["local", { id: "local", type: "local-candidate", candidateType: "relay", protocol: "udp", relayProtocol: "udp" }],
+    ["remote", { id: "remote", type: "remote-candidate", candidateType: "srflx", protocol: "udp" }]
   ]) as unknown as RTCStatsReport;
   assert.equal(connectionRoute(stats), "TURN Relay");
+  assert.deepEqual(connectionRouteDetails(stats), { route: "TURN Relay", localProtocol: "udp", remoteProtocol: "udp", relayProtocol: "udp" });
   assert.deepEqual(connectionSample(stats), { rttMs: 45, availableOutgoingBitrate: 2_000_000 });
   assert.equal(connectionRoute(new Map() as unknown as RTCStatsReport), "Unknown");
+});
+
+test("keeps unknown TURN transport unknown while retaining candidate protocols",()=>{
+  const stats=new Map([
+    ["transport",{id:"transport",type:"transport",selectedCandidatePairId:"pair"}],
+    ["pair",{id:"pair",type:"candidate-pair",localCandidateId:"local",remoteCandidateId:"remote"}],
+    ["local",{id:"local",type:"local-candidate",candidateType:"relay",protocol:"udp",relayProtocol:"not-reported"}],
+    ["remote",{id:"remote",type:"remote-candidate",candidateType:"host",protocol:"udp"}]
+  ]) as unknown as RTCStatsReport;
+  assert.deepEqual(connectionRouteDetails(stats),{route:"TURN Relay",localProtocol:"udp",remoteProtocol:"udp"});
 });
 
 
