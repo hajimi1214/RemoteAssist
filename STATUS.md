@@ -2,7 +2,17 @@
 
 ## Current milestone
 
-M18 — 0.15.0-alpha game-oriented relative mouse control, bounded sender/renderer work, expanded Aliyun TURN docs and desktop media research. Reviewed 2026-11-21.
+M19 — 0.15.1-alpha searchable settings center, precise controls and truthful preference persistence. Reviewed 2026-11-21.
+
+## 0.15.1 settings and UX
+
+- Installed and read `frontend-design` and `web-design-guidelines` skills from their upstream repositories at pinned revisions. Recorded provenance and the design/QA plan in [settings UX notes](docs/settings-ux-0.15.md); no runtime dependency was added.
+- Organized real settings into general, remote experience, connection service, account/device and about sections. Added search with keyboard selection and focus to the matching control, exact sensitivity input alongside its slider, inline blur validation, and confirmed restoration of interface/remote defaults.
+- Mobile categories are all visible in a wrapping grid. Long account/device strings wrap safely; theme, larger text and reduced-motion preferences remain supported.
+- Unified local preference reads/writes with in-memory fallback. Failed persistence displays “only this run”, and success on another setting cannot hide unresolved failures. Automatic host capability fallback no longer rewrites the user's saved default or selected mode from a delayed host status.
+- PASS: 94/94 frontend tests and production build; Chrome search/focus, bounds and step validation, slider sync, preference reload, default-reset cancel/confirm and unrelated-setting preservation; blocked-storage UI and consumer fallback; all five sections without horizontal overflow at 320/390/768/1024 px using synthetic long account/device strings, plus a desktop 1440 px view and dark/large-text tablet review.
+- PASS: Chrome synthetic WebRTC loopback still negotiates game quality, carries relative motion, rejects invalid/revoked input, and stops delivery on teardown. Windows x64 NSIS 0.15.1 package built (2,415,178 bytes), SHA-256 `7C450222831F9839A136250AA87E003F243172A29B6DA2AC31588028E670CDF6`.
+- NOT VERIFIED: native Windows visual behavior, updated Android package/device touch, or real remote gameplay for this settings-only milestone.
 
 ## 0.15 update
 

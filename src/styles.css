@@ -197,6 +197,7 @@ label { display: grid; gap: 8px; font-size: .875rem; font-weight: 600; min-inlin
 .setting-row select { inline-size: auto; max-inline-size: 100%; flex: 0 0 auto; }
 .settings-safety { grid-column: 1/-1; display: flex; align-items: start; gap: 14px; background: var(--green-soft); color: var(--green); padding: 22px; border-radius: 16px; }
 .settings-safety p { margin: 6px 0 0; font-size: .875rem; }
+:root[data-motion="reduced"] *, :root[data-motion="reduced"] *::before, :root[data-motion="reduced"] *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 .segmented { display: inline-flex; flex-wrap: wrap; gap: 5px; padding: 5px; background: var(--subtle); border: 1px solid var(--line); border-radius: 13px; margin-block-end: 20px; max-inline-size: 100%; }
 .segmented button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: transparent; color: var(--muted); border-radius: 9px; padding: 11px 18px; font-size: .875rem; flex: 1 1 auto; }
 .segmented button.nav-active { color: var(--blue); background: var(--surface); box-shadow: 0 3px 10px rgb(20 42 84 / 5%); }

@@ -10,6 +10,7 @@ import { appendTrend, connectionHealth, trendSegments } from "./connectionHealth
 import type { TrendPoint } from "./connectionHealth";
 import { relativeMouseSample } from "./gameInput";
 import type { QualityMode } from "./qualityMode";
+import { readPreference, writePreference } from "./preferenceStore";
 
 export function QualityPreference({value,onChange}: {value:VideoPreference;onChange:(value:VideoPreference)=>void}) {
   const options=[{id:"auto",title:"自动平衡",detail:"随网络调整清晰度与帧率",icon:"grid"},{id:"text",title:"文字优先",detail:"适合代码、文档与表格",icon:"monitor"},{id:"motion",title:"流畅优先",detail:"适合滚动、演示与动态画面",icon:"arrow"}] as const;
@@ -137,7 +138,7 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
   const [tool, setTool] = useState<ScreenTool>("picture");
   const [gamePointerLocked,setGamePointerLocked]=useState(false);
   const [gameMouseNotice,setGameMouseNotice]=useState("");
-  const [gameSensitivity,setGameSensitivity]=useState(()=>{try{const v=Number(localStorage.getItem("remoteassist.gameSensitivity"));return Number.isFinite(v)&&v>=.25&&v<=4?v:1;}catch{return 1;}});
+  const [gameSensitivity,setGameSensitivity]=useState(()=>{const v=Number(readPreference("remoteassist.gameSensitivity"));return Number.isFinite(v)&&v>=.25&&v<=4?v:1;});
   const [touchMode,setTouchMode]=useState<TouchMode>("direct");
   const [compact,setCompact]=useState(false),[autoCompact,setAutoCompact]=useState(true);
   const [inputEnabled, setInputEnabled] = useState(false);
@@ -321,7 +322,7 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
       <section id={`${helpId}-pane-input`} role="tabpanel" aria-labelledby={`${helpId}-tab-input`} tabIndex={0} className="screen-tool-pane" hidden={tool!=="input"}>
         <button className="secondary-action screen-input-toggle" disabled={!hasVideo} onClick={toggleInput}><Icon name={inputEnabled?"pause":"play"}/>{controlLabel}</button>
         <MobileControls videoRef={videoRef} enabled={inputEnabled} available={hasVideo} textSupported={textSupported} open={toolsOpen&&tool==="input"} resetKey={layoutReset} onModeChange={setTouchMode} onAction={action=>inputEnabled&&hasVideo?onMobileAction(action):false} onRelease={onRelease} onSuspend={suspendInput}/>
-        {gameInputSupported&&<section className="game-pointer-control" aria-label="游戏鼠标相对控制"><div><strong>游戏视角控制</strong><small>手动捕获鼠标以控制视角。按 Esc 退出；失焦、暂停或断开会释放。兼容模式使用 Windows 标准输入模拟，不等同物理鼠标 Raw Input，部分游戏可能不接受。</small></div><button type="button" disabled={!hasVideo||!inputEnabled} aria-pressed={gamePointerLocked} onClick={()=>void toggleGamePointer()}>{gamePointerLocked?"退出游戏鼠标":"启动游戏鼠标"}</button><label><span>灵敏度 {gameSensitivity.toFixed(2)}×</span><input aria-label="游戏鼠标灵敏度" type="range" min="0.25" max="4" step="0.05" value={gameSensitivity} onChange={event=>{const value=Number(event.target.value);setGameSensitivity(value);try{localStorage.setItem("remoteassist.gameSensitivity",String(value));}catch{}}}/></label>{gameMouseNotice&&<small role="status">{gameMouseNotice}</small>}</section>}{backgroundPaused&&<div className="screen-help"><Icon name="shield"/><span>应用已离开前台，输入已释放。</span></div>}
+        {gameInputSupported&&<section className="game-pointer-control" aria-label="游戏鼠标相对控制"><div><strong>游戏视角控制</strong><small>手动捕获鼠标以控制视角。按 Esc 退出；失焦、暂停或断开会释放。兼容模式使用 Windows 标准输入模拟，不等同物理鼠标 Raw Input，部分游戏可能不接受。</small></div><button type="button" disabled={!hasVideo||!inputEnabled} aria-pressed={gamePointerLocked} onClick={()=>void toggleGamePointer()}>{gamePointerLocked?"退出游戏鼠标":"启动游戏鼠标"}</button><label><span>灵敏度 {gameSensitivity.toFixed(2)}×</span><input aria-label="游戏鼠标灵敏度" type="range" min="0.25" max="4" step="0.05" value={gameSensitivity} onChange={event=>{const value=Number(event.target.value);setGameSensitivity(value);writePreference("remoteassist.gameSensitivity",String(value));}}/></label>{gameMouseNotice&&<small role="status">{gameMouseNotice}</small>}</section>}{backgroundPaused&&<div className="screen-help"><Icon name="shield"/><span>应用已离开前台，输入已释放。</span></div>}
       </section>
       <section id={`${helpId}-pane-link`} role="tabpanel" aria-labelledby={`${helpId}-tab-link`} tabIndex={0} className="screen-tool-pane" hidden={tool!=="link"}>
         <div className="screen-stream-summary"><Icon name="monitor"/><span><strong>{actualResolution}</strong><small>{route} · {telemetry?.codec??"编码协商中"}</small></span></div>

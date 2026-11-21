@@ -1,4 +1,5 @@
 import { compatibleQualityMode, readQualityPreference } from "./qualityMode";
+import { writePreference } from "./preferenceStore";
 import type { QualityMode } from "./qualityMode";
 import { androidClient, configuredServer, controllerOnly, secureCredentialStorage } from "./platform";
 import { MobileGuestPage, MobileHome, ServerDialog } from "./MobileHome";
@@ -27,7 +28,7 @@ import type { View, AssistMode } from "./ux";
 type AuthMode = "signin" | "register";
 
 const signaling = new SignalingClient();
-const appVersion = "0.15.0-alpha";
+const appVersion = "0.15.1-alpha";
 const navigationIcons: Record<View, IconName> = { Dashboard:"grid", "My Devices":"devices", "Remote Assist":"monitor", Sessions:"history", Settings:"settings" };
 
 export function App() {
@@ -218,7 +219,7 @@ export function App() {
         {view === "Remote Assist" && auth && device && targetDevice && <ControlComputer key={targetDevice.id} auth={auth} target={targetDevice} controller={device} viewOnly={viewOnly} onActivity={updateActivity} onRecord={summary=>journal.add(auth.user.id,summary)} onBack={()=>{setTargetDevice(null);setView("My Devices");}}/>}
         {!signedIn && view === "Sessions" && <MobileGuestPage page="Sessions" onLogin={()=>requestLogin("Sessions")} onServer={()=>setServerOpen(true)}/>}
         {view === "Sessions" && signedIn && <SessionsPage records={journal.records} persist={journal.persist} storageError={journal.storageError} onPersistence={journal.setPersistence} onClear={journal.clear} onRetryStorage={journal.retryStorage} onStart={()=>navigate("My Devices")} />}
-        {view === "Settings" && <><button className="secondary-action mobile-settings-server" onClick={()=>guard(()=>setServerOpen(true))}><Icon name="settings"/>连接服务设置</button><SettingsPage onLogin={()=>requestLogin()} user={publicView} device={device} version={appVersion} preferences={preferences} auth={auth} signaling={signaling} /></>}
+        {view === "Settings" && <SettingsPage onLogin={()=>requestLogin()} onChangeServer={()=>guard(()=>setServerOpen(true))} onNavigate={next=>navigate(next)} onFeedback={()=>setFeedbackOpen(true)} user={publicView} device={device} version={appVersion} serviceStatus={serviceStatus} preferences={preferences} auth={auth} signaling={signaling} />}
         {signedIn && !controllerOnly && <div className={`direct-host-indicator${directHost.active?" host-connected":""}`} role="status"><Icon name="monitor"/><span>{directHost.active?`${directHost.name} 正在控制这台电脑`:directHost.paused?"本机远程访问已暂停":"同账号远程访问已开启"}{directHost.error&&<small>{directHost.error}</small>}</span><button onClick={directHost.paused?directHost.resume:directHost.pause}>{directHost.paused?"恢复访问":directHost.active?"停止并暂停访问":"暂停访问"}</button></div>}
       </section>
       <footer className="workspace-footer"><span>RemoteAssist {appVersion}</span><button className="feedback-trigger" onClick={() => setFeedbackOpen(true)}>使用反馈<Icon name="arrow"/></button><span>{sessionActive?"协助进行中 · 离开页面将结束连接":"同账号直连 · 随时结束"}</span></footer>
@@ -271,10 +272,10 @@ function ControlComputer({ auth, target, controller, viewOnly, onBack, onActivit
       const ws = new WebSocket(signaling.wsURL(joined.id, "controller"));
       wsRef.current = ws;
       const peer = new ControllerPeer(joined.id, joined.controllerToken, ws, [], {
-        onQualityControl:sample=>{setQualityControl(sample.supported);if(sample.supported){const compatibleMode=sample.mode==="game"?compatibleQualityMode(sample.mode,gameInputSupportedRef.current):sample.mode;if(sample.mode==="game"&&compatibleMode!==qualityModeRef.current){qualityModeRef.current=compatibleMode;setQualityMode(compatibleMode);try{localStorage.setItem("remoteassist.qualityMode",compatibleMode);}catch{}}setQualityNotice(`电脑端画质偏好：${{auto:"自动",sharp:"清晰",smooth:"流畅",economy:"省带宽",game:"游戏"}[compatibleMode]}${sample.applied?" · 参数已应用":" · 编码参数由浏览器管理"}`);}},
+        onQualityControl:sample=>{setQualityControl(sample.supported);if(sample.supported){const compatibleMode=sample.mode==="game"?compatibleQualityMode(sample.mode,gameInputSupportedRef.current):sample.mode;setQualityNotice(`电脑端画质偏好：${{auto:"自动",sharp:"清晰",smooth:"流畅",economy:"省带宽",game:"游戏"}[compatibleMode]}${sample.applied?" · 参数已应用":" · 编码参数由浏览器管理"}`);}},
         onInputStatus:sample=>setInputNotice(sample.reason==="limited"?"输入频率较高，正在合并鼠标移动以降低积压。":"部分输入未送达电脑，请查看连接状态。"),
         onTextSupport:setTextSupported,
-        onGameSupport:supported=>{gameInputSupportedRef.current=supported;setGameInputSupported(supported);const compatibleMode=compatibleQualityMode(qualityModeRef.current,supported);if(compatibleMode!==qualityModeRef.current){qualityModeRef.current=compatibleMode;setQualityMode(compatibleMode);try{localStorage.setItem("remoteassist.qualityMode",compatibleMode);}catch{}}},
+        onGameSupport:supported=>{gameInputSupportedRef.current=supported;setGameInputSupported(supported);const compatibleMode=compatibleQualityMode(qualityModeRef.current,supported);if(compatibleMode!==qualityModeRef.current){qualityModeRef.current=compatibleMode;setQualityMode(compatibleMode);}},
         onRemoteStream: (stream) => { if (videoRef.current) videoRef.current.srcObject = stream; },
         onConnectionStatus: (status) => { setStatus(status);if(status==="connected"){window.clearTimeout(readyTimer.current);recorder.current?.connected();} if (["failed","disconnected","signaling error"].includes(status)) disconnect("Connection lost"); },
         onRelayStatus: setRelay,
@@ -383,7 +384,7 @@ function ControlComputer({ auth, target, controller, viewOnly, onBack, onActivit
       {qualityNotice&&<p className="field-hint" role="status">{qualityNotice}</p>}
       {!session&&!busy&&<button className="primary-action" onClick={()=>void connect()}>重新连接</button>}
       {busy&&<p role="status">正在连接设备…</p>}
-      <RemoteScreen qualityMode={qualityMode} gameInputSupported={gameInputSupported} onGameMouse={sendGameMouse} onQualityModeChange={qualityControl?mode=>{if(mode==="game"&&!gameInputSupported)return;qualityModeRef.current=mode;setQualityMode(mode);try{localStorage.setItem("remoteassist.qualityMode",mode);}catch{}setQualityNotice(peerRef.current?.setQualityMode(mode)?"正在调整电脑端画质…":"画质未调整，连接可能已断开。");}:undefined} telemetry={telemetry} latency={latency} onMobileAction={sendMobile} textSupported={textSupported} videoRef={videoRef} connected={status==="connected"} autoFullscreen autoControl={!viewOnly} deviceName={target.note||target.deviceName} status={connectionLabel(status)} onPointer={sendPointer} onKey={sendKey} onWheel={sendWheel} onRelease={releaseInputs} onDisconnect={()=>disconnect("Stopped by controller")} />
+      <RemoteScreen qualityMode={qualityMode} gameInputSupported={gameInputSupported} onGameMouse={sendGameMouse} onQualityModeChange={qualityControl?mode=>{if(mode==="game"&&!gameInputSupported)return;qualityModeRef.current=mode;setQualityMode(mode);writePreference("remoteassist.qualityMode",mode);setQualityNotice(peerRef.current?.setQualityMode(mode)?"正在调整电脑端画质…":"画质未调整，连接可能已断开。");}:undefined} telemetry={telemetry} latency={latency} onMobileAction={sendMobile} textSupported={textSupported} videoRef={videoRef} connected={status==="connected"} autoFullscreen autoControl={!viewOnly} deviceName={target.note||target.deviceName} status={connectionLabel(status)} onPointer={sendPointer} onKey={sendKey} onWheel={sendWheel} onRelease={releaseInputs} onDisconnect={()=>disconnect("Stopped by controller")} />
       <dl className="connection-details"><div><dt>连接状态</dt><dd>{connectionLabel(status)}</dd></div><div><dt>传输路径</dt><dd>{relay==="P2P"?"设备直连":relay==="TURN Relay"?"中继连接":"等待连接"}</dd></div><div><dt>往返延迟</dt><dd>{latency == null ? "待测量" : `${latency} ms`}</dd></div></dl>
       <ConnectionDiagnostics sample={telemetry} />
     </section>

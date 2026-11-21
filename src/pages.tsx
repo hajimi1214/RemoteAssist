@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AuthResult, Device, SignalingClient, User } from "./signaling";
 import { ConfirmDialog, ConnectionIllustration, Icon, StatusMessage } from "./ui";
-import type { usePreferences } from "./preferences";
 import { friendlyError } from "./ux";
 import { sessionDuration } from "./sessionJournal";
 import type { SessionSummary } from "./sessionJournal";
@@ -41,20 +40,7 @@ export function MyDevices({ auth, currentDevice, devices, onDevices, onRemoteAss
   </section>;
 }
 
-export function SettingsPage({ user, device, version, preferences, auth, signaling, onLogin }: { onLogin: () => void; user: User | null; device: Device | null; version: string; preferences: ReturnType<typeof usePreferences>;auth:AuthResult | null;signaling:SignalingClient }) {
-  const [adminState,setAdminState]=useState<{status:string;identityStorage:string;requiresHostConsent:boolean}|null>(null);
-  const [adminError,setAdminError]=useState("");
-  useEffect(()=>{let cancelled=false;setAdminState(null);setAdminError("");if(user?.role==="admin" && auth)void signaling.adminStatus(auth.accessToken).then(value=>{if(!cancelled)setAdminState(value);}).catch(err=>{if(!cancelled)setAdminError(friendlyError(err));});return()=>{cancelled=true;};},[user?.role,auth?.accessToken,signaling]);
-  return <section className="settings-grid">
-    <article className="table-card settings-card"><span className="eyebrow">PERSONALIZE</span><h2>外观与阅读</h2>
-      <fieldset className="theme-options"><legend>界面主题</legend><p className="field-hint" id="theme-help">跟随系统，或选择你喜欢的外观。</p><div>{([{value:"system",label:"跟随系统"},{value:"light",label:"浅色"},{value:"dark",label:"深色"}] as const).map(option => <label key={option.value} className={preferences.theme === option.value ? "selected" : ""}><input type="radio" name="theme" value={option.value} checked={preferences.theme === option.value} onChange={() => preferences.setTheme(option.value)} aria-describedby="theme-help"/><span>{option.label}</span></label>)}</div></fieldset>
-      <label className="check-row setting-row"><span><strong>更大的文字</strong><small>增大文字与控件，适合高分辨率屏幕。</small></span><input type="checkbox" checked={preferences.largeText} onChange={ev => preferences.setLargeText(ev.target.checked)} /></label>
-    </article>
-    {user ? <article className="table-card settings-card"><span className="eyebrow">ACCOUNT</span><h2>账号与设备</h2><div className="setting-row"><span>用户名</span><strong>{user.username}</strong></div><div className="setting-row"><span>账号角色</span><strong>{user.role==="admin"?"管理员":"普通用户"}</strong></div><div className="setting-row"><span>邮箱</span><strong>{user.email}</strong></div><div className="setting-row"><span>当前设备</span><strong>{device?.deviceName??"等待设备登记"}</strong></div><div className="setting-row"><span>版本</span><strong>{version}</strong></div></article> : <article className="table-card settings-card"><span className="eyebrow">YOUR ACCOUNT</span><h2>先逛逛，随时登录</h2><p className="field-hint">外观设置立即生效。登录后可以管理设备、发起协助。</p><button className="primary-action" onClick={onLogin}>登录账号<Icon name="arrow"/></button></article>}
-    {user?.role==="admin"&&<article className="table-card settings-card"><span className="eyebrow">ADMINISTRATOR</span><h2>管理员服务检查</h2>{adminError&&<StatusMessage error>{adminError}</StatusMessage>}<div className="setting-row"><span>服务端角色校验</span><strong>{adminState?"已通过":adminError?"检查失败":"正在检查…"}</strong></div><div className="setting-row"><span>账号存储</span><strong>{adminState?.identityStorage==="memory"?"本机预览（内存）":adminState?.identityStorage==="postgresql"?"PostgreSQL":"待检查"}</strong></div><p className="field-hint">管理员身份只提供服务检查。同账号设备使用设备归属校验。</p></article>}
-    <article className="settings-safety"><Icon name="shield" /><div><strong>我的账号，连接我的设备</strong><p>登录同账号的在线电脑可直接连接。电脑端可随时暂停访问，退出登录或断开连接会立即停止远程输入。</p></div></article>
-  </section>;
-}
+export { SettingsPage } from "./SettingsPage";
 
 function SessionRow({record}:{record:SessionSummary}) {
   const outcomes={completed:"已结束",interrupted:record.connectedAt==null?"连接失败":"连接中断",cancelled:"已取消",expired:"会话到期"};

@@ -1,5 +1,7 @@
 # RemoteAssist
 
+Version 0.15.1 adds a five-section settings center with search, precise mouse sensitivity input, confirmed preference reset and visible save outcomes. Local storage failures retain usable in-memory preferences for the current run. See the [settings UX design and validation notes](docs/settings-ux-0.15.md).
+
 Version 0.15 adds opt-in relative mouse capture for game camera control, a bounded coalescing path that preserves accumulated mouse deltas, a game-oriented encoder target, and fixed the draw-before-requestFrame ordering for partial desktop updates. Aliyun ECS/Coturn setup and test guidance and the game-streaming references are included. See [game-streaming research and acceptance notes](docs/game-streaming-research.md) and [Aliyun deployment](docs/aliyun-game-deployment.md). 1080p60 is a target; physical game and real ECS/WAN behavior remain unverified. This version is video-only and the Windows SendInput mouse path is not physical HID/Raw Input, so it is not yet a complete game-streaming replacement.
 
 Version 0.8 opens directly into a guest workspace and asks for login in a dismissible dialog when a protected feature is used. It adds custom window controls, responsive page layouts, local copyable feedback, bounded pointer retries and adaptation to sender queue pressure. Session creation/join now require an authenticated account on the server too; upgrade service and clients together. See [0.8 behavior and validation](docs/guest-workspace-0.8.md).

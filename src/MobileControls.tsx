@@ -4,8 +4,9 @@ import { mapVideoPoint } from "./pointerMapping";
 import { TouchController, TouchpadController, dispatchKeyChord, validRemoteText } from "./mobileInput";
 import type { MobileAction, NormalizedPoint, RemoteModifier, TouchMode, TouchPoint } from "./mobileInput";
 import { androidClient } from "./platform";
+import { readPreference, writePreference } from "./preferenceStore";
 
-function storedTouchMode():TouchMode {try{return localStorage.getItem("remoteassist.touchMode")==="touchpad"?"touchpad":"direct";}catch{return"direct";}}
+function storedTouchMode():TouchMode {return readPreference("remoteassist.touchMode")==="touchpad"?"touchpad":"direct";}
 export function MobileControls({ videoRef, enabled, available, textSupported, onAction, onRelease, onSuspend, open = true, resetKey = "", onModeChange }: {
   videoRef:RefObject<HTMLVideoElement|null>;enabled:boolean;available:boolean;textSupported:boolean;
   onAction:(action:MobileAction)=>boolean;onRelease:()=>void;onSuspend:()=>void;open?:boolean;resetKey?:string;onModeChange?:(mode:TouchMode)=>void;
@@ -18,7 +19,7 @@ export function MobileControls({ videoRef, enabled, available, textSupported, on
   const lastPoint=useRef<NormalizedPoint|undefined>(undefined);
   const live=useRef({enabled,drag,touchMode,onAction,onRelease});live.current={enabled,drag,touchMode,onAction,onRelease};
   const id=useId();
-  useEffect(()=>{try{localStorage.setItem("remoteassist.touchMode",touchMode);}catch{/* Preference remains active in memory. */}onModeChange?.(touchMode);},[touchMode,onModeChange]);
+  useEffect(()=>{writePreference("remoteassist.touchMode",touchMode);onModeChange?.(touchMode);},[touchMode,onModeChange]);
   useEffect(()=>{if(!enabled){gesture.current.cancel();touchpad.current.cancel();setDrag(false);setKeyboard(false);setText("");setModifiers([]);}},[enabled]);
   useEffect(()=>{gesture.current.cancel();touchpad.current.cancel();live.current.onRelease();setModifiers([]);},[resetKey]);
   useEffect(()=>{if(!open){setKeyboard(false);setText("");setMessage("");setModifiers([]);}},[open]);

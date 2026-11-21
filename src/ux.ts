@@ -7,7 +7,7 @@ export const pages: Record<View, { title: string; description: string }> = {
   "My Devices": { title: "我的设备", description: "选择同账号在线电脑，直接进入桌面。" },
   "Remote Assist": { title: "远程协助", description: "按原始分辨率连接电脑，随时结束。" },
   Sessions: { title: "会话记录", description: "在本机查看协助时间、结果与传输路径。" },
-  Settings: { title: "偏好设置", description: "调整外观与阅读大小，查看账号和设备信息。" }
+  Settings: { title: "设置", description: "管理远程体验、连接服务、辅助功能和账号信息。" }
 };
 
 export function normalizeConnectionCode(value: string): string {

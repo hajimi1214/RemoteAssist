@@ -1,5 +1,6 @@
 import { videoEncoding } from "./connectionQuality.ts";
 import type { VideoPreference, VideoQuality, VideoSourceSize } from "./connectionQuality.ts";
+import { readPreference } from "./preferenceStore.ts";
 
 export type QualityMode = "auto" | "sharp" | "smooth" | "economy" | "game";
 export const qualityModes: readonly QualityMode[] = ["auto", "sharp", "smooth", "economy", "game"];
@@ -41,5 +42,5 @@ function validDimension(value?: number): number {
 }
 
 export function readQualityPreference(): QualityMode {
-  try { const value = localStorage.getItem("remoteassist.qualityMode"); return isQualityMode(value) ? value : "auto"; } catch { return "auto"; }
+  const value = readPreference("remoteassist.qualityMode"); return isQualityMode(value) ? value : "auto";
 }
