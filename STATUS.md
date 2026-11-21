@@ -4,7 +4,7 @@
 
 M21 — capture-path and selected-transport diagnostics for game performance. Reviewed 2026-11-21.
 
-## 0.16 capture and route diagnostics
+## Capture and route diagnostics
 
 - Track up to 300 updated frames locally and report P50/P95 Tauri frame-response time plus browser parse/draw command-submission time. Timing reports travel over the existing authenticated WebRTC data channel and expire after five seconds without fresh host samples.
 - Show the selected ICE candidate protocol and TURN `relayProtocol` when the browser reports them. Unknown protocol details remain unknown. Candidate addresses, frames and input payloads are not added to diagnostics.
