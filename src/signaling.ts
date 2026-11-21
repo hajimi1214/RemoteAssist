@@ -1,4 +1,5 @@
 import { configuredServer, androidClient } from "./platform";
+import { allowsLanHttp } from "./lanTest.ts";
 export type SessionState =
   | "CREATED"
   | "WAITING_FOR_CONTROLLER"
@@ -160,8 +161,9 @@ export class SignalingClient {
 
   wsURL(sessionId: string, role: "host" | "controller"): string {
     const url = new URL(this.getBaseURL());
+    const lanHttp = allowsLanHttp(url);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    if (import.meta.env.PROD && url.protocol !== "wss:") {
+    if (import.meta.env.PROD && url.protocol !== "wss:" && !lanHttp) {
       throw new Error("production_signaling_requires_tls");
     }
     url.pathname = "/api/v1/ws";
@@ -197,7 +199,7 @@ export class SignalingClient {
     } catch {
       throw new Error("invalid_signaling_service_url");
     }
-    if (!(url.protocol === "https:" || (import.meta.env.DEV && url.protocol === "http:"))) {
+    if (!(url.protocol === "https:" || (import.meta.env.DEV && url.protocol === "http:") || allowsLanHttp(url))) {
       throw new Error("signaling_service_requires_tls");
     }
     if (url.username || url.password || url.search || url.hash) {

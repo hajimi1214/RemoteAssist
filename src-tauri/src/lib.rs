@@ -9,15 +9,43 @@ use thiserror::Error;
 #[cfg(windows)]
 mod desktop_capture;
 
+#[cfg(all(feature = "lan-test", not(debug_assertions)))]
+compile_error!("the lan-test feature must only be used in a debug build");
+
 const MAX_EVENT_AGE_MS: u64 = 30_000;
 const MAX_EVENTS_PER_SECOND: usize = 120;
 const INPUT_LEASE: Duration = Duration::from_secs(8);
 const INITIAL_INPUT_LEASE: Duration = Duration::from_secs(30);
 const AUTH_CREDENTIAL_TARGET: &str = "com.remoteassist.desktop.auth";
 
+#[cfg(windows)]
+fn is_private_lan_ipv4(host: Option<&str>) -> bool {
+    let Some(host) = host else { return false };
+    let Ok(address) = host.parse::<std::net::Ipv4Addr>() else {
+        return false;
+    };
+    let octets = address.octets();
+    octets[0] == 10
+        || (octets[0] == 172 && (16..=31).contains(&octets[1]))
+        || (octets[0] == 192 && octets[1] == 168)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn lan_test_http_host_is_limited_to_private_ipv4() {
+        assert!(is_private_lan_ipv4(Some("192.168.0.100")));
+        assert!(is_private_lan_ipv4(Some("10.0.0.1")));
+        assert!(is_private_lan_ipv4(Some("172.31.255.254")));
+        assert!(!is_private_lan_ipv4(Some("127.0.0.1")));
+        assert!(!is_private_lan_ipv4(Some("172.32.0.1")));
+        assert!(!is_private_lan_ipv4(Some("192.169.0.1")));
+        assert!(!is_private_lan_ipv4(Some("remote.example")));
+        assert!(!is_private_lan_ipv4(None));
+    }
 
     fn event(token: &str, ts: u64) -> InputEvent {
         InputEvent {
@@ -432,7 +460,13 @@ async fn accept_direct_capture(
         let _flight = FlightGuard(&state.capture_starting);
         let mut base = reqwest::Url::parse(&server_url).map_err(|_| "invalid_service")?;
         let local = matches!(base.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
-        if !(base.scheme() == "https" || cfg!(debug_assertions) && local && base.scheme() == "http")
+        let lan_test_http = cfg!(feature = "lan-test")
+            && cfg!(debug_assertions)
+            && base.scheme() == "http"
+            && is_private_lan_ipv4(base.host_str());
+        if !(base.scheme() == "https"
+            || cfg!(debug_assertions) && local && base.scheme() == "http"
+            || lan_test_http)
             || !base.username().is_empty()
             || base.password().is_some()
             || base.query().is_some()
@@ -478,9 +512,13 @@ async fn accept_direct_capture(
             .timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::none());
         // Local development credentials must never traverse an environment proxy.
-        let client = if local { client.no_proxy() } else { client }
-            .build()
-            .map_err(|_| "service_unavailable")?;
+        let client = if local || lan_test_http {
+            client.no_proxy()
+        } else {
+            client
+        }
+        .build()
+        .map_err(|_| "service_unavailable")?;
         let capture = tauri::async_runtime::spawn_blocking(desktop_capture::Capture::start)
             .await
             .map_err(|_| "capture_start_failed")??;

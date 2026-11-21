@@ -4,6 +4,9 @@ version = "0.15.1-alpha"
 description = "Visible Windows remote assistance client"
 edition = "2021"
 
+[features]
+lan-test = []
+
 [lib]
 name = "remoteassist_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]

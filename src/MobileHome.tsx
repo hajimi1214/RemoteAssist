@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { androidClient, configuredServer } from "./platform";
 import { normalizeServerAddress } from "./mobileInput";
+import { lanTestBuild } from "./lanTest";
 import { FloatingField } from "./forms";
 import { ModalFrame } from "./workspaceChrome";
 import { Icon } from "./ui";
@@ -20,6 +21,8 @@ export function MobileGuestPage({ page, onLogin, onServer }: { page: "My Devices
 
 export function ServerDialog({ onSave, onClose }: { onSave: (url: string) => Promise<void>; onClose: () => void }) {
   const [url,setURL]=useState(configuredServer());const [error,setError]=useState("");const [busy,setBusy]=useState(false);
-  return <ModalFrame title="连接服务设置" onClose={onClose} className="server-dialog"><span className="eyebrow">连接你的服务</span><h2>手机和电脑用同一地址</h2><p>填写手机和电脑都能访问的 RemoteAssist HTTPS 服务地址。跨网连接时可能需要中继服务。</p><form noValidate onSubmit={event=>{event.preventDefault();if(busy)return;let next:string;try{next=normalizeServerAddress(url);}catch{setError("请输入有效的 HTTPS 根地址，不包含账号、路径或参数。");return;}setBusy(true);void onSave(next).catch(()=>{setError("保存失败，请重试。");setBusy(false);});}}>
-    <FloatingField label="服务地址" help="例如 https://assist.example.com。此地址会接收你的登录与连接请求，请填写你信任的服务。" value={url} onChange={event=>{setURL(event.target.value);setError("");}} type="url" autoCapitalize="none" spellCheck={false} autoComplete="url" data-initial-focus required error={error} disabled={busy}/><p className="field-hint">切换地址将退出当前账号，需要重新登录。这里仅保存服务地址。</p><button type="submit" className="primary-action wide-action" disabled={busy}>{busy?"正在保存…":"保存并重新载入"}</button></form></ModalFrame>;
+  const transportHelp=lanTestBuild?"局域网测试包可填写同一路由器内的私有 IP HTTP 地址，例如 http://192.168.0.100:8080。":"填写你信任的 HTTPS 服务地址，例如 https://assist.example.com。";
+  const validationError=lanTestBuild?"请输入有效的 HTTPS 地址，或局域网私有 IPv4 HTTP 根地址。":"请输入有效的 HTTPS 根地址，不包含账号、路径或参数。";
+  return <ModalFrame title="连接服务设置" onClose={onClose} className="server-dialog"><span className="eyebrow">连接你的服务</span><h2>手机和电脑用同一地址</h2><p>{lanTestBuild?"仅用于同一路由器的测试服务。":"填写手机和电脑都能访问的 RemoteAssist HTTPS 服务地址。跨网连接时可能需要中继服务。"}</p><form noValidate onSubmit={event=>{event.preventDefault();if(busy)return;let next:string;try{next=normalizeServerAddress(url);}catch{setError(validationError);return;}setBusy(true);void onSave(next).catch(()=>{setError("保存失败，请重试。");setBusy(false);});}}>
+    <FloatingField label="服务地址" help={transportHelp} value={url} onChange={event=>{setURL(event.target.value);setError("");}} type="url" autoCapitalize="none" spellCheck={false} autoComplete="url" data-initial-focus required error={error} disabled={busy}/><p className="field-hint">切换地址将退出当前账号，需要重新登录。这里仅保存服务地址。</p><button type="submit" className="primary-action wide-action" disabled={busy}>{busy?"正在保存…":"保存并重新载入"}</button></form></ModalFrame>;
 }

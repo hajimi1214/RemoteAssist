@@ -1,3 +1,5 @@
+import { allowsLanHttp } from "./lanTest.ts";
+
 export type MobileAction = { type: "mouse_move" | "mouse_down" | "mouse_up" | "mouse_wheel" | "key_down" | "key_up" | "text_input" | "release_all"; payload?: Record<string, unknown> };
 export type TouchPoint = { id: number; x: number; y: number; clientX: number; clientY: number; at: number };
 export const TOUCH_TAP_SLOP = 14;
@@ -129,6 +131,6 @@ export function validRemoteText(text: string): boolean {
 
 export function normalizeServerAddress(value: string): string {
   const url = new URL(value.trim());
-  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || url.pathname !== "/") throw new Error("请输入 HTTPS 服务根地址，例如 https://assist.example.com，不包含账号、路径或参数。");
+  if (!(url.protocol === "https:" || allowsLanHttp(url)) || url.username || url.password || url.search || url.hash || url.pathname !== "/") throw new Error("请输入 HTTPS 服务根地址，例如 https://assist.example.com，不包含账号、路径或参数。");
   return url.origin;
 }

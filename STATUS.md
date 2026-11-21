@@ -1,5 +1,11 @@
 # Status
 
+## M25 LAN acceptance preparation
+
+- Add a dedicated Windows debug installer and a local in-memory signaling launch script for same-router testing. Only debug builds with the explicit `lan-test` Cargo feature allow RFC1918 IPv4 HTTP; normal builds continue to require HTTPS. The signaling listener binds to the selected local interface and keeps the existing exact Tauri origin allowlist.
+- PASS: frontend tests 99/99, production build, Rust format check and 22 tests (one visible-desktop capture smoke ignored); Windows debug NSIS installer built. LAN health endpoint returns HTTP 200 and an in-memory `hajim` test account was created on `192.168.0.100:8080`.
+- NOT VERIFIED: second Windows machine `192.168.0.102` downloading/installing the LAN package, firewall reachability, same-account video/input, direct UDP selection, and sustained performance. The local account/devices disappear when the foreground signaling process stops. LAN test credentials use cleartext HTTP and must not be reused outside this isolated test.
+
 ## Current milestone
 
 M24 — single same-account direct connection flow without per-session prompts. Reviewed 2026-11-21.
