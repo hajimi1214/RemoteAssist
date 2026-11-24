@@ -19,14 +19,14 @@ type RunningSession = {
 };
 
 /** Account/device authorization happens independently inside the native accept command. */
-export function useDirectHost(auth: AuthResult | null, device: Device | null, signaling: SignalingClient) {
+export function useDirectHost(auth: AuthResult | null, device: Device | null, signaling: SignalingClient, enabled = true) {
   const [state, setState] = useState({ active: false, name: "", error: "" });
   const latest = useRef(auth); latest.current = auth;
   const stopRef = useRef<() => void>(() => {});
   const [paused, setPaused] = useState(false);
   useEffect(() => {
     setState({active:false,name:"",error:""});
-    if (!nativeDesktop || !auth || !device || paused) return;
+    if (!nativeDesktop || !enabled || !auth || !device || paused) return;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let current: RunningSession | undefined;
@@ -117,6 +117,6 @@ export function useDirectHost(auth: AuthResult | null, device: Device | null, si
     };
     void poll();
     return () => { disposed = true; clearTimeout(timer); stop(); };
-  }, [auth?.user.id, device?.id, paused, signaling]);
+  }, [auth?.user.id, device?.id, paused, signaling, enabled]);
   return { ...state, paused, pause: () => { stopRef.current(); setPaused(true); }, resume: () => setPaused(false) };
 }

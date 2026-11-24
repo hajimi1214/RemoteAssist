@@ -421,12 +421,154 @@ fn clear_input_authorization(state: State<'_, AppState>) -> Result<(), InputErro
 
 #[derive(serde::Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct DirectAcceptance {
+struct CaptureApproval {
     id: String,
     controller_token: String,
     state: String,
     expires_at: String,
-    host_device_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    host_device_id: Option<String>,
+}
+
+#[cfg(windows)]
+async fn authorize_capture(
+    server_url: String,
+    session_id: String,
+    device_id: Option<String>,
+    host_token: String,
+    access_token: Option<String>,
+    body: serde_json::Value,
+    request_id: String,
+    state: &AppState,
+) -> Result<CaptureApproval, String> {
+    if state.capture_starting.swap(true, Ordering::AcqRel) {
+        return Err("capture_busy".into());
+    }
+    let _flight = FlightGuard(&state.capture_starting);
+    let mut base = reqwest::Url::parse(&server_url).map_err(|_| "invalid_service")?;
+    let local = matches!(base.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
+    let lan_test_http = cfg!(feature = "lan-test")
+        && cfg!(debug_assertions)
+        && base.scheme() == "http"
+        && is_private_lan_ipv4(base.host_str());
+    if !(base.scheme() == "https"
+        || cfg!(debug_assertions) && local && base.scheme() == "http"
+        || lan_test_http)
+        || !base.username().is_empty()
+        || base.password().is_some()
+        || base.query().is_some()
+        || base.fragment().is_some()
+        || base.path() != "/"
+    {
+        return Err("invalid_service".into());
+    }
+    let valid_id = |value: &str| {
+        !value.is_empty()
+            && value.len() <= 128
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+    };
+    if !valid_id(&session_id)
+        || !valid_id(&request_id)
+        || device_id.as_deref().is_some_and(|id| !valid_id(id))
+        || host_token.len() < 16
+        || host_token.len() > 512
+        || access_token
+            .as_ref()
+            .is_some_and(|token| token.is_empty() || token.len() > 4096)
+    {
+        return Err("invalid_capture_request".into());
+    }
+    let generation = {
+        let mut capture = state.capture.lock().map_err(|_| "capture_busy")?;
+        if capture.request_id.is_some() {
+            return Err("capture_busy".into());
+        }
+        capture.generation = capture.generation.wrapping_add(1);
+        capture.request_id = Some(request_id.clone());
+        capture.generation
+    };
+    let _pending = PendingCaptureGuard {
+        state: state.capture.clone(),
+        request_id,
+    };
+    let path = match device_id.as_deref() {
+        Some(device) => format!("/api/v1/devices/{device}/direct-sessions/{session_id}/accept"),
+        None => format!("/api/v1/share-sessions/{session_id}/approve"),
+    };
+    base.set_path(&path);
+    let client_builder = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none());
+    // Local development credentials must never traverse an environment proxy.
+    let client = if local || lan_test_http {
+        client_builder.no_proxy()
+    } else {
+        client_builder
+    }
+    .build()
+    .map_err(|_| "service_unavailable")?;
+    let capture = tauri::async_runtime::spawn_blocking(desktop_capture::Capture::start)
+        .await
+        .map_err(|_| "capture_start_failed")??;
+    {
+        let active = state.capture.lock().map_err(|_| "capture_busy")?;
+        if active.generation != generation {
+            return Err("capture_cancelled".into());
+        }
+    }
+    let mut request = client.post(base).json(&body);
+    if let Some(token) = access_token {
+        request = request.bearer_auth(token);
+    }
+    let mut response = request
+        .send()
+        .await
+        .map_err(|_| "capture_approval_failed")?;
+    if !response.status().is_success() {
+        return Err("capture_approval_denied".into());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| "invalid_capture_approval")?
+    {
+        if bytes.len() + chunk.len() > 65536 {
+            return Err("invalid_capture_approval".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let approval: CaptureApproval =
+        serde_json::from_slice(&bytes).map_err(|_| "invalid_capture_approval")?;
+    if approval.id != session_id
+        || approval.state != "AUTHORIZED_ACTIVE"
+        || approval.controller_token.len() < 16
+        || approval.controller_token.len() > 512
+        || approval.host_device_id.as_deref() != device_id.as_deref()
+    {
+        return Err("invalid_capture_approval".into());
+    }
+    let expiry = chrono::DateTime::parse_from_rfc3339(&approval.expires_at)
+        .map_err(|_| "invalid_expiry")?
+        .timestamp_millis();
+    if expiry <= now_ms() as i64 || expiry - now_ms() as i64 > 8 * 60 * 60 * 1000 {
+        return Err("invalid_expiry".into());
+    }
+    let mut capture_state = state.capture.lock().map_err(|_| "capture_busy")?;
+    if capture_state.generation != generation {
+        return Err("capture_cancelled".into());
+    }
+    let mut permission = state.permission.lock().map_err(|_| "input_unavailable")?;
+    release_pressed(&mut permission).map_err(|_| "input_release_failed")?;
+    permission.authorized = true;
+    permission.session_token = Some(approval.controller_token.clone());
+    permission.expires_at_ms = Some(expiry as u64);
+    permission.lease_deadline = Some(Instant::now() + INITIAL_INPUT_LEASE);
+    permission.recent_events.clear();
+    capture_state.active = Some((approval.controller_token.clone(), capture));
+    Ok(approval)
 }
 
 #[tauri::command]
@@ -438,7 +580,7 @@ async fn accept_direct_capture(
     host_token: String,
     request_id: String,
     state: State<'_, AppState>,
-) -> Result<DirectAcceptance, String> {
+) -> Result<CaptureApproval, String> {
     #[cfg(not(windows))]
     {
         let _ = (
@@ -454,133 +596,48 @@ async fn accept_direct_capture(
     }
     #[cfg(windows)]
     {
-        if state.capture_starting.swap(true, Ordering::AcqRel) {
-            return Err("capture_busy".into());
-        }
-        let _flight = FlightGuard(&state.capture_starting);
-        let mut base = reqwest::Url::parse(&server_url).map_err(|_| "invalid_service")?;
-        let local = matches!(base.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
-        let lan_test_http = cfg!(feature = "lan-test")
-            && cfg!(debug_assertions)
-            && base.scheme() == "http"
-            && is_private_lan_ipv4(base.host_str());
-        if !(base.scheme() == "https"
-            || cfg!(debug_assertions) && local && base.scheme() == "http"
-            || lan_test_http)
-            || !base.username().is_empty()
-            || base.password().is_some()
-            || base.query().is_some()
-            || base.fragment().is_some()
-            || base.path() != "/"
-        {
-            return Err("invalid_service".into());
-        }
-        let valid_id = |id: &str| {
-            !id.is_empty()
-                && id.len() <= 128
-                && id
-                    .bytes()
-                    .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
-        };
-        if !valid_id(&device_id)
-            || !valid_id(&session_id)
-            || !valid_id(&request_id)
-            || access_token.is_empty()
-            || access_token.len() > 4096
-            || host_token.len() < 16
-            || host_token.len() > 512
-        {
-            return Err("invalid_direct_request".into());
-        }
-        let generation = {
-            let mut lock = state.capture.lock().map_err(|_| "capture_busy")?;
-            if lock.request_id.is_some() {
-                return Err("capture_busy".into());
-            }
-            lock.generation = lock.generation.wrapping_add(1);
-            lock.request_id = Some(request_id.clone());
-            lock.generation
-        };
-        let _pending = PendingCaptureGuard {
-            state: state.capture.clone(),
-            request_id: request_id.clone(),
-        };
-        base.set_path(&format!(
-            "/api/v1/devices/{device_id}/direct-sessions/{session_id}/accept"
-        ));
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .redirect(reqwest::redirect::Policy::none());
-        // Local development credentials must never traverse an environment proxy.
-        let client = if local || lan_test_http {
-            client.no_proxy()
-        } else {
-            client
-        }
-        .build()
-        .map_err(|_| "service_unavailable")?;
-        let capture = tauri::async_runtime::spawn_blocking(desktop_capture::Capture::start)
-            .await
-            .map_err(|_| "capture_start_failed")??;
-        {
-            let lock = state.capture.lock().map_err(|_| "capture_busy")?;
-            if lock.generation != generation {
-                return Err("direct_cancelled".into());
-            }
-        }
-        let mut response = client
-            .post(base)
-            .bearer_auth(access_token)
-            .json(&serde_json::json!({"hostToken":host_token}))
-            .send()
-            .await
-            .map_err(|_| "direct_accept_failed")?;
-        if !response.status().is_success() {
-            return Err("direct_access_denied".into());
-        }
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| "invalid_direct_response")?
-        {
-            if bytes.len() + chunk.len() > 65536 {
-                return Err("invalid_direct_response".into());
-            }
-            bytes.extend_from_slice(&chunk);
-        }
-        let acceptance: DirectAcceptance =
-            serde_json::from_slice(&bytes).map_err(|_| "invalid_direct_response")?;
-        if acceptance.id != session_id
-            || acceptance.host_device_id != device_id
-            || acceptance.state != "AUTHORIZED_ACTIVE"
-            || acceptance.controller_token.len() < 16
-            || acceptance.controller_token.len() > 512
-        {
-            return Err("invalid_direct_response".into());
-        }
-        let expiry = chrono::DateTime::parse_from_rfc3339(&acceptance.expires_at)
-            .map_err(|_| "invalid_expiry")?
-            .timestamp_millis();
-        if expiry <= now_ms() as i64 || expiry - now_ms() as i64 > 8 * 60 * 60 * 1000 {
-            return Err("invalid_expiry".into());
-        }
-        let mut lock = state.capture.lock().map_err(|_| "capture_busy")?;
-        if lock.generation != generation {
-            return Err("direct_cancelled".into());
-        }
-        let mut permission = state.permission.lock().map_err(|_| "input_unavailable")?;
-        release_pressed(&mut permission).map_err(|_| "input_release_failed")?;
-        permission.authorized = true;
-        permission.session_token = Some(acceptance.controller_token.clone());
-        permission.expires_at_ms = Some(expiry as u64);
-        permission.lease_deadline = Some(Instant::now() + INITIAL_INPUT_LEASE);
-        permission.recent_events.clear();
-        lock.active = Some((acceptance.controller_token.clone(), capture));
-        Ok(acceptance)
+        authorize_capture(
+            server_url,
+            session_id,
+            Some(device_id),
+            host_token.clone(),
+            Some(access_token),
+            serde_json::json!({"hostToken":host_token}),
+            request_id,
+            &state,
+        )
+        .await
     }
 }
 
+#[tauri::command]
+async fn accept_code_capture(
+    server_url: String,
+    session_id: String,
+    host_token: String,
+    request_id: String,
+    state: State<'_, AppState>,
+) -> Result<CaptureApproval, String> {
+    #[cfg(not(windows))]
+    {
+        let _ = (server_url, session_id, host_token, request_id, state);
+        Err("windows_host_required".into())
+    }
+    #[cfg(windows)]
+    {
+        authorize_capture(
+            server_url,
+            session_id,
+            None,
+            host_token.clone(),
+            None,
+            serde_json::json!({"token":host_token}),
+            request_id,
+            &state,
+        )
+        .await
+    }
+}
 #[tauri::command]
 fn local_device_name() -> String {
     #[cfg(windows)]
@@ -984,6 +1041,7 @@ pub fn run() {
             delete_stored_auth,
             send_input_event,
             accept_direct_capture,
+            accept_code_capture,
             next_desktop_frame,
             clear_direct_capture,
             local_device_name

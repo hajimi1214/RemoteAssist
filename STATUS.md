@@ -1,14 +1,24 @@
 # Status
 
+## M26 — distinct device and one-time assistance workflows
+
+- Separate the dashboard, same-account device list, and remote-assistance entry page. The latter uses the existing eight-digit, single-use code API for a different signed-in user, while **My Devices** keeps direct same-account connections.
+- The Windows host creates and displays a code. Code entry activates the session without another approval dialog, and the code is consumed by the first join. The host can stop it from the visible share panel. Both connection modes use the same native capture authorization and input lease.
+- Collapse the in-session toolbar to a small floating control after 1.4 seconds. Opening it exposes pause, display, tools, and disconnect actions. Disconnect returns to the workflow that started the session.
+- Reduce the requested receive jitter-buffer target on healthy paths to 15 ms for desktop and 10 ms for game mode. Raise the hint to 30/40 ms when measured loss or jitter is high. Browser implementations may clamp or ignore it.
+- PASS: frontend tests 100/100, production build, Rust format/check and 22 Rust tests (one visible-desktop capture smoke ignored); Playwright confirmed distinct dashboard/device/assistance pages and a friendly response to an invalid code. Existing Go tests cover the one-time code create/join/approve protocol.
+- NOT VERIFIED: the new code flow and floating control on two physical Windows machines, whether the user's repeated screenshot prompt is from RemoteAssist/Windows/the target app, and measured physical input-to-display improvement. The current screenshot's reported 1 ms RTT, 60 decoded fps, 0% loss, and 8 ms frame timing do not establish end-to-end mouse latency.
+
 ## M25 LAN acceptance preparation
 
 - Add a dedicated Windows debug installer and a local in-memory signaling launch script for same-router testing. Only debug builds with the explicit `lan-test` Cargo feature allow RFC1918 IPv4 HTTP; normal builds continue to require HTTPS. The signaling listener binds to the selected local interface and keeps the existing exact Tauri origin allowlist.
 - PASS: frontend tests 99/99, production build, Rust format check and 22 tests (one visible-desktop capture smoke ignored); Windows debug NSIS installer built. LAN health endpoint returns HTTP 200 and an in-memory `hajim` test account was created on `192.168.0.100:8080`.
 - NOT VERIFIED: second Windows machine `192.168.0.102` downloading/installing the LAN package, firewall reachability, same-account video/input, direct UDP selection, and sustained performance. The local account/devices disappear when the foreground signaling process stops. LAN test credentials use cleartext HTTP and must not be reused outside this isolated test.
+- NETWORK CHANGED: on 2026-11-24 this workstation no longer has `192.168.0.100`; its active WLAN address is `10.250.218.84`. `10.250.218.102` did not respond on the local subnet. Rebuild the LAN package with the current stable host address after both PCs are back on the same private LAN.
 
 ## Current milestone
 
-M24 — single same-account direct connection flow without per-session prompts. Reviewed 2026-11-21.
+M26 — separate same-account device connection and one-time code assistance workflows. Local validation complete 2026-11-24. Two-Windows acceptance remains NOT VERIFIED.
 
 ## Direct connection workflow
 

@@ -12,7 +12,7 @@ Version 0.7 refines the VelaMost-inspired light workspace, adds real local sessi
 
 Version 0.6 adds measured video diagnostics, host quality preferences, gradual quality changes, correlated heartbeat timeouts, negotiation deadlines, and latest-position mouse delivery. Read [communication and quality decisions](docs/communication-quality-0.6.md). The responsive workspace, themes and viewer controls are documented in [0.5 research](docs/research-and-decisions-0.5.md).
 
-RemoteAssist is a visible same-account remote desktop client. Signed-in devices are registered under their owner, and selecting an online Windows host starts primary-display capture and input without a code or repeated prompt. The host can stop/pause access; closing the client or signing out revokes capture/input. Escape pauses the viewer.
+RemoteAssist provides two separate connection flows. In **My Devices**, an online Windows computer under the same account opens directly without a code. In **Remote Assist**, the host creates a one-time eight-digit control code and another signed-in user enters it to connect. The host stays visible and can end either session. Closing the client or signing out revokes capture/input. Escape pauses the viewer.
 
 ## Local Development
 

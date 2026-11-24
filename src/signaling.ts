@@ -1,4 +1,4 @@
-import { configuredServer, androidClient } from "./platform";
+import { configuredServer, androidClient } from "./platform.ts";
 import { allowsLanHttp } from "./lanTest.ts";
 export type SessionState =
   | "CREATED"
@@ -30,8 +30,10 @@ export interface AuthResult {
 }
 
 export class SignalingHttpError extends Error {
-  constructor(readonly status: number, message: string) {
+  readonly status: number;
+  constructor(status: number, message: string) {
     super(message);
+    this.status = status;
     this.name = "SignalingHttpError";
   }
 }
@@ -58,18 +60,29 @@ export interface DirectSession {
   controllerDeviceId: string;
 }
 export interface DirectPending {id:string;hostToken:string;expiresAt:string;controllerDeviceName:string;hostDeviceId:string;controllerDeviceId:string}
+export interface CodeHostSession {id:string;code:string;hostToken:string;expiresAt:string}
+export interface CodeControlSession {id:string;controllerToken:string;expiresAt:string}
 
-const defaultBaseURL = configuredServer() || import.meta.env.VITE_SIGNALING_URL || (import.meta.env.DEV && !androidClient ? "http://localhost:8080" : "");
+type ClientBuildEnv = { DEV?: boolean; PROD?: boolean; VITE_SIGNALING_URL?: string };
+const clientBuildEnv = (import.meta as ImportMeta & { env?: ClientBuildEnv }).env ?? {};
+const defaultBaseURL = configuredServer() || clientBuildEnv.VITE_SIGNALING_URL || (clientBuildEnv.DEV && !androidClient ? "http://localhost:8080" : "");
 
 export class SignalingClient {
   private refreshFlight?: { token: string; result: Promise<AuthResult> };
-  constructor(private readonly baseURL = defaultBaseURL.replace(/\/$/, "")) {}
+  private readonly baseURL: string;
+  constructor(baseURL = defaultBaseURL) { this.baseURL = baseURL.replace(/\/$/, ""); }
   serviceURL():string { return this.getBaseURL(); }
   async connectDevice(accessToken:string, hostDeviceId:string, controllerDeviceId:string):Promise<DirectSession> {
     return this.request(`/api/v1/devices/${encodeURIComponent(hostDeviceId)}/connect`,{method:"POST",body:JSON.stringify({controllerDeviceId})},accessToken);
   }
   async incomingDevices(accessToken:string,hostDeviceId:string):Promise<DirectPending[]> {
     const response=await this.request<{sessions:DirectPending[]}>(`/api/v1/devices/${encodeURIComponent(hostDeviceId)}/direct-sessions`,{},accessToken);return response.sessions??[];
+  }
+  async createCodeSession(accessToken:string):Promise<CodeHostSession> {
+    return this.request("/api/v1/share-sessions",{method:"POST",body:JSON.stringify({})},accessToken);
+  }
+  async joinCodeSession(accessToken:string,code:string):Promise<CodeControlSession> {
+    return this.request("/api/v1/control-sessions/join",{method:"POST",body:JSON.stringify({code})},accessToken);
   }
 
   async register(username: string, email: string, password: string, signal?: AbortSignal): Promise<AuthResult> {
@@ -163,7 +176,7 @@ export class SignalingClient {
     const url = new URL(this.getBaseURL());
     const lanHttp = allowsLanHttp(url);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    if (import.meta.env.PROD && url.protocol !== "wss:" && !lanHttp) {
+    if (clientBuildEnv.PROD && url.protocol !== "wss:" && !lanHttp) {
       throw new Error("production_signaling_requires_tls");
     }
     url.pathname = "/api/v1/ws";
@@ -199,7 +212,7 @@ export class SignalingClient {
     } catch {
       throw new Error("invalid_signaling_service_url");
     }
-    if (!(url.protocol === "https:" || (import.meta.env.DEV && url.protocol === "http:") || allowsLanHttp(url))) {
+    if (!(url.protocol === "https:" || (clientBuildEnv.DEV && url.protocol === "http:") || allowsLanHttp(url))) {
       throw new Error("signaling_service_requires_tls");
     }
     if (url.username || url.password || url.search || url.hash) {

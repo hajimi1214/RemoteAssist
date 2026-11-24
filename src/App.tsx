@@ -19,6 +19,7 @@ import { useSessionJournal } from "./useSessionJournal";
 import { createSessionRecorder } from "./sessionJournal";
 import type { SessionSummary } from "./sessionJournal";
 import { DeviceWorkspace } from "./DeviceWorkspace";
+import { DashboardPage, RemoteAssistWorkspace } from "./WorkflowPages";
 import { useDirectHost } from "./useDirectHost";
 import { AuthDialog } from "./AuthDialog";
 import { FeedbackDialog, nativeWindow, WindowBar } from "./workspaceChrome";
@@ -43,29 +44,31 @@ export function App() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [view, setView] = useState<View>("My Devices");
   const [targetDevice,setTargetDevice]=useState<Device|null>(null);
+  const [assistCode,setAssistCode]=useState<string|null>(null);
   const [viewOnly,setViewOnly]=useState(false);
   const [serviceStatus, setServiceStatus] = useState("Disconnected");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [sessionActive, setSessionActive] = useState(false);
+  const [assistHostActive, setAssistHostActive] = useState(false);
   const [retry, setRetry] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const preferences = usePreferences();
   const journal=useSessionJournal(auth?.user.id);
-  const directHost=useDirectHost(auth,device,signaling);
+  const directHost=useDirectHost(auth,device,signaling,!assistHostActive);
   const viewRef=useRef(view); viewRef.current=view;
   const authRef = useRef(auth);
   authRef.current = auth;
 
-  function clearAccountData() { setTargetDevice(null); authRef.current = null; setUser(null); setDevice(null); setDevices([]);  setServiceStatus("Disconnected"); setView("My Devices"); }
+  function clearAccountData() { setTargetDevice(null);setAssistCode(null); authRef.current = null; setUser(null); setDevice(null); setDevices([]);  setServiceStatus("Disconnected"); setView("My Devices"); }
   function updateActivity(active: boolean) { setSessionActive(active); }
   function guard(action: () => void) { action(); }
   function requestLogin(next: View = view) { if(androidClient&&!configuredServer()&&!import.meta.env.VITE_SIGNALING_URL){setServerOpen(true);return;} if (!authLoaded) { setNotice("正在恢复登录，请稍候再试。"); return; } setLoginError(""); setAuthMode("signin"); setLoginTarget({ view: next }); }
-  function connectDevice(item:Device,watchOnly=false){if(!auth){requestLogin("My Devices");return;}guard(()=>{setViewOnly(watchOnly);setTargetDevice(item);setView("Remote Assist");});}
+  function connectDevice(item:Device,watchOnly=false){if(!auth){requestLogin("My Devices");return;}guard(()=>{setAssistCode(null);setViewOnly(watchOnly);setTargetDevice(item);setView("Remote Assist");});}
   function refreshDevices(){if(!auth||!device)return;const owner=auth.user.id;void signaling.devices(auth.accessToken,device.id).then(list=>{if(authRef.current?.user.id===owner)setDevices(list);}).catch(err=>{if(authRef.current?.user.id===owner)setError(friendlyError(err));});}
   function navigate(next: View) {
     if (next === viewRef.current) return;
-    guard(() => { if(next!=="Remote Assist")setTargetDevice(null);setView(next); });
+    guard(() => { if(next!=="Remote Assist"){setTargetDevice(null);setAssistCode(null);}else{setNotice("");}setView(next); });
   }
   useEffect(() => { headingRef.current?.focus({ preventScroll:true }); }, [view]);
 
@@ -159,7 +162,7 @@ export function App() {
   }, [auth, device?.id]);
 
   async function handleAuth(result: AuthResult, remember: boolean) {
-    const destination = loginTarget;setTargetDevice(null);
+    const destination = loginTarget;setTargetDevice(null);setAssistCode(null);
     setDevice(null); setDevices([]);  setServiceStatus("Connecting");
     setLoginTarget(null); setLoginError(""); setUser(result.user); setError("");
     setNotice("登录成功，选择在线电脑即可直接进入桌面。");
@@ -172,6 +175,7 @@ export function App() {
     authRef.current=null;
     await setAuth(null);
     setTargetDevice(null);
+    setAssistCode(null);
     setUser(null);
     setDevice(null);
     setDevices([]);
@@ -185,7 +189,7 @@ export function App() {
   const closeWindow = () => guard(() => { void getCurrentWindow().close().catch(() => setError("关闭窗口失败，请重试。")); });
 
   return (
-    <div className={`app-frame${nativeWindow ? " native-frame" : ""}${androidClient?" android-frame":""}`}><WindowBar onClose={closeWindow} onError={setError}/>
+    <div className={`app-frame${nativeWindow ? " native-frame" : ""}${androidClient?" android-frame":""}${sessionActive?" session-active":""}`}><WindowBar onClose={closeWindow} onError={setError}/>
     <main className="desktop-shell">
       <a className="skip-link" href="#workspace">跳到主要内容</a>
       <header className="app-nav">
@@ -210,23 +214,27 @@ export function App() {
         {signedIn && serviceStatus === "Disconnected" && <div className="connection-banner" role="status"><span>暂时无法连接服务器。已建立的协助不会自动重连。</span><button className="secondary-action" onClick={()=>setRetry((v)=>v+1)}>重新连接服务</button></div>}
         {error && <StatusMessage error>{error}</StatusMessage>}
         {notice && <div className="notice-banner" role="status"><span>{notice}</span><button className="link-button" onClick={()=>setNotice("")}>关闭提示</button></div>}
-        {signedIn && (view === "Dashboard" || view === "My Devices" || view === "Remote Assist" && !targetDevice) && <DeviceWorkspace devices={devices} currentDevice={device} onConnect={connectDevice} onRefresh={refreshDevices}/>}
-        {!signedIn && (view === "Dashboard" || view === "My Devices" || view === "Remote Assist") && <MobileHome signedIn={false} onConnect={()=>requestLogin("My Devices")} onServer={()=>setServerOpen(true)}/>}
-        {view === "Remote Assist" && auth && device && targetDevice && <ControlComputer key={targetDevice.id} auth={auth} target={targetDevice} controller={device} viewOnly={viewOnly} onActivity={updateActivity} onRecord={summary=>journal.add(auth.user.id,summary)} onBack={()=>{setTargetDevice(null);setView("My Devices");}}/>}
+        {view === "Dashboard" && <DashboardPage username={signedIn?user?.username:undefined} onlineDevices={devices.filter(item=>item.online&&item.osName==="Windows").length} onMyDevices={()=>navigate("My Devices")} onRemoteAssist={()=>navigate("Remote Assist")}/>}
+        {view === "My Devices" && signedIn && device && <DeviceWorkspace devices={devices} currentDevice={device} onConnect={connectDevice} onRefresh={refreshDevices}/>}
+        {view === "My Devices" && !signedIn && <MobileHome signedIn={false} onConnect={()=>requestLogin("My Devices")} onServer={()=>setServerOpen(true)}/>}
+        {view === "Remote Assist" && signedIn && auth && device && assistCode && <ControlComputer key={`code-${assistCode}`} auth={auth} controller={device} viewOnly={false} joinCode={assistCode} onActivity={updateActivity} onRecord={summary=>journal.add(auth.user.id,summary)} onBack={()=>{setAssistCode(null);setView("Remote Assist");}}/>}
+        {view === "Remote Assist" && signedIn && auth && device && !targetDevice && !assistCode && <RemoteAssistWorkspace auth={auth} device={device} signaling={signaling} onLogin={()=>requestLogin("Remote Assist")} onJoin={code=>{setTargetDevice(null);setAssistCode(code);}} onActivity={updateActivity} onHostActive={setAssistHostActive} onRecord={summary=>journal.add(auth.user.id,summary)}/>}
+        {view === "Remote Assist" && !signedIn && <RemoteAssistWorkspace auth={null} device={null} signaling={signaling} onLogin={()=>requestLogin("Remote Assist")} onJoin={()=>undefined} onActivity={updateActivity} onHostActive={()=>undefined} onRecord={()=>undefined}/>}
+        {view === "Remote Assist" && auth && device && targetDevice && <ControlComputer key={`device-${targetDevice.id}`} auth={auth} target={targetDevice} controller={device} viewOnly={viewOnly} onActivity={updateActivity} onRecord={summary=>journal.add(auth.user.id,summary)} onBack={()=>{setTargetDevice(null);setView("My Devices");}}/>}
         {!signedIn && view === "Sessions" && <MobileGuestPage page="Sessions" onLogin={()=>requestLogin("Sessions")} onServer={()=>setServerOpen(true)}/>}
         {view === "Sessions" && signedIn && <SessionsPage records={journal.records} persist={journal.persist} storageError={journal.storageError} onPersistence={journal.setPersistence} onClear={journal.clear} onRetryStorage={journal.retryStorage} onStart={()=>navigate("My Devices")} />}
         {view === "Settings" && <SettingsPage onLogin={()=>requestLogin()} onChangeServer={()=>guard(()=>setServerOpen(true))} onNavigate={next=>navigate(next)} onFeedback={()=>setFeedbackOpen(true)} user={publicView} device={device} version={appVersion} serviceStatus={serviceStatus} preferences={preferences} auth={auth} signaling={signaling} />}
-        {signedIn && !controllerOnly && <div className={`direct-host-indicator${directHost.active?" host-connected":""}`} role="status"><Icon name="monitor"/><span>{directHost.active?`${directHost.name} 正在控制这台电脑`:directHost.paused?"本机远程访问已暂停":"同账号远程访问已开启"}{directHost.error&&<small>{directHost.error}</small>}</span><button onClick={directHost.paused?directHost.resume:directHost.pause}>{directHost.paused?"恢复访问":directHost.active?"停止并暂停访问":"暂停访问"}</button></div>}
+        {signedIn && !controllerOnly && !assistHostActive && <div className={`direct-host-indicator${directHost.active?" host-connected":""}`} role="status"><Icon name="monitor"/><span>{directHost.active?`${directHost.name} 正在控制这台电脑`:directHost.paused?"本人设备直连已暂停":"同账号本人设备直连已开启"}{directHost.error&&<small>{directHost.error}</small>}</span><button onClick={directHost.paused?directHost.resume:directHost.pause}>{directHost.paused?"恢复访问":directHost.active?"停止并暂停访问":"暂停访问"}</button></div>}
       </section>
-      <footer className="workspace-footer"><span>RemoteAssist {appVersion}</span><button className="feedback-trigger" onClick={() => setFeedbackOpen(true)}>使用反馈<Icon name="arrow"/></button><span>{sessionActive?"协助进行中 · 离开页面将结束连接":"同账号直连 · 随时结束"}</span></footer>
+      <footer className="workspace-footer"><span>RemoteAssist {appVersion}</span><button className="feedback-trigger" onClick={() => setFeedbackOpen(true)}>使用反馈<Icon name="arrow"/></button><span>{sessionActive?"协助进行中 · 悬浮球可结束":"本人设备直连 · 远程协助使用一次性操控码"}</span></footer>
       {serverOpen && <ServerDialog onClose={()=>setServerOpen(false)} onSave={async url=>{await signOut();localStorage.setItem("remoteassist.serverURL",url);window.location.reload();}}/>}
-      {loginTarget && <AuthDialog mode={authMode} error={loginError} onError={setLoginError} onMode={setAuthMode} onAuth={handleAuth} signaling={signaling} onClose={() => { setLoginTarget(null); setLoginError(""); }} purpose={secureCredentialStorage?"登录后可直接连接同账号在线电脑。此 Windows 电脑默认记住登录，被控电脑需开机并运行客户端。":"登录后可直接连接同账号在线电脑。被控电脑需开机并运行客户端。"}/>}
+      {loginTarget && <AuthDialog mode={authMode} error={loginError} onError={setLoginError} onMode={setAuthMode} onAuth={handleAuth} signaling={signaling} onClose={() => { setLoginTarget(null); setLoginError(""); }} purpose={loginTarget.view==="Remote Assist"?"两端分别登录后，用一次性操控码建立本次协助。":secureCredentialStorage?"登录后可直接连接同账号在线电脑。此 Windows 电脑默认记住登录，被控电脑需开机并运行客户端。":"登录后可直接连接同账号在线电脑。被控电脑需开机并运行客户端。"}/>}
       {feedbackOpen && <FeedbackDialog version={appVersion} page={pages[view].title} connection={signedIn ? serviceStatus : "未登录"} onClose={() => setFeedbackOpen(false)}/>}
     </main></div>
   );
 }
 
-function ControlComputer({ auth, target, controller, viewOnly, onBack, onActivity, onRecord }: { auth: AuthResult; target:Device;controller:Device;viewOnly:boolean;onBack:()=>void;onActivity: (active: boolean) => void; onRecord:(summary:SessionSummary)=>void }) {
+function ControlComputer({ auth, target, controller, viewOnly, joinCode, onBack, onActivity, onRecord }: { auth: AuthResult; target?:Device;controller:Device;viewOnly:boolean;joinCode?:string;onBack:()=>void;onActivity: (active: boolean) => void; onRecord:(summary:SessionSummary)=>void }) {
   const recorder=useRef<ReturnType<typeof createSessionRecorder>|null>(null);
   const latestAuth=useRef(auth);latestAuth.current=auth;
   const [status, setStatus] = useState("Idle");
@@ -251,6 +259,7 @@ function ControlComputer({ auth, target, controller, viewOnly, onBack, onActivit
   const generationRef = useRef(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const targetName = target ? target.note || target.deviceName : "一次性远程协助";
 
   async function connect() {
     if (connectingRef.current) return;
@@ -259,7 +268,12 @@ function ControlComputer({ auth, target, controller, viewOnly, onBack, onActivit
     const generation = ++generationRef.current;
     recorder.current=createSessionRecorder("control",onRecord);
     try {
-      const joined = await signaling.connectDevice(latestAuth.current.accessToken,target.id,controller.id);
+      const joined = joinCode
+        ? await signaling.joinCodeSession(latestAuth.current.accessToken, joinCode)
+        : target
+          ? await signaling.connectDevice(latestAuth.current.accessToken,target.id,controller.id)
+          : undefined;
+      if (!joined) throw new Error("invalid_connection_target");
       if (!connectingRef.current || generationRef.current !== generation) { await signaling.disconnect(joined.id, joined.controllerToken).catch(() => undefined); return; }
       sessionRef.current = joined;
       setSession({ id: joined.id, controllerToken: joined.controllerToken });
@@ -294,8 +308,8 @@ function ControlComputer({ auth, target, controller, viewOnly, onBack, onActivit
       };
       ws.onclose = () => disconnect("Disconnected");
       ws.onerror = () => disconnect("Connection failed");
-      readyTimer.current=window.setTimeout(()=>{setError("设备暂未就绪。请确认电脑客户端已升级到 0.10 或更新版本、保持登录且没有暂停远程访问。");disconnect("failed");},55_000);
-    } catch (err) { if (generationRef.current === generation) { setError(friendlyError(err)); disconnect("failed"); } }
+      readyTimer.current=window.setTimeout(()=>{setError(joinCode?"操控码暂未建立连接，请确认对方电脑仍在等待协助并且操控码未过期。":"设备暂未就绪。请确认电脑客户端已升级、保持登录且没有暂停远程访问。");disconnect("failed");},55_000);
+    } catch (err) { if (generationRef.current === generation) { setError(joinCode&&err instanceof SignalingHttpError&&err.status===404?"操控码无效、已过期或已经使用，请让对方重新生成。":friendlyError(err)); disconnect("failed"); } }
   }
 
   function sendPointer(type: "mouse_move" | "mouse_down" | "mouse_up", ev: React.PointerEvent<HTMLVideoElement>) {
@@ -374,13 +388,13 @@ function ControlComputer({ auth, target, controller, viewOnly, onBack, onActivit
 
   return (
     <section className="panel control-panel" id="control-panel" aria-label="远程桌面连接">
-      <div className="panel-heading"><button className="secondary-action" onClick={()=>{disconnect("Stopped by controller");onBack();}}>返回设备</button><h2>{target.note||target.deviceName}</h2><span className={`presence ${status==="connected"?"online":"offline"}`} role="status"><i />{connectionLabel(status)}</span></div>
+      <div className="panel-heading"><button className="secondary-action" onClick={()=>{disconnect("Stopped by controller");onBack();}}>{joinCode?"返回远程协助":"返回我的设备"}</button><h2>{targetName}</h2><span className={`presence ${status==="connected"?"online":"offline"}`} role="status"><i />{connectionLabel(status)}</span></div>
       {error&&<StatusMessage error>{error}</StatusMessage>}
       {inputNotice&&<StatusMessage>{inputNotice}</StatusMessage>}
       {qualityNotice&&<p className="field-hint" role="status">{qualityNotice}</p>}
       {!session&&!busy&&<button className="primary-action" onClick={()=>void connect()}>重新连接</button>}
       {busy&&<p role="status">正在连接设备…</p>}
-      <RemoteScreen qualityMode={qualityMode} gameInputSupported={gameInputSupported} onGameMouse={sendGameMouse} onQualityModeChange={qualityControl?mode=>{if(mode==="game"&&!gameInputSupported)return;qualityModeRef.current=mode;setQualityMode(mode);writePreference("remoteassist.qualityMode",mode);setQualityNotice(peerRef.current?.setQualityMode(mode)?"正在调整电脑端画质…":"画质未调整，连接可能已断开。");}:undefined} telemetry={telemetry} latency={latency} onMobileAction={sendMobile} textSupported={textSupported} videoRef={videoRef} connected={status==="connected"} autoFullscreen autoControl={!viewOnly} deviceName={target.note||target.deviceName} status={connectionLabel(status)} onPointer={sendPointer} onKey={sendKey} onWheel={sendWheel} onRelease={releaseInputs} onDisconnect={()=>disconnect("Stopped by controller")} />
+      <RemoteScreen qualityMode={qualityMode} gameInputSupported={gameInputSupported} onGameMouse={sendGameMouse} onQualityModeChange={qualityControl?mode=>{if(mode==="game"&&!gameInputSupported)return;qualityModeRef.current=mode;setQualityMode(mode);writePreference("remoteassist.qualityMode",mode);setQualityNotice(peerRef.current?.setQualityMode(mode)?"正在调整电脑端画质…":"画质未调整，连接可能已断开。");}:undefined} telemetry={telemetry} latency={latency} onMobileAction={sendMobile} textSupported={textSupported} videoRef={videoRef} connected={status==="connected"} autoFullscreen autoControl={!viewOnly} deviceName={targetName} status={connectionLabel(status)} onPointer={sendPointer} onKey={sendKey} onWheel={sendWheel} onRelease={releaseInputs} onDisconnect={()=>{disconnect("Stopped by controller");onBack();}} />
       <dl className="connection-details"><div><dt>连接状态</dt><dd>{connectionLabel(status)}</dd></div><div><dt>传输路径</dt><dd>{relay==="P2P"?"设备直连":relay==="TURN Relay"?"中继连接":"等待连接"}</dd></div><div><dt>往返延迟</dt><dd>{latency == null ? "待测量" : `${latency} ms`}</dd></div></dl>
       <ConnectionDiagnostics sample={telemetry} />
     </section>

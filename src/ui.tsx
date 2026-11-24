@@ -169,10 +169,20 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
   useEffect(()=>{gameMouse.current.reset();},[gameSensitivity,inputEnabled,gamePointerLocked,connected,toolsOpen]);
   useEffect(()=>{
     clearTimeout(compactTimer.current);setCompact(false);
-    if(autoCompact&&immersive&&connected&&!toolsOpen)compactTimer.current=setTimeout(()=>setCompact(true),3500);
+    if(autoCompact&&immersive&&connected&&!toolsOpen)compactTimer.current=setTimeout(()=>{
+      const bar=surface.current?.querySelector<HTMLElement>(".screen-floating-bar");
+      if(!bar?.matches(":hover")&&!bar?.contains(document.activeElement))setCompact(true);
+    },1400);
     return()=>clearTimeout(compactTimer.current);
   },[autoCompact,immersive,connected,toolsOpen]);
-  function revealBar(){setCompact(false);clearTimeout(compactTimer.current);if(autoCompact&&immersive&&connected&&!toolsOpen)compactTimer.current=setTimeout(()=>setCompact(true),3500);}
+  function scheduleCompact(){
+    clearTimeout(compactTimer.current);
+    if(autoCompact&&immersive&&connected&&!toolsOpen)compactTimer.current=setTimeout(()=>{
+      const bar=surface.current?.querySelector<HTMLElement>(".screen-floating-bar");
+      if(!bar?.matches(":hover")&&!bar?.contains(document.activeElement))setCompact(true);
+    },1400);
+  }
+  function revealBar(){setCompact(false);scheduleCompact();}
 
   useEffect(()=>{if(toolContent.current)toolContent.current.scrollTop=0;},[tool,toolsOpen]);
 
@@ -303,13 +313,13 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
   const advice=telemetry?connectionHealth(telemetry):null;
   const route=telemetry?routeDescription(telemetry):"检测路径";
   return <div ref={surface} className={`remote-screen modern-screen touch-mode-${touchMode}${inputEnabled&&!toolsOpen?" input-active":""}${connected?" session-present":""}${expanded?" expanded-screen":""}${toolsOpen?" tools-open":""}`}>
-    <div className={`screen-floating-bar${compact?" bar-compact":""}`} role="group" aria-label="远程桌面快捷操作" onPointerEnter={revealBar} onFocusCapture={revealBar}>
+    {compact&&connected?<button type="button" className="screen-floating-ball" aria-label="显示远程控制工具" title={`${deviceName} · ${controlState}`} onClick={revealBar}><Icon name="devices"/></button>:<div className="screen-floating-bar" role="group" aria-label="远程桌面快捷操作" onPointerEnter={revealBar} onPointerLeave={scheduleCompact} onFocusCapture={revealBar}>
       <span className="screen-floating-name" title={deviceName}><i className={inputEnabled?"control-ready":""}/><span>{deviceName}<small>{controlState} · 解码 {measured(telemetry?.fps,"fps",1)} · {measured(measuredRtt,"ms")}</small></span></span>
       <button ref={toolToggle} className="screen-menu-toggle" aria-label={toolsOpen?"收起工具":"工具"} title={toolsOpen?"收起工具":"工具"} aria-expanded={toolsOpen} aria-controls={`${helpId}-tools`} onClick={toggleTools}><Icon name="settings"/></button>
       {connected&&<button disabled={!hasVideo} aria-label={controlLabel} title={controlLabel} onClick={toggleInput}><Icon name={inputEnabled?"pause":"play"}/></button>}
       <button className="screen-floating-exit" aria-label={fullscreenLabel} title={fullscreenLabel} onClick={()=>void (immersive?exitFullscreen():enterFullscreen())}><Icon name={immersive?"shrink":"expand"}/></button>
       {connected&&<button className="screen-floating-disconnect" aria-label="断开" title="断开连接" onClick={()=>{onRelease();onDisconnect();}}><Icon name="stop"/></button>}
-    </div>
+    </div>}
     <div ref={viewport} className={`remote-viewport ${mode==="fit"?"fit":mode==="fill"?"fill":"zoomed"}`}>
       <div className="video-space" style={hasVideo?{width:mode==="fill"?size.width:Math.max(size.width,layout.width),height:mode==="fill"?size.height:Math.max(size.height,layout.height)}:undefined}>
         <video ref={videoRef} autoPlay playsInline tabIndex={hasVideo&&!toolsOpen?0:-1} aria-label="远程桌面画面" aria-describedby={helpId}

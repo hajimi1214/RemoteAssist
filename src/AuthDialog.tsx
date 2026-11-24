@@ -81,6 +81,6 @@ export function AuthDialog({ mode, error, onError, onMode, onAuth, signaling, on
           <p className="auth-switch">{mode === "register" && registerStep === 1 && <button type="button" className="link-button" disabled={busy} onClick={() => { setRegisterStep(0); setFieldErrors({}); setFocusField("username"); }}>上一步</button>}{mode === "signin" ? "还没有账号？" : "已经有账号？"}<button type="button" className="link-button" disabled={busy} onClick={changeMode}>{mode === "signin" ? "创建账号" : "返回登录"}</button></p>
         </form>
     </div>
-    <p className="login-reassurance"><Icon name="shield"/>同账号设备直接连接，随时停止远程访问。</p>
+    <p className="login-reassurance"><Icon name="shield"/>本人设备可直接连接，也可用一次性操控码协助他人。</p>
   </ModalFrame>;
 }
