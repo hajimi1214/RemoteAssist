@@ -1,5 +1,17 @@
 # Status
 
+## M35 — live signaling API flow checks
+
+- In the running in-memory service, two different test accounts created and joined a one-time assistance code. Reusing the code was rejected; the host then rejected the pending session.
+- Under `hajim`, two temporary Windows device records completed direct-session creation and host acceptance, returning `AUTHORIZED_ACTIVE`. The test revoked both temporary devices and confirmed none remained.
+- These checks exercise live HTTP signaling endpoints only. No real device media, input, or cross-PC network path was exercised.
+
+## M34 — LAN test service and accounts prepared
+
+- Started the in-memory signaling service on `192.168.0.101:8080` and a static package server on `192.168.0.101:8090`. `/healthz` and the installer HEAD request returned 200; the served installer is 3,229,002 bytes with the recorded SHA-256.
+- Recreated disposable `hajim` and `hajim-assist` accounts in the memory store. Both local login/logout checks passed. Account records are lost when the signaling process stops.
+- `.100` responds to ICMP. TCP reachability from `.100` to `.101` still awaits checking on that PC. No firewall setting was changed. Keep the test services open only for the manual run, then stop them.
+
 ## M33 — Chromium loopback verifies startup profile and immersive viewer
 
 - Extended the existing real-PeerConnection loopback to assert the host applies `Balanced` before negotiation, then accepts a controller switch to the game profile. Chromium reports the 640×360 game target at 1,120 kbps under the Balanced tier, and the full loopback sequence passes.
