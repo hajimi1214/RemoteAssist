@@ -11,6 +11,7 @@
 - Follow-up hardening continued from local commit `bd9334c8daeeccec4d81157330d575aec89e9fa7`, retaining the `0.15.1-alpha` app version.
 - `govulncheck` initially found 14 reachable findings across the Go 1.26.4 standard library, Gorilla WebSocket 1.5.3 and old `x/crypto` packages. Upgraded to the patched Gorilla WebSocket commit, `golang.org/x/crypto` v0.59.0 and selected `x/net`/`x/sys` dependencies. This raises the Go module floor from 1.24 to 1.26.0. Pinned local module and CI toolchains to Go 1.26.11, where `govulncheck ./...` reports no vulnerabilities.
 - Ran `go test -race ./...` successfully with a temporary LLVM-MinGW C compiler and `CGO_ENABLED=1`. The compiler archive was stored outside the repository and no runtime dependency was added.
+- Pinned the Go container build to `golang:1.26.11-alpine` and added pinned Go/Rust advisory scans to CI. The Docker registry manifest lookup confirmed the tag exists. A local Docker image build was unavailable because Docker Desktop's service is not accessible on this host.
 - Cargo audit found two Rust vulnerabilities in transitive `url` 2.5.8 and `cookie` 0.18.2. Updated them to 2.5.9 and 0.18.3. Updated `rustix` 1.1.4 to 1.1.6 after a related advisory review. The refreshed audit reports zero vulnerabilities. Three informational advisories remain, covering transitive `chrono` and `proc-macro-error` maintenance status and GTK `glib` soundness on non-Windows targets.
 - Corrected the account index migration's sequence to 003 because 002 was already used for user roles. Strengthened the migration test to assert the complete existing order and SQL mirror.
 - Verified migrations 001–003 and failure rollback with the Go migration runner over a temporary PostgreSQL-wire endpoint backed by PGlite/PostgreSQL WASM. Legacy duplicate username and email cases each failed with an actionable error and left no partial indexes or version row. Re-running a clean migration completed idempotently. A standard PostgreSQL server remains untested.
@@ -67,9 +68,9 @@ Hardware encoder evaluation: NVENC is a candidate on this host's RTX 4060 and AM
 - Rust advisory scan: PASS with zero vulnerabilities. Three informational advisories remain, including two unmaintained transitive crates and a GTK `glib` soundness advisory for non-Windows targets.
 - Current Windows NSIS x64 installer: PASS, 2,433,729 bytes, SHA-256 `0CD6A59F966098F613EFC3CB05DF6CB7B077F7C141D424C03D787C8F88A1BCF2`, `NotSigned`.
 - Portable Windows EXE: PASS, 10,611,712 bytes, SHA-256 `46924AC879BAA12BB7551142A1EACA393D2260885B4572AED4B2FE230C9CF5DC`, `NotSigned`.
-- Current LAN test NSIS package: PASS, 3,225,414 bytes, SHA-256 `F8FD304909C2661D882B1CF39F7E87DB629CE4A6AC8F619432DB6FC94FFFDFB5`, configured for `192.168.0.101:8080` with a matching exact-origin HTTP/WS CSP.
+- Current LAN test NSIS package: PASS, 3,228,005 bytes, SHA-256 `0FFDE82F1D7C79F80BCF778BFF98C045E6671D51583E4519480E3A6864D8240F`, configured for `192.168.0.101:8080`. Its generated JavaScript bundle and CSP both match the exact HTTP/WS origin.
 - Neither artifact embeds a production signaling domain. They verify build/packaging only and require a configured HTTPS service before operational use.
-- Physical second-Windows installation, same-LAN flows, public STUN/TURN and long-session behavior: NOT VERIFIED. Current host address is `192.168.0.101`; the network is classified Public and observed peer service ports are closed.
+- Physical second-Windows installation, same-LAN flows, public STUN/TURN and long-session behavior: NOT VERIFIED. Current host address is `192.168.0.101`; the network is classified Public and observed peer service ports are closed. A final audit also found pre-existing test listeners on the stale `192.168.1.102:8080` and `:8090` addresses. They were not started or stopped in this turn.
 
 ## Security review notes
 

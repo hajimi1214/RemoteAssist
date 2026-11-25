@@ -35,6 +35,15 @@ jobs:
           cache: true
       - run: go test -race ./...
       - run: go vet ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
+
+  rust-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-audit --version 0.23.0 --locked --jobs 2
+      - run: cargo audit --file src-tauri/Cargo.lock
 
   desktop-windows:
     runs-on: windows-latest

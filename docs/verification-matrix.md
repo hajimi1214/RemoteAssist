@@ -33,5 +33,6 @@ This matrix describes evidence from the current source and current-machine check
 | Go module checksums | VERIFIED | `go mod verify` reports all cached modules verified. |
 | npm dependency audit | VERIFIED | `npm audit` reported 0 vulnerabilities. |
 | Go/Rust advisory scan | VERIFIED, current local lockfiles | `govulncheck ./...` reports no reachable Go vulnerabilities on Go 1.26.11. Cargo audit reports zero Rust vulnerabilities after updating `url`, `cookie` and `rustix`; three informational advisories remain for two transitive unmaintained crates and GTK `glib` soundness outside the Windows target. |
+| CI security gates | VERIFIED, workflow syntax | `.github/workflows/ci.yml` includes pinned Go/Rust advisory scans; `actionlint` v1.7.7 reports no workflow errors. The remote GitHub Actions run remains unverified because the branch has not been pushed. |
 
 No test result in this matrix implies that physical input-to-photon latency, panel scanout, 4K60 gameplay or public relay capacity was measured.

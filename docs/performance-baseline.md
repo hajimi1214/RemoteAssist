@@ -54,14 +54,14 @@ The GPU timer measures asynchronous GPU execution between the timer-query marker
 - Rust advisory remediation updated `url`, `cookie` and `rustix` in the lockfile. No GPU timer or runtime vendor SDK dependency was added.
 - Windows x64 NSIS installer: PASS, 2,433,729 bytes, SHA-256 `0CD6A59F966098F613EFC3CB05DF6CB7B077F7C141D424C03D787C8F88A1BCF2`, `NotSigned`.
 - Portable Windows EXE: PASS, 10,611,712 bytes, SHA-256 `46924AC879BAA12BB7551142A1EACA393D2260885B4572AED4B2FE230C9CF5DC`, `NotSigned`.
-- LAN test NSIS installer: PASS, 3,225,414 bytes, SHA-256 `F8FD304909C2661D882B1CF39F7E87DB629CE4A6AC8F619432DB6FC94FFFDFB5`, configured for `192.168.0.101:8080`. Generated CSP allows Tauri IPC, loopback and that exact HTTP/WS origin.
+- LAN test NSIS installer: PASS, 3,228,005 bytes, SHA-256 `0FFDE82F1D7C79F80BCF778BFF98C045E6671D51583E4519480E3A6864D8240F`, configured for `192.168.0.101:8080`. Generated JavaScript and CSP both match that exact HTTP/WS origin and contain no generic HTTPS/WSS sources.
 - Release artifacts contain no production signaling domain. They build and package successfully but need a configured HTTPS service before operational use.
 
 ## Verification gaps
 
 - Go Race and Go advisory scans passed on the upgraded local Go toolchain. The temporary cross-compiler is not part of the product or repository.
 - Cargo audit reported three informational Rust advisories after fixing all vulnerabilities. The `glib` soundness advisory is limited to GTK's Linux target and is not in the Windows target dependency graph. The two unmaintained crates are transitive build/runtime dependencies with no fixed version currently offered by RustSec.
-- No physical RemoteAssist session, two-account code session, public DNS/TLS, TURN UDP/TCP, weak-network run, 30-minute session, or route-change recovery was tested. The latest host address is `192.168.0.101`, and Windows currently classifies its network as Public, so listener startup and peer installation remain pending.
+- No physical RemoteAssist session, two-account code session, public DNS/TLS, TURN UDP/TCP, weak-network run, 30-minute session, or route-change recovery was tested. The latest host address is `192.168.0.101`, and Windows currently classifies its network as Public. Pre-existing listeners were observed on stale `192.168.1.102:8080` and `:8090`; this turn did not create or stop them.
 - No sustained WebView2 encoder selection/FPS, actual monitor scanout, 4K game capture or physical input-to-photon P50/P95 was measured. A synchronized optical measurement is required for input-to-display latency.
 
 ## Historical repository baseline

@@ -4,14 +4,15 @@
 
 - Continued from local commit `bd9334c8daeeccec4d81157330d575aec89e9fa7`. All work remains on the local engineering branch; no push or release was performed.
 - Found and fixed reachable Go vulnerability advisories, including the 2026 Gorilla WebSocket issue and Go standard-library advisories. Upgraded Gorilla WebSocket to its patched upstream commit, `golang.org/x/crypto` to v0.59.0, its selected `x/net`/`x/sys` dependencies, and pinned CI/toolchain to Go 1.26.11.
+- Pinned the Go Docker build image to `golang:1.26.11-alpine` after confirming the registry tag exists. Added pinned `govulncheck` and Rust `cargo-audit` gates to CI.
 - PASS: `govulncheck ./...` reports no vulnerabilities on Go 1.26.11. `go test -race ./...`, normal Go tests, Vet and module verification pass using a temporary LLVM-MinGW C compiler outside the repository.
 - Fixed the migration sequence collision by renaming the case-insensitive account migration to 003 after the pre-existing user-role migration 002. A local PostgreSQL-wire server backed by PostgreSQL WASM exercised the Go migration runner, idempotent repeat, both unique indexes, both legacy collision failures, and rollback without partial indexes.
 - Upgraded Rust `url` to 2.5.9, `cookie` to 0.18.3, and `rustix` to 1.1.6. Cargo audit reports zero vulnerabilities. Informational warnings remain for transitive `chrono` and `proc-macro-error` maintenance status and Linux GTK `glib` unsoundness; the GTK issue is outside the supported Windows target.
 - Added asynchronous WebGL disjoint timer queries, sampled once per 30 drawn updates, with at most eight pending queries, no synchronous result wait, disjoint-result rejection and cleanup on stream stop. The diagnostic reports GPU image-update P50/P95 and P99/max only after sufficient samples. It measures queued GPU upload/draw execution, not Canvas/WebRTC encoding, scanout or input-to-display delay.
 - PASS: frontend tests 118/118 and production build. Rust `cargo fmt --check`, locked check/test pass with 24 tests passing and one visible-desktop smoke test ignored by default. Sustained WebView2 GPU counter availability and real values remain NOT VERIFIED.
 - PASS, unsigned Windows Release: NSIS 2,433,729 bytes, SHA-256 `0CD6A59F966098F613EFC3CB05DF6CB7B077F7C141D424C03D787C8F88A1BCF2`; portable EXE 10,611,712 bytes, SHA-256 `46924AC879BAA12BB7551142A1EACA393D2260885B4572AED4B2FE230C9CF5DC`.
-- PASS, unsigned LAN debug installer: built for current `192.168.0.101:8080`, 3,225,414 bytes, SHA-256 `F8FD304909C2661D882B1CF39F7E87DB629CE4A6AC8F619432DB6FC94FFFDFB5`. Generated CSP and bundle allow only Tauri IPC, loopback and that exact HTTP/WS origin.
-- LAN status: `192.168.0.101` is assigned to this host. `.100` and `.102` responded to ICMP probes, while tested signaling/download ports on `.100` and port 8080 on `.102` were closed. Windows classifies the active Ethernet network as Public. No listener or firewall rule was opened, and two-PC application acceptance remains NOT VERIFIED.
+- PASS, unsigned LAN debug installer: built for current `192.168.0.101:8080`, 3,228,005 bytes, SHA-256 `0FFDE82F1D7C79F80BCF778BFF98C045E6671D51583E4519480E3A6864D8240F`. Generated JavaScript bundle and CSP both contain that exact HTTP/WS origin, with no generic HTTPS/WSS sources.
+- LAN status: `192.168.0.101` is assigned to this host. `.100` and `.102` responded to ICMP probes, while tested signaling/download ports on `.100` and port 8080 on `.102` were closed. Windows classifies the active Ethernet network as Public. This turn did not start a service or change firewall rules. During final audit, two pre-existing RemoteAssist test processes were observed still bound to stale `192.168.1.102:8080` and `:8090` addresses from 10:18 local time. I left those processes untouched. Two-PC application acceptance remains NOT VERIFIED.
 - NOT VERIFIED: two physical Windows computers, standard PostgreSQL server/container, actual hardware encoder selection, public STUN/TURN, 30-minute session and physical input-to-display latency.
 
 ## M27 — engineering hardening and media observability
@@ -47,7 +48,7 @@
 
 ## Current milestone
 
-M28 — dependency hardening and asynchronous GPU timing. Source validation is complete. Current-source Windows release and LAN packages are rebuilt after final code and documentation updates. Two-Windows acceptance remains NOT VERIFIED.
+M28 — dependency hardening and asynchronous GPU timing. Source validation is complete. The recorded unsigned Windows Release and LAN packages correspond to the validated desktop source. Two-Windows application acceptance remains NOT VERIFIED.
 
 ## Direct connection workflow
 
