@@ -8,6 +8,8 @@
 
 ## Work completed
 
+- Added an active-session WebSocket heartbeat regression. It proves a controller ping is answered locally with the original timestamp, the token is omitted from the pong, and the host receives no relayed probe. `go test ./...`, `go vet ./...` and `go test -race ./...` pass after the addition.
+
 - Follow-up hardening continued from local commit `bd9334c8daeeccec4d81157330d575aec89e9fa7`, retaining the `0.15.1-alpha` app version.
 - `govulncheck` initially found 14 reachable findings across the Go 1.26.4 standard library, Gorilla WebSocket 1.5.3 and old `x/crypto` packages. Upgraded to the patched Gorilla WebSocket commit, `golang.org/x/crypto` v0.59.0 and selected `x/net`/`x/sys` dependencies. This raises the Go module floor from 1.24 to 1.26.0. Pinned local module and CI toolchains to Go 1.26.11, where `govulncheck ./...` reports no vulnerabilities.
 - Ran `go test -race ./...` successfully with a temporary LLVM-MinGW C compiler and `CGO_ENABLED=1`. The compiler archive was stored outside the repository and no runtime dependency was added.

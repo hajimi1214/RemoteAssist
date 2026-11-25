@@ -1,5 +1,11 @@
 # Status
 
+## M29 — active WebSocket heartbeat regression
+
+- Added a lifecycle regression with real test WebSocket connections. An authorized controller's active-session ping receives a local pong with the original timestamp, the capability token stays private, and the host does not receive the controller's ping.
+- PASS: `go test ./...`, `go vet ./...`, and `go test -race ./...` on Go 1.26.11. No signaling behavior change was needed.
+- Local-only follow-up commit, with no push or release.
+
 ## M28 — dependency hardening and asynchronous GPU timing
 
 - Continued from local commit `bd9334c8daeeccec4d81157330d575aec89e9fa7`. All work remains on the local engineering branch; no push or release was performed.
@@ -49,7 +55,7 @@
 
 ## Current milestone
 
-M28 — dependency hardening and asynchronous GPU timing. Source validation is complete. The recorded unsigned Windows Release and LAN packages correspond to the validated desktop source. Two-Windows application acceptance remains NOT VERIFIED.
+M29 — active WebSocket heartbeat regression. Go test, Vet, and Race validation passed. M28 packages and dependency gates remain intact. Two-Windows application acceptance remains NOT VERIFIED.
 
 ## Direct connection workflow
 

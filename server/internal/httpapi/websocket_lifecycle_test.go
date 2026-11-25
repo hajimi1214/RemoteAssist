@@ -119,6 +119,46 @@ func TestWebSocketNegotiationRequiresHostApproval(t *testing.T) {
 	}
 }
 
+func TestAuthorizedControllerWebSocketPingGetsLocalPong(t *testing.T) {
+	_, store, server := newWebSocketTestServer(t, session.StoreConfig{})
+	created, hostToken, err := store.CreateShareSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, controllerToken, err := store.Join(created.Code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Approve(created.ID, hostToken); err != nil {
+		t.Fatal(err)
+	}
+	host := dialSessionPeer(t, server.URL, created.ID, hostToken, "host")
+	controller := dialSessionPeer(t, server.URL, created.ID, controllerToken, "controller")
+	probeTimestamp := time.Now().UnixMilli()
+	if err := controller.WriteJSON(map[string]any{
+		"type": "ping", "sessionId": created.ID, "sessionToken": controllerToken,
+		"ts": probeTimestamp, "payload": map[string]string{"value": "probe"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	pong := readTestSignal(t, controller)
+	if pong["type"] != "pong" || pong["sessionId"] != created.ID || pong["ts"] != float64(probeTimestamp) {
+		t.Fatalf("controller probe was not locally acknowledged with its timestamp: %#v", pong)
+	}
+	if _, leaked := pong["sessionToken"]; leaked {
+		t.Fatal("websocket pong exposed the controller capability")
+	}
+
+	if err := host.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = host.ReadMessage()
+	if timeout, ok := err.(interface{ Timeout() bool }); !ok || !timeout.Timeout() {
+		t.Fatalf("active controller ping should not be forwarded to host, read error=%v", err)
+	}
+}
+
 func TestWebSocketDuplicateRoleDoesNotReplaceOriginal(t *testing.T) {
 	_, store, server := newWebSocketTestServer(t, session.StoreConfig{})
 	created, hostToken, err := store.CreateShareSession()
