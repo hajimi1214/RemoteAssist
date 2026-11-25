@@ -79,7 +79,7 @@ Hardware encoder evaluation: NVENC is a candidate on this host's RTX 4060 and AM
 - Current LAN test NSIS package: PASS, 3,229,002 bytes, SHA-256 `750B7EECF85A5F045AF5EC1A5D77E1BE295E1DF73DFE751C7D62D5B779AF6C64`, configured for `192.168.0.101:8080`. The generated Tauri CSP contains only that private HTTP/WS origin plus IPC and loopback.
 - Neither artifact embeds a production signaling domain. They verify build/packaging only and require a configured HTTPS service before operational use.
 - Physical second-Windows installation, same-LAN flows, public STUN/TURN and long-session behavior: NOT VERIFIED. Current host address is `192.168.0.101`; the network is classified Public and observed peer service ports are closed. A final audit identified two pre-existing RemoteAssist test processes bound to stale `192.168.1.102:8080` and `:8090` addresses. After verifying their command lines, they were stopped following the runbook cleanup instruction. An unrelated loopback development service remains active.
-- The 2026-11-26 Go Race attempt could not start because the current shell has `CGO_ENABLED=0` and no C compiler in `PATH`. The prior M29 Go Race run passed on Go 1.26.11 with a temporary LLVM-MinGW compiler. Go sources were unchanged in this follow-up.
+- Go Race rerun on 2026-11-26 passed across all server packages using Go 1.26.11 and the preserved temporary LLVM-MinGW toolchain. `CGO_ENABLED` and compiler `PATH` were scoped to the test command and restored afterward. Go sources were unchanged in this follow-up.
 
 ## Security review notes
 
