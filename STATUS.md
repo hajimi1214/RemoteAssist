@@ -1,5 +1,11 @@
 # Status
 
+## M39 — awaiting interactive Windows acceptance
+
+- Rechecked Windows app discovery and the known `.100` peer. No targetable RemoteAssist desktop window or registered peer device is present; `.100` TCP 8080/8090 remain unreachable from this host. The `.101` health endpoint remains HTTP 200 and its two LAN test services stay available.
+- The local capture runner cannot open the Windows input desktop (`OpenInputDesktop` returns access denied), and DXGI fallback returns `E_ACCESSDENIED`. A normal user-launched, unlocked desktop is required to distinguish runner isolation from a product capture issue.
+- Remaining acceptance requires the user to start RemoteAssist on the Windows host and install/launch the package on `.100`, then confirm reachability and run the media/input flow. No firewall changes were made.
+
 ## M38 — DXGI initialization denial diagnosed
 
 - Ran the ignored, opt-in primary-display smoke with 12 requested samples. `DuplicateOutput1` rejected the BGRA preference with `DXGI_ERROR_UNSUPPORTED (0x887A0004)`; its compatibility fallback `DuplicateOutput` then returned `E_ACCESSDENIED (0x80070005)`. `Capture::start()` failed before acquiring any frame.
