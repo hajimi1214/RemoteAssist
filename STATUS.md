@@ -5,6 +5,11 @@
 - Launched a temporary Tauri dev page that calls `isFullscreen` and `setFullscreen`, then restores the prior window mode. The Windows automation helper returned `GetCursorPos access denied` and exposed no targetable RemoteAssist window, so no UI action or runtime result was obtained.
 - Stopped the temporary dev process and removed the smoke page/config. No product capability or firewall setting changed. Native Tauri fullscreen remains UNVERIFIED beyond successful build/config validation.
 
+## M37 — direct-device UI entry checks
+
+- Added a synthetic `DeviceWorkspace` preview with a local connection counter. Playwright clicked the focus preview, sidebar device, grid preview and list device name. Each click invoked the direct-connect callback exactly once for the same eligible online Windows device. The grid/list “Enter desktop” buttons remain explicit alternate entry points using that callback.
+- `npm test` passes 122/122 and `npm run build` passes. This verifies UI routing, not real signaling or native fullscreen. The temporary Vite server and Playwright browser were stopped.
+
 ## M35 — live signaling API flow checks
 
 - In the running in-memory service, two different test accounts created and joined a one-time assistance code. Reusing the code was rejected; the host then rejected the pending session.
