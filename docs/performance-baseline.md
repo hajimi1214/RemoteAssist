@@ -10,6 +10,8 @@ M30 follow-up adds one-click direct-device entry and full-window control, and li
 
 M30 follow-up on 2026-11-26 changes the automatic encoder policy startup from `Sharp` to `Balanced`. For a 3840×2160 source, the configured initial bitrate ceiling changes from 40 Mbps to 20 Mbps. The policy still uses measured WebRTC headroom before upgrading, while a manually selected sharp profile keeps its previous ceiling. This is a bounded startup-load change; no physical before/after session was measured.
 
+A same-browser Chromium WebRTC loopback then observed the initial Balanced HostPeer profile before a controller-selected game profile. For the synthetic 640×360 source, the game target ceiling was 1,120 kbps. A separate generated-canvas preview confirmed the viewer filled a 1280×720 viewport and auto-enabled input after video metadata. These checks cover browser behavior only, not a physical Windows session.
+
 ### DXGI request samples
 
 The explicit visible smoke pulls one DXGI frame at a time, validates the packet, and reports numeric counters only. It never writes or prints pixel data. Request-window throughput is a sequential native request burst, not negotiated WebRTC FPS. Native response time includes DXGI acquire/wait, D3D11 copy/map, packet assembly and Tauri IPC response.

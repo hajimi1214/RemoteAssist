@@ -3,6 +3,9 @@ import { createRoot } from "react-dom/client";
 import { ConfirmDialog, RemoteScreen } from "../src/ui";
 import { usePreferences } from "../src/preferences";
 import "../src/styles.css";
+import "../src/workspaceChrome.css";
+import "../src/mobile.css";
+import "../src/workflowPages.css";
 
 function Preview() {
   usePreferences();

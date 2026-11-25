@@ -1,5 +1,11 @@
 # Status
 
+## M33 — Chromium loopback verifies startup profile and immersive viewer
+
+- Extended the existing real-PeerConnection loopback to assert the host applies `Balanced` before negotiation, then accepts a controller switch to the game profile. Chromium reports the 640×360 game target at 1,120 kbps under the Balanced tier, and the full loopback sequence passes.
+- Updated the synthetic screen preview to load the application's viewer CSS. Playwright confirmed the remote surface fills a 1280×720 viewport, input auto-enables after video metadata, and the toolbar collapses to its floating button.
+- The page uses generated canvas frames and simulated input. This validates WebView behavior, not native Tauri fullscreen, physical Windows input or two-PC latency.
+
 ## M31 — Go Race revalidation
 
 - Located the previously downloaded LLVM-MinGW compiler and Go 1.26.11 toolchain in external caches. Fresh `go test -race -count=1 ./...` passed across all server packages.

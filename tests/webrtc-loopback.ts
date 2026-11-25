@@ -42,6 +42,7 @@ button.onclick = async () => {
   let host!: HostPeer;
   let latency = -1;
   let quality = "";
+  let initialQuality: string | undefined;
   let gameSupported = false;
   let gameModeApplied = false;
   let hostConnected = false;
@@ -64,24 +65,28 @@ button.onclick = async () => {
       onGameSupport: (supported) => { gameSupported = supported; },
       onQualityControl: (sample) => { gameModeApplied = sample.mode === "game" && sample.applied === true; },
       onTelemetry:(sample)=>{receiveStats=sample;diagnosticsRoot.render(createElement(ConnectionDiagnostics,{sample}));}
-    },{qualityMode:"game",loadIceServers:async()=>{controllerIceLoads++;return[];}});
+    },{loadIceServers:async()=>{controllerIceLoads++;return[];}});
     host = new HostPeer("loopback", "local-host-test-token", hostWire, [], {
       onConnectionStatus: (value) => { hostConnected = value === "connected"; },
-      onQuality: (value) => { quality = value; },
+      onQuality: (value) => { initialQuality ??= value; quality = value; },
       onTelemetry:(sample)=>{sendStats=sample;}
     },{gameInput:true,loadIceServers:async()=>{hostIceLoads++;return[];}});
     host.setCaptureTiming({samples:30,replyP50Ms:2.5,replyP95Ms:7.5,renderSubmitP50Ms:.4,renderSubmitP95Ms:1.1});
     captureTimingTimer=window.setInterval(()=>host.setCaptureTiming({samples:30,replyP50Ms:2.5,replyP95Ms:7.5,renderSubmitP50Ms:.4,renderSubmitP95Ms:1.1}),1000);
     check(hostIceLoads===0&&controllerIceLoads===0,"ICE credentials are not loaded before negotiation");
     await host.start(stream, gate);
+    await until(() => initialQuality != null, "initial sender quality profile");
+    check(initialQuality === "Balanced", "automatic sender applies the Balanced startup profile");
     await until(() => hostConnected && controllerConnected && video.videoWidth > 0 && latency >= 0, "video and DataChannels");
     check(true, "real PeerConnection negotiation, received video, ping/pong RTT");
     await until(()=>receiveStats?.captureTiming?.samples===30,"host capture timing report");
     check(receiveStats?.captureTiming?.replyP95Ms===7.5,"bounded host capture timing reaches the controller");
-    await until(() => gameSupported && gameModeApplied, "game capability and encoder profile acknowledgement");
+    await until(() => gameSupported, "game input capability");
+    check(controller.setQualityMode("game"), "controller can select the game profile after startup");
+    await until(() => gameModeApplied, "game encoder profile acknowledgement");
     check(true,"game capability negotiation applies saved game mode");
     await until(()=>sendStats?.qualityMode==="game"&&sendStats?.targetFps===60,"game encoder ceiling telemetry");
-    check(sendStats?.targetBitrateKbps===1125,"game bitrate ceiling follows 640x360 source pixels");
+    check(sendStats?.targetBitrateKbps===1120,"game bitrate ceiling follows 640x360 source pixels at Balanced quality");
     await until(() => quality !== "", "RTCRtpSender parameters");
     check(quality !== "Browser managed", `sender accepts adaptive encoding parameters (${quality})`);
     await until(()=>receiveStats?.bitrateKbps!=null&&sendStats?.codec!=null,"video telemetry interval");
