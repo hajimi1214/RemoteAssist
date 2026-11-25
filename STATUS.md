@@ -7,6 +7,7 @@
 - Under Go 1.26.11, normal Go tests, Vet, signaling build and `go mod verify` also passed. The signaling binary was written to a temporary directory outside the repository.
 - `govulncheck v1.10.0` found no reachable Go vulnerabilities. `cargo-audit 0.23.0` scanned the locked Rust dependencies against 1,568 advisories and exited successfully with three allowed warnings for unmaintained `chrono`, unmaintained `proc-macro-error`, and Linux-target `glib` unsoundness. `npm audit` reports zero vulnerabilities. The audit CLI was installed outside the repository and added no product dependency.
 - Source inspection confirms the Windows capture path uses DXGI and has no screenshot-picker or browser `getDisplayMedia` flow. Any OS/runtime prompt on the installed two-PC build still needs direct observation.
+- LAN recheck: `.100` responds to ICMP, but TCP `:8080` and `:8090` are closed; `.102` does not respond to ICMP. This host remains `.101` on a Public Windows network profile, with no local test listener. No firewall changes were made.
 
 ## M30 — direct fullscreen control entry and capture wait pacing
 
