@@ -47,7 +47,7 @@ The GPU timer measures asynchronous GPU execution between the timer-query marker
 - Go Race: `go test -race ./...` PASS on Go 1.26.11 using a temporary LLVM-MinGW compiler with `CGO_ENABLED=1`.
 - Go symbol advisory scan: `govulncheck ./...` PASS, no reachable vulnerabilities after dependency updates.
 - Rust advisory scan: PASS, zero vulnerabilities after updating `url` 2.5.9, `cookie` 0.18.3 and `rustix` 1.1.6. Three informational warnings remain for unmaintained transitive crates and Linux GTK `glib` soundness.
-- PostgreSQL migrations 001–003: PASS through the Go migration runner over a local PostgreSQL-wire/PGlite service. Standard PostgreSQL remains UNVERIFIED.
+- PostgreSQL migrations 001–003: PASS through the Go migration runner against PostgreSQL 18.2 on loopback. Production/Compose PostgreSQL remains UNVERIFIED.
 - Explicit DXGI smoke: PASS for the animated pattern with `REMOTEASSIST_CAPTURE_REQUIRE_FRAME=1`. Empty/static scene results are reported as empty responses, not as fabricated throughput.
 - Compose syntax: `docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config --quiet` PASS. This does not validate an actual deployment.
 - `npm audit`: PASS, zero reported vulnerabilities.

@@ -13,7 +13,8 @@
 - PASS, unsigned Windows Release: NSIS 2,433,729 bytes, SHA-256 `0CD6A59F966098F613EFC3CB05DF6CB7B077F7C141D424C03D787C8F88A1BCF2`; portable EXE 10,611,712 bytes, SHA-256 `46924AC879BAA12BB7551142A1EACA393D2260885B4572AED4B2FE230C9CF5DC`.
 - PASS, unsigned LAN debug installer: built for current `192.168.0.101:8080`, 3,228,005 bytes, SHA-256 `0FFDE82F1D7C79F80BCF778BFF98C045E6671D51583E4519480E3A6864D8240F`. Generated JavaScript bundle and CSP both contain that exact HTTP/WS origin, with no generic HTTPS/WSS sources.
 - LAN status: `192.168.0.101` is assigned to this host. `.100` and `.102` responded to ICMP probes, while tested signaling/download ports on `.100` and port 8080 on `.102` were closed. Windows classifies the active Ethernet network as Public. This turn did not start a service or change firewall rules. During final audit, two pre-existing RemoteAssist test processes were observed still bound to stale `192.168.1.102:8080` and `:8090` addresses from 10:18 local time. I left those processes untouched. Two-PC application acceptance remains NOT VERIFIED.
-- NOT VERIFIED: two physical Windows computers, standard PostgreSQL server/container, actual hardware encoder selection, public STUN/TURN, 30-minute session and physical input-to-display latency.
+- PASS: Go migration runner applied migrations 001–003 twice against a temporary PostgreSQL 18.2 Windows server bound to loopback. Both unique indexes rejected case-folded duplicates; duplicate username/email preflight failures left no migration record or partial index.
+- NOT VERIFIED: production or Compose PostgreSQL instance, two physical Windows computers, actual hardware encoder selection, public STUN/TURN, 30-minute session and physical input-to-display latency.
 
 ## M27 — engineering hardening and media observability
 
