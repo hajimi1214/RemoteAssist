@@ -4,7 +4,7 @@ import type { CaptureBaseline } from "./captureFrame";
 import { captureDamage, damageScissor, visibleCaptureCursor } from "./captureDamage";
 import type { CaptureCursor } from "./captureDamage";
 import { CaptureTimingWindow } from "./captureTiming";
-import type { CaptureTimingSummary } from "./captureTiming";
+import type { CaptureRuntimeSummary, CaptureTimingSummary } from "./captureTiming";
 
 /** One raw BGRA frame in flight; GPU swizzle feeds the browser's WebRTC encoder. */
 export async function startNativeStream(token: string, onFailure: () => void, onTiming?: (summary: CaptureTimingSummary) => void): Promise<{ stream: MediaStream; stop: () => void; setFrameRate: (fps: number) => void }> {
@@ -22,6 +22,31 @@ export async function startNativeStream(token: string, onFailure: () => void, on
   };
   let program: WebGLProgram | null = null, buffer: WebGLBuffer | null = null, texture: WebGLTexture | null = null;
   let stream: MediaStream | undefined, timer: ReturnType<typeof setTimeout> | undefined, stopped = false;
+  const captureTiming = new CaptureTimingWindow();
+  let timingWindowStarted = performance.now();
+  const runtimeStats: CaptureRuntimeSummary = {
+    windowMs: 1, requests: 0, pixelFrames: 0, fullFrames: 0, deltaFrames: 0,
+    cursorPackets: 0, emptyResponses: 0, failedRequests: 0, deltaRectangles: 0
+  };
+  const resetRuntimeStats = () => {
+    runtimeStats.windowMs = 1;
+    runtimeStats.requests = 0; runtimeStats.pixelFrames = 0;
+    runtimeStats.fullFrames = 0; runtimeStats.deltaFrames = 0;
+    runtimeStats.cursorPackets = 0; runtimeStats.emptyResponses = 0;
+    runtimeStats.failedRequests = 0; runtimeStats.deltaRectangles = 0;
+  };
+  const reportTimings = () => {
+    const now = performance.now();
+    const timing = captureTiming.snapshot();
+    runtimeStats.windowMs = Math.max(1, now - timingWindowStarted);
+    runtimeStats.pixelFps = Math.round(runtimeStats.pixelFrames * 1000 / runtimeStats.windowMs * 10) / 10;
+    runtimeStats.fullFramePercent = runtimeStats.pixelFrames
+      ? Math.round(runtimeStats.fullFrames * 10_000 / runtimeStats.pixelFrames) / 100
+      : 0;
+    onTiming?.({ ...(timing ?? { samples: 0 }), capture: { ...runtimeStats } });
+    timingWindowStarted = now;
+    resetRuntimeStats();
+  };
   const contextLost = () => { if (!stopped) { stop(); onFailure(); } };
   canvas.addEventListener("webglcontextlost", contextLost);
   const stop = () => {
@@ -51,9 +76,10 @@ export async function startNativeStream(token: string, onFailure: () => void, on
     let cursor: CaptureCursor = null;
     const exactScissor = partialDraws && (gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT)?.precision ?? 0) >= 16;
     const render = (raw: ArrayBuffer, requestFrame?: () => void) => {
-      if (stopped || raw.byteLength === 0) return false;
+      if (stopped) return false;
+      if (raw.byteLength === 0) { runtimeStats.emptyResponses++; return false; }
       const frame = parseCaptureFrame(raw, baseline, maximumTexture);
-      if (!frame) return false;
+      if (!frame) { runtimeStats.failedRequests++; return false; }
       const nextWidth = frame.width, nextHeight = frame.height;
       const resized = width !== nextWidth || height !== nextHeight;
       if (resized) {
@@ -67,11 +93,16 @@ export async function startNativeStream(token: string, onFailure: () => void, on
       const nextCursor = visibleCaptureCursor(frame.cursorX, frame.cursorY, width, height);
       const fullDraw = resized || frame.kind === "full" || !exactScissor;
       const damage = fullDraw ? [] : captureDamage(frame.rects, cursor, nextCursor, width, height);
+      const recordFrame = () => {
+        if (frame.kind === "full") { runtimeStats.pixelFrames++; runtimeStats.fullFrames++; }
+        else if (frame.kind === "delta") { runtimeStats.pixelFrames++; runtimeStats.deltaFrames++; runtimeStats.deltaRectangles += frame.rects.length; }
+        else if (frame.kind === "cursor") runtimeStats.cursorPackets++;
+      };
       gl.uniform2f(dimensionsUniform, width, height); gl.uniform2f(cursorUniform, (nextCursor?.x ?? 0) / width, (nextCursor?.y ?? 0) / height); gl.uniform1i(visibleUniform, nextCursor ? 1 : 0);
       for (const rect of frame.rects) gl.texSubImage2D(gl.TEXTURE_2D, 0, rect.x, rect.y, rect.width, rect.height, gl.RGBA, gl.UNSIGNED_BYTE, rect.pixels);
       cursor = nextCursor;
       baseline = { width, height, sequence: frame.sequence };
-      if (!fullDraw && !damage.length) return false;
+      if (!fullDraw && !damage.length) { recordFrame(); return false; }
       if (fullDraw) gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       else {
         gl.enable(gl.SCISSOR_TEST);
@@ -84,11 +115,16 @@ export async function startNativeStream(token: string, onFailure: () => void, on
       // Canvas capture snapshots the current bitmap when requestFrame is called.
       // Request only after drawing all damage to avoid publishing the prior image.
       requestFrame?.();
+      recordFrame();
       return true;
     };
     const firstDeadline = performance.now() + 2500;
     while (!stopped && !width && performance.now() < firstDeadline) {
-      render(await invoke<ArrayBuffer>("next_desktop_frame", { sessionToken: token }));
+      runtimeStats.requests++;
+      let raw: ArrayBuffer;
+      try { raw = await invoke<ArrayBuffer>("next_desktop_frame", { sessionToken: token }); }
+      catch { runtimeStats.failedRequests++; throw new Error("capture_frame_request_failed"); }
+      render(raw);
     }
     if (stopped || !width) throw new Error("desktop produced no frame");
     stream = canvas.captureStream(0);
@@ -97,9 +133,10 @@ export async function startNativeStream(token: string, onFailure: () => void, on
     // Paint once with the capture track attached, including on an idle desktop.
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     video.requestFrame();
+    // Startup baseline and decoder negotiation are excluded from steady-state request windows.
+    timingWindowStarted = performance.now();
+    resetRuntimeStats();
     let fps = 60, lastPull = performance.now();
-    let timedFrames = 0;
-    const captureTiming = new CaptureTimingWindow();
     const schedulePull = () => {
       timer = setTimeout(() => {
         timer = undefined;
@@ -109,21 +146,23 @@ export async function startNativeStream(token: string, onFailure: () => void, on
     const poll = async () => {
       if (stopped) return;
       lastPull = performance.now();
+      let requestFailed = false;
       try {
         const replyStarted = performance.now();
-        const raw = await invoke<ArrayBuffer>("next_desktop_frame", { sessionToken: token });
+        runtimeStats.requests++;
+        let raw: ArrayBuffer;
+        try { raw = await invoke<ArrayBuffer>("next_desktop_frame", { sessionToken: token }); }
+        catch { runtimeStats.failedRequests++; requestFailed = true; throw new Error("capture_frame_request_failed"); }
         const replyMs = performance.now() - replyStarted;
         const renderStarted = performance.now();
         const submitted = render(raw, () => video.requestFrame());
         if (submitted) {
           captureTiming.add(replyMs, performance.now() - renderStarted);
-          timedFrames++;
-          if (timedFrames % 30 === 0) {
-            const summary = captureTiming.snapshot();
-            if (summary) onTiming?.(summary);
-          }
         }
+        if (runtimeStats.requests >= 30) reportTimings();
       } catch {
+        if (!requestFailed) runtimeStats.failedRequests++;
+        reportTimings();
         if (!stopped) { stop(); onFailure(); }
         return;
       }

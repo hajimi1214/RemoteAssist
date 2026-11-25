@@ -21,6 +21,7 @@
 - M9: 0.6 communication/quality refinement: diagnostics, quality preferences, gradual transitions, heartbeat/negotiation watchdogs and latest-pointer coalescing. PASS (local validation; see STATUS.md).
 - M10: 0.7 workspace refinement, local session summaries, diagnostic trends and input/adaptation boundary fixes. PASS (local validation; see STATUS.md).
 - M11: Actual cloud/two-machine acceptance, weak-network benchmarks, native display calibration, durable server audit metadata and measured native-media prototyping. NOT VERIFIED
+- M27: Capture-window/per-presentation observability, corrected deployment example and native DXGI request profiling. Local unit/build/smoke evidence recorded in STATUS.md; physical dual-PC and end-to-end metrics remain NOT VERIFIED.
 
 ## Remaining Manual Verification
 

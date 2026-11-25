@@ -1,5 +1,7 @@
 # Release readiness — 0.7.0-alpha
 
+> Historical 0.7.0-alpha readiness record, retained as release history. Current source revision, evidence, and open verification items are tracked in [STATUS.md](../STATUS.md) and [verification-matrix.md](verification-matrix.md).
+
 Reviewed 2026-11-20.
 
 ## PASS

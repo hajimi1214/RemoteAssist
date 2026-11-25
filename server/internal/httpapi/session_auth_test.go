@@ -13,13 +13,14 @@ import (
 	"remoteassist/server/internal/session"
 )
 
-func TestSessionCreationAndJoinRequireLiveAccount(t *testing.T) {
+func TestSessionCreationAndJoinRequireLiveAccountAndAllowHostConsentedCrossAccountJoin(t *testing.T) {
 	cfg := testConfig()
 	accounts := identity.NewMemoryStore()
 	now := time.Now()
 	active := identity.User{ID: "active-user", Username: "active", Email: "active@example.test", Role: "user"}
+	helper := identity.User{ID: "helper-user", Username: "helper", Email: "helper@example.test", Role: "user"}
 	disabled := identity.User{ID: "disabled-user", Username: "disabled", Email: "disabled@example.test", Role: "user", DisabledAt: &now}
-	for _, user := range []identity.User{active, disabled} {
+	for _, user := range []identity.User{active, helper, disabled} {
 		if err := accounts.CreateUser(context.Background(), user); err != nil {
 			t.Fatal(err)
 		}
@@ -36,6 +37,7 @@ func TestSessionCreationAndJoinRequireLiveAccount(t *testing.T) {
 		return value
 	}
 	validToken := token(active, time.Minute)
+	helperToken := token(helper, time.Minute)
 	denied := []struct{ name, token string }{
 		{"guest", ""}, {"forged", "invalid-access-token"},
 		{"expired", token(active, -time.Minute)}, {"disabled", token(disabled, time.Minute)},
@@ -82,12 +84,15 @@ func TestSessionCreationAndJoinRequireLiveAccount(t *testing.T) {
 	if err != nil || current.State != session.StateWaitingForController {
 		t.Fatal("denied join changed the waiting session")
 	}
-	joined := send("/api/v1/control-sessions/join", validToken, map[string]string{"code": share.Code})
+	joined := send("/api/v1/control-sessions/join", helperToken, map[string]string{"code": share.Code})
 	if joined.Code != http.StatusOK {
 		t.Fatalf("authenticated join status=%d, want 200", joined.Code)
 	}
 	current, err = store.Get(share.ID)
 	if err != nil || current.State != session.StateWaitingForHostApproval {
 		t.Fatal("authenticated join must still wait for host consent")
+	}
+	if current.OwnerUserID != "" || current.ControllerDeviceID != "" {
+		t.Fatal("one-time code session must be separate from same-account device ownership")
 	}
 }

@@ -56,3 +56,26 @@ test("simulcast frame rates are not added together and encoder target remains di
   const sampler=new VideoStatsSampler();sampler.sample(make(1000,60),"send");
   const sample=sampler.sample(make(2000,120),"send");assert.equal(sample.fps,60);assert.equal(sample.width,3840);assert.equal(sample.bitrateKbps,160);assert.equal(sample.encoderTargetKbps,21000);
 });
+
+test("reports browser codec implementation when the stats implementation exposes it",()=>{
+  const outgoing=new Map([["send",{id:"send",type:"outbound-rtp",kind:"video",timestamp:1000,bytesSent:10,framesEncoded:1,codecId:"codec",encoderImplementation:"external encoder (NVENC)"}],
+    ["codec",{id:"codec",type:"codec",mimeType:"video/H264"}]]) as unknown as RTCStatsReport;
+  const incoming=new Map([["receive",{id:"receive",type:"inbound-rtp",kind:"video",timestamp:1000,bytesReceived:10,framesDecoded:1,codecId:"codec",decoderImplementation:"D3D11VideoDecoder"}],
+    ["codec",{id:"codec",type:"codec",mimeType:"video/H264"}]]) as unknown as RTCStatsReport;
+  const sampler=new VideoStatsSampler();
+  const sent=sampler.sample(outgoing,"send"),received=sampler.sample(incoming,"receive");
+  assert.equal(sent.codec,"H264");
+  assert.equal(sent.encoderImplementation,"external encoder (NVENC)");
+  assert.equal(received.decoderImplementation,"D3D11VideoDecoder");
+});
+
+test("sanitizes browser implementation strings before diagnostic export",()=>{
+  const stats=new Map([["send",{id:"send",type:"outbound-rtp",kind:"video",timestamp:1,bytesSent:1,framesEncoded:1,encoderImplementation:"encoder\nAuthorization: secret"}]]) as unknown as RTCStatsReport;
+  assert.equal(new VideoStatsSampler().sample(stats,"send").encoderImplementation,"browser-reported implementation (details omitted)");
+});
+
+test("ignores malformed codec labels returned by the WebRTC stats report",()=>{
+  const stats=new Map([["send",{id:"send",type:"outbound-rtp",kind:"video",timestamp:1,bytesSent:1,framesEncoded:1,codecId:"codec"}],
+    ["codec",{id:"codec",type:"codec",mimeType:"video/H264\nAuthorization: secret"}]]) as unknown as RTCStatsReport;
+  assert.equal(new VideoStatsSampler().sample(stats,"send").codec,undefined);
+});

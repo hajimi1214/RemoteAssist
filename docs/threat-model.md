@@ -9,9 +9,9 @@
 
 ## Controls
 
-- Both devices authenticate to the same account. The controller selects an online Windows device owned by that account. The visible host activates capture without a per-session code or prompt.
-- The server checks account ownership, device status, session capability and expiry before activation. The native host validates session token, authorization expiry and heartbeat lease before every input event.
-- The host shows the active controller and exposes pause/stop controls. Closing the client, pausing access, logout, device revocation, peer loss or expiry releases pressed inputs and stops capture.
+- **My Devices** requires both devices to belong to the authenticated account. **Remote Assist** requires an authenticated user and a one-time code shown by the host. Entering that code is consent for one session.
+- The server checks account/device ownership for direct sessions, or the pending code capability for code sessions, plus session state and expiry before activation. The native host validates session token, authorization expiry and heartbeat lease before every input event.
+- The visible host shows its session state and exposes stop controls. Closing the client, logout, device revocation, peer loss or expiry releases pressed inputs and stops capture.
 - Game input remains standard Windows `SendInput`; the application does not elevate, bypass UAC, or impersonate a physical device.
 - Tokens are not logged.
 - WebSocket messages are capped at 65536 bytes by default.

@@ -1,5 +1,20 @@
 # Status
 
+## M27 — engineering hardening and media observability
+
+- Starting commit `2e4806f57ecef4bc295a6cdda2e9639a930443a8`; local-only branch `codex/overnight-engineering-hardening`.
+- Add authenticated bounded capture-window counts, sampling-window P99/max after 100 samples, decoded-vs-WebView-presented callback cadence, and browser-reported encoder/decoder implementation when exposed. Presentation summaries are capped at four updates/second, and their sample storage is compacted during ordinary 60 FPS sessions. No per-frame logs or image persistence were added.
+- Add copyable aggregate-only diagnostics with fields whitelisted for route, codec, rates, timing and drops; absent values stay unavailable.
+- Fix `deploy/.env.example` to match the current eight-hour active-session default. Disable per-frame DXGI format logging during the smoke test; retain optional change-only format diagnostics on a separate explicit flag.
+- Normalize new usernames to lowercase and add PostgreSQL migration 002 for case-insensitive username/email uniqueness. The migration refuses to proceed if legacy case-folded collisions exist; no accounts are rewritten automatically.
+- Serialize native input deliveries to preserve event order across Tauri IPC. Bound pending work at 256 events; if a release edge arrives at capacity, revoke native authorization and release all held inputs instead of allowing stale input to follow it.
+- PASS: frontend tests 113/113 and production build; Go tests/build/Vet/module checksum verification; Rust format/check and 23 tests pass with one opt-in visible capture test ignored by the normal suite; npm audit reports zero vulnerabilities; Compose config syntax validates; release and LAN test installers build.
+- PASS, package unsigned: final Windows x64 NSIS installer is 2,429,607 bytes, SHA-256 `B11CC44CBE8984D85359F5CF64086B9E6B319A4DB5CF236916091BA48B0613E2`. The release portable EXE is 10,604,032 bytes, SHA-256 `36954B133AFF4406B87679172F71F74CEED0B07C2731244663AA5B1573F2DCBA`. Both are unsigned and have no production signaling domain configured.
+- PASS, LAN test package: built for `192.168.1.102:8080`, 3,213,539 bytes, SHA-256 `66F5CD8B01B2B8EA8CB4891638411C622E19F0082905A5F97BFBCBF1EDDF3026`. Generated CSP allows only Tauri IPC, loopback and this exact HTTP/WS origin. The WLAN is classified Public; TCP probes to `192.168.1.100:8080` and `:8090` did not establish connections.
+- VERIFIED, limited: animated 2560×1600 DXGI burst, 120 packets, 1 full/119 delta, 359 regions, 82.8% fewer bytes than full-frame equivalent, 512.8 ms request window and 3.99/5.15/5.90/18.77 ms reply P50/P95/P99/max. A separate ambient desktop burst returned 3 pixel packets and 27 empty timeouts.
+- NOT VERIFIED: case-insensitive username/email migration on a live PostgreSQL instance; two-PC install/use; sustained 60 FPS stream; selected hardware encoder under live capture; GPU execution time; public P2P/TURN; 30-minute session; input-to-photon delay; and physical monitor scanout.
+- Environment: Go Race is unavailable on this Windows installation (`CGO_ENABLED=0`, no C toolchain; WSL has no Go toolchain). `govulncheck` network download timed out. `cargo-audit`/advisory data were unavailable.
+
 ## M26 — distinct device and one-time assistance workflows
 
 - Separate the dashboard, same-account device list, and remote-assistance entry page. The latter uses the existing eight-digit, single-use code API for a different signed-in user, while **My Devices** keeps direct same-account connections.
@@ -18,7 +33,7 @@
 
 ## Current milestone
 
-M26 — separate same-account device connection and one-time code assistance workflows. Local validation complete 2026-11-24. Two-Windows acceptance remains NOT VERIFIED.
+M27 — engineering hardening and media observability. Local validation and current-source Windows package builds completed 2026-11-25. Two-Windows acceptance remains NOT VERIFIED.
 
 ## Direct connection workflow
 

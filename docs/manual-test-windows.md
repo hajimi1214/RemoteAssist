@@ -1,5 +1,7 @@
 # Manual Windows Test
 
+> Historical single-machine checklist. It describes the pre-0.10 approval/code UI and is not the current product flow. Use [the LAN two-PC runbook](lan-two-pc-runbook.md) for current same-account and one-time-code acceptance.
+
 ## Single-Machine Smoke Test
 
 1. Start signaling: `cd server; & "C:\Program Files\Go\bin\go.exe" run ./cmd/signaling`.

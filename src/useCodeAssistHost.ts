@@ -32,6 +32,7 @@ export function useCodeAssistHost(
   const latestAuth = useRef(auth);
   latestAuth.current = auth;
   const mounted = useRef(true);
+  const starting = useRef(false);
   const running = useRef<RunningAssist | null>(null);
   const [code, setCode] = useState<CodeSession | null>(null);
   const [busy, setBusy] = useState(false);
@@ -103,7 +104,8 @@ export function useCodeAssistHost(
   }
 
   async function start() {
-    if (!nativeDesktop || running.current || busy) return;
+    if (!nativeDesktop || running.current || starting.current) return;
+    starting.current = true;
     setBusy(true);
     setError("");
     try {
@@ -148,6 +150,8 @@ export function useCodeAssistHost(
         setBusy(false);
         setError("无法生成操控码，请检查服务是否在线并重新登录。");
       }
+    } finally {
+      starting.current = false;
     }
   }
 

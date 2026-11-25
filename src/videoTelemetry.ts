@@ -1,5 +1,6 @@
 import { connectionRouteDetails, connectionSample } from "./connectionQuality.ts";
 import type { CaptureTimingSummary } from "./captureTiming.ts";
+import type { VideoPresentationSummary } from "./videoPresentation.ts";
 
 export interface VideoTelemetry {
   direction: "send" | "receive";
@@ -8,7 +9,10 @@ export interface VideoTelemetry {
   remoteProtocol?: "udp" | "tcp";
   relayProtocol?: "udp" | "tcp" | "tls";
   captureTiming?: CaptureTimingSummary;
+  presentation?: VideoPresentationSummary;
   codec?: string;
+  encoderImplementation?: string;
+  decoderImplementation?: string;
   width?: number;
   height?: number;
   fps?: number;
@@ -88,7 +92,18 @@ export class VideoStatsSampler {
       const width = numeric(report.frameWidth); const height = numeric(report.frameHeight);
       if (width && height && width*height > (result.width??0)*(result.height??0)) { result.width=width; result.height=height; }
       const codec=report.codecId?stats.get(report.codecId):undefined;
-      if (typeof codec?.mimeType === "string") result.codec=codec.mimeType.replace(/^video\//i,"").slice(0,24);
+      if (typeof codec?.mimeType === "string") {
+        const name=codec.mimeType.replace(/^video\//i,"");
+        if(/^[A-Za-z0-9._+-]{1,24}$/.test(name))result.codec=name;
+      }
+      const implementation=direction==="send"?report.encoderImplementation:report.decoderImplementation;
+      if(typeof implementation==="string"&&implementation.length>0){
+        const value=/^[A-Za-z0-9][A-Za-z0-9 .()_+/-]{0,79}$/.test(implementation)
+          ? implementation
+          : "browser-reported implementation (details omitted)";
+        if(direction==="send")result.encoderImplementation=value;
+        else result.decoderImplementation=value;
+      }
       const jitter=numeric(report.jitter); if(jitter!=null) result.jitterMs=jitter*1000;
       const freezes=numeric(report.freezeCount); if(freezes!=null) result.freezes=freezes;
       const target=numeric(report.targetBitrate);if(target!=null){encoderTarget+=target;measuredTarget=true;}

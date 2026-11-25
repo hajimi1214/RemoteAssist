@@ -5,15 +5,24 @@ sequenceDiagram
   participant H as Host
   participant S as Signaling
   participant C as Controller
-  H->>H: Start Sharing and choose screen/window
-  H->>S: POST /api/v1/share-sessions
-  S-->>H: 8-digit code, host token, 5-minute expiry
-  C->>S: POST /api/v1/control-sessions/join
-  S-->>C: controller token, waiting for approval
-  C->>H: WS ping through signaling
-  H->>H: Show authorization prompt
-  H->>S: POST /share-sessions/{id}/approve
-  S-->>H: authorized state and controller token
+  alt Same-account My Devices
+    C->>S: POST /devices/{host}/connect with own controller device
+    S-->>C: pending session and controller capability
+    H->>S: Poll owned host's direct sessions
+    S-->>H: Pending session capability
+    H->>H: Prepare visible capture path
+    H->>S: POST direct-session accept with account token and host capability
+    S-->>H: authorized state and controller capability
+  else One-time Remote Assist
+    H->>S: POST /share-sessions
+    S-->>H: eight-digit code and host capability
+    C->>S: POST /control-sessions/join with code
+    S-->>C: controller capability
+    C->>H: WS ping through signaling
+    H->>H: Prepare visible capture path
+    H->>S: POST /share-sessions/{id}/approve with host capability
+    S-->>H: authorized state and controller capability
+  end
   H->>C: WS offer
   C->>H: WS answer and ICE
   H-->>C: WebRTC video track

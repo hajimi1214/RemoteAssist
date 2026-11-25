@@ -30,6 +30,7 @@ export interface RemoteInputEvent {
 
 const maxInputMessageBytes = 16 * 1024;
 const maxClockSkewMs = 30_000;
+export const MAX_PENDING_NATIVE_EVENTS = 256;
 
 export class InputEventGate {
   private hits: number[] = [];
@@ -38,6 +39,9 @@ export class InputEventGate {
   private readonly isAuthorized: () => boolean;
   private readonly maxPerSecond: number;
   private readonly deliver: (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+  private deliveryTail: Promise<void> = Promise.resolve();
+  private pendingNativeEvents = 0;
+  private overflowRevocationStarted = false;
 
   constructor(
     expectedSessionToken: string,
@@ -50,21 +54,47 @@ export class InputEventGate {
     const event = this.parse(raw);
     if (event.type === "quality_mode") return;
     if (event.type === "ping") {
-      await this.deliver("renew_input_lease", { sessionToken: event.sessionToken });
+      await this.deliverInOrder("renew_input_lease", { sessionToken: event.sessionToken });
       return;
     }
     if (event.type === "pong") {
       return;
     }
     if (event.type === "disconnect") {
-      await this.deliver("clear_input_authorization");
+      await this.deliverInOrder("clear_input_authorization", undefined, false);
       return;
     }
     if (event.type === "release_all") {
-      await this.deliver("release_remote_inputs", { sessionToken: event.sessionToken });
+      await this.deliverInOrder("release_remote_inputs", { sessionToken: event.sessionToken }, true, true);
       return;
     }
-    await this.deliver("send_input_event", { event });
+    await this.deliverInOrder("send_input_event", { event });
+  }
+
+  private deliverInOrder(command: string, args?: Record<string, unknown>, requiresLiveAuthorization = true, releaseBarrier = false): Promise<unknown> {
+    const eventType = args?.event && typeof args.event === "object"
+      ? (args.event as RemoteInputEvent).type
+      : undefined;
+    const releaseEdge = releaseBarrier || eventType === "key_up" || eventType === "mouse_up" || eventType === "release_all";
+    if (this.pendingNativeEvents >= MAX_PENDING_NATIVE_EVENTS && releaseEdge) {
+      // Under an extreme native IPC backlog, release all held inputs immediately
+      // and revoke the lease instead of dropping a key/button release.
+      if (this.overflowRevocationStarted) return Promise.reject(new Error("input_delivery_backlogged"));
+      this.overflowRevocationStarted = true;
+      return this.deliver("clear_input_authorization").then(() => {
+        throw new Error("input_delivery_backlogged");
+      });
+    }
+    if (this.pendingNativeEvents >= MAX_PENDING_NATIVE_EVENTS && command !== "clear_input_authorization") {
+      return Promise.reject(new Error("input_delivery_backlogged"));
+    }
+    this.pendingNativeEvents++;
+    const delivery = this.deliveryTail.catch(() => undefined).then(async () => {
+      if (requiresLiveAuthorization && !this.isAuthorized()) throw new Error("input_not_authorized");
+      return this.deliver(command, args);
+    });
+    this.deliveryTail = delivery.then(() => undefined, () => undefined);
+    return delivery.finally(() => { this.pendingNativeEvents--; });
   }
 
   private parse(raw: unknown): RemoteInputEvent {

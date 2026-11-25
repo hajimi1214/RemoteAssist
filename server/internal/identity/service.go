@@ -57,7 +57,7 @@ func NewService(store Store, cfg ServiceConfig) (*Service, error) {
 }
 
 func (s *Service) Register(ctx context.Context, username, email, password string) (AuthResult, error) {
-	username = strings.TrimSpace(username)
+	username = strings.ToLower(strings.TrimSpace(username))
 	email = strings.ToLower(strings.TrimSpace(email))
 	if !usernamePattern.MatchString(username) {
 		return AuthResult{}, ErrInvalidInput

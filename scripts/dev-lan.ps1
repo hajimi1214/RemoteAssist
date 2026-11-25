@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-  [string]$Address = "192.168.0.100",
+  [Parameter(Mandatory = $true)]
+  [string]$Address,
   [int]$Port = 8080
 )
 
@@ -9,7 +10,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $go = Get-Command go.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if (!$go) { throw "Go was not found. Install Go or add go.exe to PATH." }
 $parsedAddress = $null
-if (![Net.IPAddress]::TryParse($Address, [ref]$parsedAddress) -or $parsedAddress.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) { throw "Address must be an IPv4 address." }
+if (![Net.IPAddress]::TryParse($Address, [ref]$parsedAddress) -or $parsedAddress.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or $parsedAddress.ToString() -ne $Address) { throw "Address must be a canonical IPv4 address." }
 $bytes = $parsedAddress.GetAddressBytes()
 $privateAddress = $bytes[0] -eq 10 -or ($bytes[0] -eq 172 -and $bytes[1] -ge 16 -and $bytes[1] -le 31) -or ($bytes[0] -eq 192 -and $bytes[1] -eq 168)
 if (!$privateAddress) { throw "Address must be an RFC1918 private LAN IPv4 address." }

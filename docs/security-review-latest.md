@@ -1,12 +1,13 @@
-# Security review — same-account direct connection
+# Security review — connection and input boundaries
 
-Reviewed 2026-11-21. Scope: visible same-account device access, local input authorization, expiry and control-release behavior.
+Reviewed 2026-11-25 against the local engineering branch. The product has two session-creation paths: owner-authenticated **My Devices** direct sessions and authenticated, single-use eight-digit **Remote Assist** code sessions. This source review does not constitute a penetration test.
 
 ## PASS — reviewed and tested
 
-- Current clients no longer expose the legacy connection-code workflow or its per-session Windows approval dialog. The controller must authenticate as the device owner and select an online device from that account.
-- The native host accepts only the server-validated host device, account owner and current session capability. Each input event remains token-, state-, expiry-, structure- and rate-validated.
-- The host stays visible and exposes pause/stop. Disconnect, logout, device revocation, peer heartbeat loss and expiry release pressed inputs and stop capture.
+- **My Devices** requires the controller and target device to belong to the same live account. The native host receives an owner-validated acceptance from the service.
+- **Remote Assist** requires authenticated code creation and join. The host itself generates and presents the one-time code, so revealing it consents to this session. The join consumes the pending code capability.
+- The shared native capture path validates the approval response, session ID, active state, bounded expiry and host-device ID for direct sessions. Each input event remains token-, lease-, timestamp-, structure- and rate-validated.
+- The host stays visible. Disconnect, logout, device revocation, peer heartbeat loss and expiry release pressed inputs and stop capture.
 - release-all is a sequence barrier: older lossy pointer messages are rejected after local control release. Reliable button releases remain accepted.
 - Zero reported bandwidth triggers adaptation; missing/invalid estimates remain distinct.
 - Local summary serialization uses a field whitelist, local random IDs, bounded retention and validated dates. It excludes codes/tokens/addresses/device names/screenshots/video/input contents.
@@ -16,8 +17,8 @@ Reviewed 2026-11-21. Scope: visible same-account device access, local input auth
 - No hidden operation, shell/command execution, autostart, silent installation or screen/keyboard recording was added.
 - Actual local browser lifecycle tests and unit regressions passed; historical unverified deployment claims were not promoted to PASS.
 
-Legacy code-based HTTP endpoints remain for older clients. The current client flow uses only account-owned direct sessions.
+The eight-digit code API is intentionally active for **Remote Assist**. It is not used by **My Devices**. Both paths still use short-lived host/controller capabilities, server session state and the host's native lease.
 
 ## Limits
 
-Live Windows capture/input and public relay behavior remain unverified. Per-account localStorage separation is a product boundary, not OS-level isolation from users with profile access. No full privacy penetration test, screen-reader certification, cloud deployment, database audit storage or hardware codec capability validation is claimed.
+The interactive same-account and code flows remain unverified on two physical Windows PCs. Public TURN behavior, revocation during live cross-account assistance, live PostgreSQL, and hardware codec selection remain unverified. Per-account local browser storage is not OS-level isolation from other users of the same profile. No full penetration test, privacy audit, accessibility certification, cloud deployment or hardware codec capability validation is claimed.

@@ -11,6 +11,7 @@ import type { TrendPoint } from "./connectionHealth";
 import { RelativeMouseAccumulator, shouldForwardRemoteKey } from "./gameInput";
 import type { QualityMode } from "./qualityMode";
 import { readPreference, writePreference } from "./preferenceStore";
+import { createDiagnosticReport } from "./diagnosticReport.ts";
 
 export function QualityPreference({value,onChange}: {value:VideoPreference;onChange:(value:VideoPreference)=>void}) {
   const options=[{id:"auto",title:"自动平衡",detail:"随网络调整清晰度与帧率",icon:"grid"},{id:"text",title:"文字优先",detail:"适合代码、文档与表格",icon:"monitor"},{id:"motion",title:"流畅优先",detail:"适合滚动、演示与动态画面",icon:"arrow"}] as const;
@@ -26,23 +27,32 @@ function routeDescription(sample: VideoTelemetry): string {
   return "检测路径";
 }
 
-function captureTimingValue(p50: number, p95: number): string {
-  return `${p50.toFixed(1)} / ${p95.toFixed(1)} ms`;
+function captureTimingValue(p50?: number, p95?: number, p99?: number, max?: number): string {
+  const values = [p50, p95, p99, max].map(value => value == null ? "—" : value.toFixed(1));
+  return `${values.join(" / ")} ms`;
 }
 
-export function ConnectionDiagnostics({sample}: {sample:VideoTelemetry|null}) {
+export function ConnectionDiagnostics({sample,version="未知"}: {sample:VideoTelemetry|null;version?:string}) {
   const [history,setHistory]=useState<TrendPoint[]>([]);
   const [updated,setUpdated]=useState(0);
+  const [copyState,setCopyState]=useState<"idle"|"copied"|"unavailable">("idle");
   useEffect(()=>{if(!sample){setHistory([]);setUpdated(0);return;}const at=Date.now();setHistory(previous=>appendTrend(previous,sample,at));setUpdated(at);},[sample]);
   if(!sample)return null;
+  const copyReport=async()=>{
+    try{await navigator.clipboard.writeText(createDiagnosticReport(sample,version));setCopyState("copied");}
+    catch{setCopyState("unavailable");}
+    window.setTimeout(()=>setCopyState("idle"),1800);
+  };
   const advice=connectionHealth(sample);
-  const metric=(value:number|undefined,unit:string)=>value==null?"暂不可用":`${value} ${unit}`;
+  const metric=(value:number|undefined,unit:string,decimals=0)=>value==null?"暂不可用":`${Number(value.toFixed(decimals))} ${unit}`;
   const limits:Record<string,string>={none:"未报告限制",cpu:"编码处理压力",bandwidth:"带宽压力",other:"其他限制"};
-  return <section className="diagnostics-card"><div className={`health-summary ${advice.severity}`}><span className="health-icon"><Icon name="shield"/></span><div><strong>{advice.title}</strong><p>{advice.detail}</p></div><span className="health-route">{routeDescription(sample)}</span></div>
+  return <section className="diagnostics-card"><div className={`health-summary ${advice.severity}`}><span className="health-icon"><Icon name="shield"/></span><div><strong>{advice.title}</strong><p>{advice.detail}</p></div><span className="health-route">{routeDescription(sample)}</span></div><div className="diagnostic-export"><button type="button" className="secondary-action" onClick={()=>void copyReport()}><Icon name="copy"/>{copyState==="copied"?"诊断已复制":copyState==="unavailable"?"剪贴板不可用":"复制诊断摘要"}</button><small>只包含性能与连接汇总，不含地址、Token、画面或输入内容。</small></div>
     <details className="connection-diagnostics"><summary><span>连接与画质详情</span><small>{sample.width&&sample.height?`${sample.width} × ${sample.height}`:"等待画面"}{updated?` · ${new Date(updated).toLocaleTimeString("zh-CN")} 采样`:""}</small></summary>
     <div className="trend-grid">{(["rttMs","bitrateKbps"] as const).map(field=><figure key={field}><figcaption><span>{field==="rttMs"?"网络往返趋势":"视频码率趋势"}</span><strong>{metric(field==="rttMs"?sample.rttMs==null?undefined:Math.round(sample.rttMs):sample.bitrateKbps,field==="rttMs"?"ms":"kbps")}</strong></figcaption><svg viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label={`${field==="rttMs"?"网络往返":"视频码率"}最近 ${history.length} 个采样，缺测不连线`}><path d="M0 36H100M0 20H100" className="trend-guide"/>{trendSegments(history,field).map((points,index)=><polyline key={index} points={points} className="trend-line"/>)}</svg><small>最近最多 30 个采样 · 自适应纵轴</small></figure>)}</div>
     <p>最近采样间隔的统计，仅保留在本机内存。编解码耗时为单帧平均值，不等于端到端操作延迟。</p><dl>
     <div><dt>编码格式</dt><dd>{sample.codec??"协商中"}</dd></div>
+    {sample.direction==="send"&&<div><dt>浏览器报告编码器</dt><dd>{sample.encoderImplementation??"暂不可用"}</dd></div>}
+    {sample.direction==="receive"&&<div><dt>浏览器报告解码器</dt><dd>{sample.decoderImplementation??"暂不可用"}</dd></div>}
     <div><dt>实际分辨率</dt><dd>{sample.width&&sample.height?`${sample.width} × ${sample.height}`:"待测量"}</dd></div>
     <div><dt>{sample.direction==="send"?"编码帧率":"解码帧率"}</dt><dd>{metric(sample.fps,"fps")}</dd></div>
     <div><dt>{sample.direction==="send"?"视频发送码率":"视频接收码率"}</dt><dd>{metric(sample.bitrateKbps,"kbps")}</dd></div>
@@ -55,7 +65,9 @@ export function ConnectionDiagnostics({sample}: {sample:VideoTelemetry|null}) {
       <div><dt>间隔丢弃帧数</dt><dd>{metric(sample.framesDropped,"帧")}</dd></div>
       <div><dt>累计画面冻结</dt><dd>{metric(sample.freezes,"次")}</dd></div>
     </>}
-    {sample.captureTiming&&<><div><dt>电脑取帧响应 P50/P95</dt><dd>{captureTimingValue(sample.captureTiming.replyP50Ms,sample.captureTiming.replyP95Ms)}</dd></div><div><dt>浏览器绘制提交 P50/P95</dt><dd>{captureTimingValue(sample.captureTiming.renderSubmitP50Ms,sample.captureTiming.renderSubmitP95Ms)}</dd></div></>}
+    {sample.direction==="receive"&&sample.presentation&&<><div><dt>视频帧呈现回调帧率</dt><dd>{metric(sample.presentation.fps,"fps",1)}</dd></div><div><dt>呈现回调间隔 P50/P95/P99/最大</dt><dd>{`${sample.presentation.intervalP50Ms.toFixed(1)} / ${sample.presentation.intervalP95Ms.toFixed(1)} / ${sample.presentation.intervalP99Ms?.toFixed(1)??"—"} / ${sample.presentation.intervalMaxMs?.toFixed(1)??"—"} ms`}</dd></div><div><dt>窗口内呈现帧</dt><dd>{metric(sample.presentation.presentedFrames,"帧")}</dd></div></>}
+    {sample.captureTiming&&<><div><dt>电脑取帧响应 P50/P95/P99/最大</dt><dd>{captureTimingValue(sample.captureTiming.replyP50Ms,sample.captureTiming.replyP95Ms,sample.captureTiming.replyP99Ms,sample.captureTiming.replyMaxMs)}</dd></div><div><dt>绘制命令提交 P50/P95/P99/最大</dt><dd>{captureTimingValue(sample.captureTiming.renderSubmitP50Ms,sample.captureTiming.renderSubmitP95Ms,sample.captureTiming.renderSubmitP99Ms,sample.captureTiming.renderSubmitMaxMs)}</dd></div></>}
+    {sample.captureTiming?.capture&&<><div><dt>窗口实际取帧 FPS</dt><dd>{metric(sample.captureTiming.capture.pixelFps,"fps",1)}</dd></div><div><dt>全帧 / 增量 / 光标 / 空响应</dt><dd>{`${sample.captureTiming.capture.fullFrames} / ${sample.captureTiming.capture.deltaFrames} / ${sample.captureTiming.capture.cursorPackets} / ${sample.captureTiming.capture.emptyResponses}`}</dd></div><div><dt>增量区域 / 失败请求</dt><dd>{`${sample.captureTiming.capture.deltaRectangles} / ${sample.captureTiming.capture.failedRequests}`}</dd></div></>}
   </dl><p>静止桌面可能几乎不产生新帧，低 fps 或低码率不一定代表连接故障。取帧响应包含电脑端等待、复制与 IPC；绘制提交包含解析和 GPU 命令提交，均不等于实际显示或操作延迟。</p></details></section>;
 }
 
@@ -358,10 +370,12 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
           <div><dt>实际码率</dt><dd>{measured(telemetry?.bitrateKbps,"kbps")}</dd></div><div><dt>网络往返</dt><dd>{measured(measuredRtt,"ms")}</dd></div>
           <div><dt>间隔丢弃帧</dt><dd>{measured(telemetry?.framesDropped,"帧")}</dd></div><div><dt>间隔丢包率</dt><dd>{measured(telemetry?.packetLossPercent,"%",1)}</dd></div>
           <div><dt>平均解码</dt><dd>{measured(telemetry?.decodeMs,"ms",1)}</dd></div><div><dt>平均接收缓冲</dt><dd>{measured(telemetry?.jitterBufferMs,"ms",1)}</dd></div>
-          {telemetry?.captureTiming&&<><div><dt>电脑取帧 P50/P95</dt><dd>{captureTimingValue(telemetry.captureTiming.replyP50Ms,telemetry.captureTiming.replyP95Ms)}</dd></div><div><dt>绘制提交 P50/P95</dt><dd>{captureTimingValue(telemetry.captureTiming.renderSubmitP50Ms,telemetry.captureTiming.renderSubmitP95Ms)}</dd></div></>}
+          {telemetry?.captureTiming&&<><div><dt>取帧 P50/P95/P99/最大</dt><dd>{captureTimingValue(telemetry.captureTiming.replyP50Ms,telemetry.captureTiming.replyP95Ms,telemetry.captureTiming.replyP99Ms,telemetry.captureTiming.replyMaxMs)}</dd></div><div><dt>绘制提交 P50/P95/P99/最大</dt><dd>{captureTimingValue(telemetry.captureTiming.renderSubmitP50Ms,telemetry.captureTiming.renderSubmitP95Ms,telemetry.captureTiming.renderSubmitP99Ms,telemetry.captureTiming.renderSubmitMaxMs)}</dd></div></>}
+          {telemetry?.presentation&&<><div><dt>帧呈现回调 FPS</dt><dd>{measured(telemetry.presentation.fps,"fps",1)}</dd></div><div><dt>回调间隔 P95</dt><dd>{measured(telemetry.presentation.intervalP95Ms,"ms",1)}</dd></div></>}
+          {telemetry?.captureTiming?.capture&&<><div><dt>窗口捕获 FPS</dt><dd>{measured(telemetry.captureTiming.capture.pixelFps,"fps",1)}</dd></div><div><dt>全帧 / 增量</dt><dd>{`${telemetry.captureTiming.capture.fullFrames} / ${telemetry.captureTiming.capture.deltaFrames}`}</dd></div><div><dt>空响应 / 失败</dt><dd>{`${telemetry.captureTiming.capture.emptyResponses} / ${telemetry.captureTiming.capture.failedRequests}`}</dd></div></>}
         </dl>
         {advice&&<section className={`screen-health-summary ${advice.severity}`} aria-label="连接健康提示"><span className="screen-health-mark"><Icon name={advice.severity==="warning"?"alert":advice.severity==="pending"?"info":"check"}/></span><span className="screen-health-copy"><strong>{advice.title}</strong><small>{advice.detail}</small></span></section>}
-        <p className="screen-stat-note">帧率来自 WebRTC 解码计数，不等于屏幕实际呈现帧率；网络往返时间也不包含采集、编码或显示耗时。</p>
+        <p className="screen-stat-note">帧呈现值来自 WebView 视频帧回调，不代表面板扫描结果；RTT 不包含采集、编码或输入到显示时延。WebView 不支持帧回调时显示待测。</p>
       </section>
       </div>
     </aside>

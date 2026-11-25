@@ -567,17 +567,20 @@ func (s *Server) readPump(p *peer, token string) {
 		_ = p.conn.Close()
 		s.logger.Info("websocket disconnected", "sessionId", p.sessionID, "role", p.role)
 	}()
+	lastActivity := time.Now()
 	p.conn.SetPongHandler(func(string) error {
-		return p.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		lastActivity = time.Now()
+		return p.conn.SetReadDeadline(lastActivity.Add(60 * time.Second))
 	})
 	var windowStart = time.Now()
 	frames := 0
 	for {
-		_ = p.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		_ = p.conn.SetReadDeadline(lastActivity.Add(60 * time.Second))
 		msgType, payload, err := p.conn.ReadMessage()
 		if err != nil {
 			return
 		}
+		lastActivity = time.Now()
 		if time.Since(windowStart) >= time.Second {
 			windowStart = time.Now()
 			frames = 0
@@ -608,6 +611,11 @@ func (s *Server) readPump(p *peer, token string) {
 				s.writePeerError(p, "host_approval_required")
 				continue
 			}
+		}
+		if current.State == session.StateAuthorizedActive && msg.Type == "ping" && p.role == "controller" {
+			body, _ := json.Marshal(map[string]any{"type": "pong", "sessionId": p.sessionID, "ts": msg.Timestamp})
+			s.peers.send(p, body)
+			continue
 		}
 		if (msg.Type == "offer" && p.role != "host") || (msg.Type == "answer" && p.role != "controller") {
 			s.writePeerError(p, "invalid_signal_role")

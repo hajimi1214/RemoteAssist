@@ -21,6 +21,8 @@
 .assist-auth-card > div { flex: 1; min-inline-size: 0; }
 .assist-auth-card .primary-action { flex: 0 0 auto; }
 .assist-flow-card > .error-box { margin-block-end: 14px; }
+.diagnostic-export { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding-block-start: 12px; }
+.diagnostic-export > small { color: var(--muted); font-size: .6875rem; line-height: 1.5; }
 .remote-screen.modern-screen .screen-floating-ball { position: absolute; z-index: 5; inset-block-start: calc(12px + env(safe-area-inset-top)); inset-inline-start: max(14px,env(safe-area-inset-left)); display: grid; place-items: center; inline-size: 44px; block-size: 44px; padding: 0; color: #f1f6ff; border: 1px solid #c2d4f244; border-radius: 50%; background: #172337e8; box-shadow: 0 5px 20px #0005; }
 .remote-screen.modern-screen .screen-floating-ball:hover,.remote-screen.modern-screen .screen-floating-ball:focus-visible { background: #263956; }
 .screen-floating-ball .ui-icon { inline-size: 19px; block-size: 19px; }

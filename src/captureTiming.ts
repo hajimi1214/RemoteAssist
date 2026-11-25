@@ -1,12 +1,32 @@
 export const CAPTURE_TIMING_WINDOW = 300;
 const MIN_CAPTURE_TIMING_SAMPLES = 10;
+const MIN_TAIL_TIMING_SAMPLES = 100;
+
+export interface CaptureRuntimeSummary {
+  windowMs: number;
+  requests: number;
+  pixelFrames: number;
+  fullFrames: number;
+  deltaFrames: number;
+  cursorPackets: number;
+  emptyResponses: number;
+  failedRequests: number;
+  deltaRectangles: number;
+  pixelFps?: number;
+  fullFramePercent?: number;
+}
 
 export interface CaptureTimingSummary {
   samples: number;
-  replyP50Ms: number;
-  replyP95Ms: number;
-  renderSubmitP50Ms: number;
-  renderSubmitP95Ms: number;
+  replyP50Ms?: number;
+  replyP95Ms?: number;
+  replyP99Ms?: number;
+  replyMaxMs?: number;
+  renderSubmitP50Ms?: number;
+  renderSubmitP95Ms?: number;
+  renderSubmitP99Ms?: number;
+  renderSubmitMaxMs?: number;
+  capture?: CaptureRuntimeSummary;
 }
 
 type CaptureTimingSample = { replyMs: number; renderSubmitMs: number };
@@ -21,14 +41,20 @@ export class CaptureTimingWindow {
     if (this.values.length > CAPTURE_TIMING_WINDOW) this.values.shift();
   }
 
+  reset(): void { this.values.length = 0; }
+
   snapshot(): CaptureTimingSummary | undefined {
     if (this.values.length < MIN_CAPTURE_TIMING_SAMPLES) return undefined;
+    const reply = this.values.map(value => value.replyMs);
+    const renderSubmit = this.values.map(value => value.renderSubmitMs);
     return {
       samples: this.values.length,
-      replyP50Ms: percentile(this.values.map(value => value.replyMs), .5),
-      replyP95Ms: percentile(this.values.map(value => value.replyMs), .95),
-      renderSubmitP50Ms: percentile(this.values.map(value => value.renderSubmitMs), .5),
-      renderSubmitP95Ms: percentile(this.values.map(value => value.renderSubmitMs), .95),
+      replyP50Ms: percentile(reply, .5),
+      replyP95Ms: percentile(reply, .95),
+      ...(reply.length >= MIN_TAIL_TIMING_SAMPLES ? { replyP99Ms: percentile(reply, .99), replyMaxMs: Math.max(...reply) } : {}),
+      renderSubmitP50Ms: percentile(renderSubmit, .5),
+      renderSubmitP95Ms: percentile(renderSubmit, .95),
+      ...(renderSubmit.length >= MIN_TAIL_TIMING_SAMPLES ? { renderSubmitP99Ms: percentile(renderSubmit, .99), renderSubmitMaxMs: Math.max(...renderSubmit) } : {}),
     };
   }
 }
@@ -37,12 +63,53 @@ export class CaptureTimingWindow {
 export function parseCaptureTiming(value: unknown): CaptureTimingSummary | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const sample = value as Record<string, unknown>;
-  if (!Number.isSafeInteger(sample.samples) || (sample.samples as number) < MIN_CAPTURE_TIMING_SAMPLES || (sample.samples as number) > CAPTURE_TIMING_WINDOW) return undefined;
-  const fields = [sample.replyP50Ms, sample.replyP95Ms, sample.renderSubmitP50Ms, sample.renderSubmitP95Ms];
-  if (!fields.every(field => typeof field === "number" && Number.isFinite(field) && field >= 0 && field <= 10_000)) return undefined;
-  const [replyP50Ms, replyP95Ms, renderSubmitP50Ms, renderSubmitP95Ms] = fields as number[];
-  if (replyP50Ms > replyP95Ms || renderSubmitP50Ms > renderSubmitP95Ms) return undefined;
-  return { samples: sample.samples as number, replyP50Ms, replyP95Ms, renderSubmitP50Ms, renderSubmitP95Ms };
+  if (!Number.isSafeInteger(sample.samples) || (sample.samples as number) < 0 || (sample.samples as number) > CAPTURE_TIMING_WINDOW) return undefined;
+  const baseFields = [sample.replyP50Ms, sample.replyP95Ms, sample.renderSubmitP50Ms, sample.renderSubmitP95Ms];
+  const hasBase = baseFields.some(field => field !== undefined);
+  if (hasBase && (sample.samples as number) < MIN_CAPTURE_TIMING_SAMPLES) return undefined;
+  if (hasBase && !baseFields.every(field => typeof field === "number" && Number.isFinite(field) && field >= 0 && field <= 10_000)) return undefined;
+  const [replyP50Ms, replyP95Ms, renderSubmitP50Ms, renderSubmitP95Ms] = hasBase ? baseFields as number[] : [];
+  if (hasBase && (replyP50Ms > replyP95Ms || renderSubmitP50Ms > renderSubmitP95Ms)) return undefined;
+  const tailFields = [sample.replyP99Ms, sample.replyMaxMs, sample.renderSubmitP99Ms, sample.renderSubmitMaxMs];
+  const hasTail = tailFields.some(field => field !== undefined);
+  if (hasTail && ((sample.samples as number) < MIN_TAIL_TIMING_SAMPLES
+      || !tailFields.every(field => typeof field === "number" && Number.isFinite(field) && field >= 0 && field <= 10_000))) return undefined;
+  const [replyP99Ms, replyMaxMs, renderSubmitP99Ms, renderSubmitMaxMs] = hasTail ? tailFields as number[] : [];
+  if (hasTail && (replyP95Ms > replyP99Ms || replyP99Ms > replyMaxMs || renderSubmitP95Ms > renderSubmitP99Ms || renderSubmitP99Ms > renderSubmitMaxMs)) return undefined;
+  const capture = parseCaptureRuntimeSummary(sample.capture);
+  if (sample.capture !== undefined && !capture) return undefined;
+  if ((sample.samples as number) === 0 && !hasBase && !capture) return undefined;
+  return {
+    samples: sample.samples as number,
+    ...(hasBase ? { replyP50Ms, replyP95Ms, renderSubmitP50Ms, renderSubmitP95Ms } : {}),
+    ...(hasTail ? { replyP99Ms, replyMaxMs, renderSubmitP99Ms, renderSubmitMaxMs } : {}),
+    ...(capture ? { capture } : {})
+  };
+}
+
+function parseCaptureRuntimeSummary(value: unknown): CaptureRuntimeSummary | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const sample = value as Record<string, unknown>;
+  const counters = [sample.requests, sample.pixelFrames, sample.fullFrames, sample.deltaFrames,
+    sample.cursorPackets, sample.emptyResponses, sample.failedRequests, sample.deltaRectangles];
+  if (!counters.every(item => Number.isSafeInteger(item) && (item as number) >= 0 && (item as number) <= 1_000_000)) return undefined;
+  if (typeof sample.windowMs !== "number" || !Number.isFinite(sample.windowMs) || sample.windowMs <= 0 || sample.windowMs > 60_000) return undefined;
+  const [requests, pixelFrames, fullFrames, deltaFrames, cursorPackets, emptyResponses, failedRequests, deltaRectangles] = counters as number[];
+  if (pixelFrames !== fullFrames + deltaFrames
+    || requests !== pixelFrames + cursorPackets + emptyResponses + failedRequests
+    || deltaRectangles < deltaFrames
+    || deltaRectangles > deltaFrames * 64) return undefined;
+  const pixelFps = sample.pixelFps;
+  const fullFramePercent = sample.fullFramePercent;
+  if (pixelFps !== undefined && (typeof pixelFps !== "number" || !Number.isFinite(pixelFps) || pixelFps < 0 || pixelFps > 1000)) return undefined;
+  if (fullFramePercent !== undefined && (typeof fullFramePercent !== "number" || !Number.isFinite(fullFramePercent) || fullFramePercent < 0 || fullFramePercent > 100)) return undefined;
+  const expectedFps = Math.round(pixelFrames * 1000 / sample.windowMs * 10) / 10;
+  const expectedFullFramePercent = pixelFrames ? Math.round(fullFrames * 10_000 / pixelFrames) / 100 : 0;
+  if (pixelFps !== undefined && pixelFps !== expectedFps) return undefined;
+  if (fullFramePercent !== undefined && fullFramePercent !== expectedFullFramePercent) return undefined;
+  return { windowMs: sample.windowMs, requests, pixelFrames, fullFrames, deltaFrames, cursorPackets,
+    emptyResponses, failedRequests, deltaRectangles, ...(pixelFps !== undefined ? { pixelFps } : {}),
+    ...(fullFramePercent !== undefined ? { fullFramePercent } : {}) };
 }
 
 function percentile(values: number[], fraction: number): number {

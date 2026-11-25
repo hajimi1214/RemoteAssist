@@ -80,6 +80,26 @@ func TestRegisterLoginRefreshAndDeviceFlow(t *testing.T) {
 	}
 }
 
+func TestRegisterNormalizesUsernameCaseAndRejectsCaseFoldedDuplicate(t *testing.T) {
+	service, err := NewService(NewMemoryStore(), ServiceConfig{
+		AccessSecret:  "01234567890123456789012345678901",
+		RefreshSecret: "abcdefghijklmnopqrstuvwxyz123456",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := service.Register(context.Background(), "Alice", "Alice@example.com", "correct horse battery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.User.Username != "alice" || created.User.Email != "alice@example.com" {
+		t.Fatalf("identity not normalized: username=%q email=%q", created.User.Username, created.User.Email)
+	}
+	if _, err := service.Register(context.Background(), "ALICE", "other@example.com", "correct horse battery"); err != ErrConflict {
+		t.Fatalf("case-folded duplicate username error=%v, want conflict", err)
+	}
+}
+
 func TestRefreshTokenCanBeConsumedOnlyOnceConcurrently(t *testing.T) {
 	service, err := NewService(NewMemoryStore(), ServiceConfig{
 		AccessSecret:       "01234567890123456789012345678901",

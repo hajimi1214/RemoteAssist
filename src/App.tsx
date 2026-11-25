@@ -14,6 +14,8 @@ import { SessionsPage, SettingsPage } from "./pages";
 import { BrandMark, Icon, RemoteScreen, StatusMessage, ConnectionDiagnostics } from "./ui";
 import type { IconName } from "./ui";
 import type { VideoTelemetry } from "./videoTelemetry";
+import { VideoPresentationWindow } from "./videoPresentation";
+import type { VideoPresentationSummary } from "./videoPresentation";
 import { usePreferences } from "./preferences";
 import { useSessionJournal } from "./useSessionJournal";
 import { createSessionRecorder } from "./sessionJournal";
@@ -251,6 +253,9 @@ function ControlComputer({ auth, target, controller, viewOnly, joinCode, onBack,
   const [textSupported,setTextSupported]=useState(false);
   const [session, setSession] = useState<{ id: string; controllerToken: string } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const presentationRef = useRef<VideoPresentationSummary | undefined>(undefined);
+  const presentationAtRef = useRef(0);
+  const presentationExpiry = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const peerRef = useRef<ControllerPeer | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const sessionRef = useRef<{ id: string; controllerToken: string } | null>(null);
@@ -290,7 +295,11 @@ function ControlComputer({ auth, target, controller, viewOnly, joinCode, onBack,
         onConnectionStatus: (status) => { setStatus(status);if(status==="connected"){window.clearTimeout(readyTimer.current);recorder.current?.connected();} if (["failed","disconnected","signaling error"].includes(status)) disconnect("Connection lost"); },
         onRelayStatus: setRelay,
         onLatency: setLatency,
-        onTelemetry:sample=>{setTelemetry(sample);recorder.current?.route(sample.route);},
+        onTelemetry:sample=>{
+          const presentation=performance.now()-presentationAtRef.current<=2_000?presentationRef.current:undefined;
+          setTelemetry(presentation?{...sample,presentation}:sample);
+          recorder.current?.route(sample.route);
+        },
         onFailure:(reason)=>setError(transportFailure(reason))
       },{qualityMode,loadIceServers:()=>signaling.iceServers(latestAuth.current.accessToken)});
       peerRef.current = peer;
@@ -380,6 +389,47 @@ function ControlComputer({ auth, target, controller, viewOnly, joinCode, onBack,
   useEffect(() => { const timer=setTimeout(()=>void connect(),0); return()=>{clearTimeout(timer);disconnect("Closed");}; }, []);
 
   useEffect(() => {
+    const video = videoRef.current as (HTMLVideoElement & {
+      requestVideoFrameCallback?: (callback: (now: number, metadata: { presentedFrames: number }) => void) => number;
+      cancelVideoFrameCallback?: (handle: number) => void;
+    }) | null;
+    if (!video?.requestVideoFrameCallback) return;
+    const presentation = new VideoPresentationWindow();
+    let stopped = false;
+    let callbackHandle: number | undefined;
+    const onFrame = (now: number, metadata: { presentedFrames: number }) => {
+      if (stopped) return;
+      const summary = presentation.add(now, metadata.presentedFrames);
+      if (summary) {
+        presentationRef.current = summary;
+        presentationAtRef.current = now;
+        setTelemetry(previous => previous ? { ...previous, presentation: summary } : previous);
+        clearTimeout(presentationExpiry.current);
+        presentationExpiry.current = setTimeout(() => {
+          if (presentationRef.current !== summary) return;
+          presentationRef.current = undefined;
+          setTelemetry(previous => {
+            if (!previous?.presentation) return previous;
+            const { presentation: _expired, ...current } = previous;
+            return current;
+          });
+        }, 2_000);
+      }
+      callbackHandle = video.requestVideoFrameCallback!(onFrame);
+    };
+    callbackHandle = video.requestVideoFrameCallback(onFrame);
+    return () => {
+      stopped = true;
+      if (callbackHandle != null) video.cancelVideoFrameCallback?.(callbackHandle);
+      clearTimeout(presentationExpiry.current);
+      presentationExpiry.current = undefined;
+      presentation.reset();
+      presentationRef.current = undefined;
+      presentationAtRef.current = 0;
+    };
+  }, [session?.id]);
+
+  useEffect(() => {
     const onVisibility = () => { if (document.hidden) releaseInputs(); };
     window.addEventListener("blur", releaseInputs);
     document.addEventListener("visibilitychange", onVisibility);
@@ -396,7 +446,7 @@ function ControlComputer({ auth, target, controller, viewOnly, joinCode, onBack,
       {busy&&<p role="status">正在连接设备…</p>}
       <RemoteScreen qualityMode={qualityMode} gameInputSupported={gameInputSupported} onGameMouse={sendGameMouse} onQualityModeChange={qualityControl?mode=>{if(mode==="game"&&!gameInputSupported)return;qualityModeRef.current=mode;setQualityMode(mode);writePreference("remoteassist.qualityMode",mode);setQualityNotice(peerRef.current?.setQualityMode(mode)?"正在调整电脑端画质…":"画质未调整，连接可能已断开。");}:undefined} telemetry={telemetry} latency={latency} onMobileAction={sendMobile} textSupported={textSupported} videoRef={videoRef} connected={status==="connected"} autoFullscreen autoControl={!viewOnly} deviceName={targetName} status={connectionLabel(status)} onPointer={sendPointer} onKey={sendKey} onWheel={sendWheel} onRelease={releaseInputs} onDisconnect={()=>{disconnect("Stopped by controller");onBack();}} />
       <dl className="connection-details"><div><dt>连接状态</dt><dd>{connectionLabel(status)}</dd></div><div><dt>传输路径</dt><dd>{relay==="P2P"?"设备直连":relay==="TURN Relay"?"中继连接":"等待连接"}</dd></div><div><dt>往返延迟</dt><dd>{latency == null ? "待测量" : `${latency} ms`}</dd></div></dl>
-      <ConnectionDiagnostics sample={telemetry} />
+      <ConnectionDiagnostics sample={telemetry} version={appVersion} />
     </section>
   );
 }

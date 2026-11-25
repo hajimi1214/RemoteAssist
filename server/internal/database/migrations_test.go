@@ -1,9 +1,45 @@
 package database
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestCaseInsensitiveUserIdentityMigrationPreflightsAndAddsUniqueIndexes(t *testing.T) {
+	files, err := Files()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) < 2 || files[0] != "migrations/001_init.sql" || files[1] != "migrations/002_case_insensitive_user_identity.sql" {
+		t.Fatalf("unexpected migration order: %#v", files)
+	}
+	sql, err := migrationFS.ReadFile(files[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	mirroredSQL, err := os.ReadFile(filepath.Join("..", "..", "migrations", filepath.Base(files[1])))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(mirroredSQL) != string(sql) {
+		t.Fatal("inspection mirror differs from embedded migration source")
+	}
+	text := string(sql)
+	for _, required := range []string{
+		"GROUP BY lower(username)",
+		"GROUP BY lower(email)",
+		"case-insensitive duplicate usernames exist",
+		"case-insensitive duplicate emails exist",
+		"idx_users_username_lower_unique",
+		"idx_users_email_lower_unique",
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("migration 002 missing %q", required)
+		}
+	}
+}
 
 func TestMigrationContainsRequiredTablesAndSensitiveExclusions(t *testing.T) {
 	files, err := Files()

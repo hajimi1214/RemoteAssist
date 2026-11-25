@@ -70,6 +70,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn percentile_ms_uses_nearest_rank_and_rejects_invalid_inputs() {
+        let samples: Vec<f64> = (1..=100).map(f64::from).collect();
+        assert_eq!(percentile_ms(&samples, 0.50), Some(50.0));
+        assert_eq!(percentile_ms(&samples, 0.95), Some(95.0));
+        assert_eq!(percentile_ms(&samples, 0.99), Some(99.0));
+        assert_eq!(percentile_ms(&samples, 1.0), Some(100.0));
+        assert_eq!(percentile_ms(&samples, f64::NAN), None);
+        assert_eq!(percentile_ms(&[], 0.95), None);
+    }
+
+    #[test]
     fn staging_layout_rebuilds_for_format_changes_even_when_dimensions_match() {
         let mut desc = D3D11_TEXTURE2D_DESC {
             Width: 3840,
@@ -422,15 +433,28 @@ mod tests {
         let requested = std::env::var("REMOTEASSIST_CAPTURE_SAMPLES")
             .ok()
             .and_then(|value| value.parse::<usize>().ok());
+        let require_frame =
+            std::env::var("REMOTEASSIST_CAPTURE_REQUIRE_FRAME").as_deref() == Ok("1");
         let samples = requested.unwrap_or(12).clamp(1, 300);
+        let mut response_ms = Vec::with_capacity(samples);
+        let mut requests = 0usize;
+        let mut request_window_started = None;
+        let mut request_window_ended = None;
+        let mut empty_frames = 0usize;
         for _ in 0..samples {
+            requests += 1;
+            let request_started = std::time::Instant::now();
+            request_window_started.get_or_insert(request_started);
             let (tx, rx) = mpsc::channel();
             sender.try_send(tx).unwrap();
             let frame = rx
                 .recv_timeout(Duration::from_secs(2))
                 .unwrap()
                 .expect("frame capture must succeed");
+            request_window_ended = Some(std::time::Instant::now());
+            response_ms.push(request_started.elapsed().as_secs_f64() * 1000.0);
             if frame.is_empty() {
+                empty_frames += 1;
                 continue;
             }
             assert!(frame.len() >= 16);
@@ -492,23 +516,63 @@ mod tests {
                 break;
             }
         }
-        assert!(frames > 0, "at least one actual desktop frame is required");
         drop(capture);
+        let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let request_window_ms = request_window_started
+            .zip(request_window_ended)
+            .map(|(first, last)| last.duration_since(first).as_secs_f64() * 1000.0)
+            .unwrap_or_default();
+        let request_rate = if request_window_ms > 0.0 {
+            requests as f64 * 1000.0 / request_window_ms
+        } else {
+            0.0
+        };
+        let pixel_fps = if request_window_ms > 0.0 {
+            frames as f64 * 1000.0 / request_window_ms
+        } else {
+            0.0
+        };
         eprintln!(
-            "capture_smoke dimensions={}x{} frames={} full={} delta={} multi_rect_frames={} total_delta_rects={} cursor={} bytes={} raw_equivalent_bytes={} elapsed_ms={}",
+            "capture_smoke dimensions={}x{} requests={} frames={} full={} delta={} multi_rect_frames={} total_delta_rects={} cursor={} empty_timeouts={} bytes={} raw_equivalent_bytes={} total_elapsed_ms={:.1} request_window_ms={:.1} request_rate_per_s={:.1} pixel_fps={:.1} dxgi_reply_p50_ms={:.2} dxgi_reply_p95_ms={:.2} dxgi_reply_p99_ms={:.2} dxgi_reply_max_ms={:.2}",
             dimensions.0,
             dimensions.1,
+            requests,
             frames,
             full_frames,
             delta_frames,
             multi_rect_frames,
             total_delta_rects,
             cursor_packets,
+            empty_frames,
             bytes,
             raw_equivalent,
-            started.elapsed().as_millis()
+            elapsed_ms,
+            request_window_ms,
+            request_rate,
+            pixel_fps,
+            percentile_ms(&response_ms, 0.50).unwrap_or_default(),
+            percentile_ms(&response_ms, 0.95).unwrap_or_default(),
+            percentile_ms(&response_ms, 0.99).unwrap_or_default(),
+            response_ms.iter().copied().fold(0.0_f64, f64::max)
         );
+        if require_frame {
+            assert!(
+                frames > 0,
+                "no pixel frame arrived; cursor_packets={cursor_packets}, empty_timeouts={empty_frames}"
+            );
+        }
     }
+}
+
+#[cfg(test)]
+fn percentile_ms(samples: &[f64], fraction: f64) -> Option<f64> {
+    if samples.is_empty() || !fraction.is_finite() || !(0.0..=1.0).contains(&fraction) {
+        return None;
+    }
+    let mut ordered = samples.to_vec();
+    ordered.sort_by(f64::total_cmp);
+    let index = ((ordered.len() as f64 * fraction).ceil() as usize).saturating_sub(1);
+    ordered.get(index).copied()
 }
 struct Desktop {
     device: ID3D11Device,
@@ -804,9 +868,19 @@ impl Desktop {
             .map_err(|_| "capture_texture_invalid")?;
         let mut desc = D3D11_TEXTURE2D_DESC::default();
         texture.GetDesc(&mut desc);
-        if std::env::var("REMOTEASSIST_CAPTURE_SMOKE").as_deref() == Ok("1") {
+        if std::env::var("REMOTEASSIST_CAPTURE_FORMAT_DEBUG").as_deref() == Ok("1")
+            && self.staging_format != Some(desc.Format)
+        {
             let output = self.duplication.GetDesc();
-            eprintln!("capture_texture width={} height={} format={} output_format={} row_sample={} rotation={}",desc.Width,desc.Height,desc.Format.0,output.ModeDesc.Format.0,desc.SampleDesc.Count,output.Rotation.0);
+            eprintln!(
+                "capture_format width={} height={} source_format={} output_format={} sample_count={} rotation={}",
+                desc.Width,
+                desc.Height,
+                desc.Format.0,
+                output.ModeDesc.Format.0,
+                desc.SampleDesc.Count,
+                output.Rotation.0
+            );
         }
         if desc.Width == 0
             || desc.Height == 0
