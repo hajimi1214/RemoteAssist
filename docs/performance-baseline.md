@@ -14,7 +14,7 @@ A same-browser Chromium WebRTC loopback then observed the initial Balanced HostP
 
 ### DXGI request samples
 
-On 2026-11-26, a fresh opt-in smoke failed before receiving a frame. `DuplicateOutput1` rejected the preferred BGRA format with `DXGI_ERROR_UNSUPPORTED (0x887A0004)`; the `DuplicateOutput` compatibility fallback then returned `E_ACCESSDENIED (0x80070005)`. The smoke wrote no pixels. This result is FAIL for that run; whether a protected/unavailable desktop session or a product issue caused it remains UNVERIFIED. The Windows automation helper also denied cursor access in this session. Rerun after an unlocked desktop is available.
+Two opt-in smokes on 2026-11-26 failed before receiving a frame. In each, `DuplicateOutput1` rejected the preferred BGRA format with `DXGI_ERROR_UNSUPPORTED (0x887A0004)`; the `DuplicateOutput` compatibility fallback returned `E_ACCESSDENIED (0x80070005)`. The smoke wrote no pixels. These runs are FAIL; whether a protected/unavailable desktop session or a product issue caused them remains UNVERIFIED. The Windows automation helper also denied cursor access in this session. Further capture attempts await an unlocked desktop.
 
 The explicit visible smoke pulls one DXGI frame at a time, validates the packet, and reports numeric counters only. It never writes or prints pixel data. Request-window throughput is a sequential native request burst, not negotiated WebRTC FPS. Native response time includes DXGI acquire/wait, D3D11 copy/map, packet assembly and Tauri IPC response.
 
