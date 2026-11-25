@@ -9,6 +9,7 @@
 
 - Added a synthetic `DeviceWorkspace` preview with a local connection counter. Playwright clicked the focus preview, sidebar device, grid preview and list device name. Each click invoked the direct-connect callback exactly once for the same eligible online Windows device. The grid/list “Enter desktop” buttons remain explicit alternate entry points using that callback.
 - `npm test` passes 122/122 and `npm run build` passes. This verifies UI routing, not real signaling or native fullscreen. The temporary Vite server and Playwright browser were stopped.
+- Final process check: only the intended `.101:8080` signaling and `.101:8090` package listeners remain. Health and package HEAD requests still return 200, with a 3,229,002-byte installer.
 
 ## M35 — live signaling API flow checks
 
