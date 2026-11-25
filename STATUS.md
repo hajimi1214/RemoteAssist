@@ -3,7 +3,7 @@
 ## M29 — active WebSocket heartbeat regression
 
 - Added a lifecycle regression with real test WebSocket connections. An authorized controller's active-session ping receives a local pong with the original timestamp, the capability token stays private, and the host does not receive the controller's ping.
-- PASS: `go test ./...`, `go vet ./...`, and `go test -race ./...` on Go 1.26.11. No signaling behavior change was needed.
+- PASS: `go test ./...`, `go vet ./...`, and `go test -race ./...` on Go 1.26.11. The active-ping lifecycle regression also passed 50 normal repetitions and 25 Race-enabled repetitions. No signaling behavior change was needed.
 - Local-only follow-up commit, with no push or release.
 
 ## M28 — dependency hardening and asynchronous GPU timing
