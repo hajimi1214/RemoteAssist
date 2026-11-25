@@ -2,9 +2,11 @@
 
 ## M31 — Go Race revalidation
 
-- Located the previously downloaded LLVM-MinGW compiler in the external temporary toolchain directory and reran `go test -race ./...` across all server packages. Go 1.26.11 reported PASS.
+- Located the previously downloaded LLVM-MinGW compiler and Go 1.26.11 toolchain in external caches. Fresh `go test -race -count=1 ./...` passed across all server packages.
 - `CGO_ENABLED=1`, `CC`, and the compiler directory in `PATH` were scoped to the test command, then restored. No compiler or runtime dependency was added to the repository.
-- `npm audit` reports zero vulnerabilities. Source inspection confirms the Windows capture path uses DXGI and has no screenshot-picker or browser `getDisplayMedia` flow. Any OS/runtime prompt on the installed two-PC build still needs direct observation.
+- Under Go 1.26.11, normal Go tests, Vet, signaling build and `go mod verify` also passed. The signaling binary was written to a temporary directory outside the repository.
+- `govulncheck v1.10.0` found no reachable Go vulnerabilities. `cargo-audit 0.23.0` scanned the locked Rust dependencies against 1,568 advisories and exited successfully with three allowed warnings for unmaintained `chrono`, unmaintained `proc-macro-error`, and Linux-target `glib` unsoundness. `npm audit` reports zero vulnerabilities. The audit CLI was installed outside the repository and added no product dependency.
+- Source inspection confirms the Windows capture path uses DXGI and has no screenshot-picker or browser `getDisplayMedia` flow. Any OS/runtime prompt on the installed two-PC build still needs direct observation.
 
 ## M30 — direct fullscreen control entry and capture wait pacing
 
@@ -16,7 +18,6 @@
 - PASS, unsigned Windows x64 release: NSIS installer 2,434,253 bytes, SHA-256 `1948AD0A82F63DDC7AC073F00C9B338823F9868E374F13967DD558C7F608A88B`; portable EXE 10,601,472 bytes, SHA-256 `03608738EA34F7B9375D6E1B09D3F9698D1BBC2BFF4989521A07F22D8E23E690`.
 - PASS, unsigned LAN debug installer: 3,229,002 bytes, SHA-256 `750B7EECF85A5F045AF5EC1A5D77E1BE295E1DF73DFE751C7D62D5B779AF6C64`, configured for `192.168.0.101:8080`. It is copied to `.local/lan-test-download/` for LAN distribution.
 - Real WebView2 acquisition/presentation, installed-client input behavior, physical two-PC session, and measured latency remain NOT VERIFIED.
-- Go Race rerun: PASS across all server packages using Go 1.26.11 and the preserved temporary LLVM-MinGW toolchain. `CGO_ENABLED` and compiler `PATH` were scoped to the test command and restored afterward.
 
 ## M29 — active WebSocket heartbeat regression
 

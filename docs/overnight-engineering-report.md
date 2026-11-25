@@ -66,6 +66,7 @@ Hardware encoder evaluation: NVENC is a candidate on this host's RTX 4060 and AM
 - Go Race: PASS across all packages using temporary LLVM-MinGW GCC, `CGO_ENABLED=1`, and Go 1.26.11.
 - `govulncheck ./...`: PASS, no reachable Go vulnerabilities on Go 1.26.11.
 - Cargo audit: PASS, zero Rust vulnerabilities. It reports three informational warnings, covering `chrono` and `proc-macro-error` maintenance status and GTK `glib` soundness on non-Windows targets. The Windows-target audit also reports zero vulnerabilities.
+- Fresh 2026-11-26 scans: `govulncheck v1.10.0` reported no reachable Go vulnerabilities on Go 1.26.11. `cargo-audit 0.23.0` loaded 1,568 advisories, reported the same three allowed Rust warnings, and exited successfully. `npm audit` reported zero vulnerabilities.
 - PostgreSQL migration runner: PASS against a temporary PostgreSQL 18.2 Windows server bound to loopback. Clean application and rerun, both unique indexes, each duplicate preflight error and transaction rollback were checked. Production and Compose PostgreSQL instances remain UNVERIFIED.
 - DXGI visible desktop: dynamic smoke PASS for the animated UI pattern. A no-update run returned 30 empty DXGI timeout replies and zero pixel frames, reported as no pixel transfer rather than as a fabricated zero-FPS stream.
 - Compose: `docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config --quiet` PASS. This validates compose syntax and not actual public networking.
@@ -79,7 +80,7 @@ Hardware encoder evaluation: NVENC is a candidate on this host's RTX 4060 and AM
 - Current LAN test NSIS package: PASS, 3,229,002 bytes, SHA-256 `750B7EECF85A5F045AF5EC1A5D77E1BE295E1DF73DFE751C7D62D5B779AF6C64`, configured for `192.168.0.101:8080`. The generated Tauri CSP contains only that private HTTP/WS origin plus IPC and loopback.
 - Neither artifact embeds a production signaling domain. They verify build/packaging only and require a configured HTTPS service before operational use.
 - Physical second-Windows installation, same-LAN flows, public STUN/TURN and long-session behavior: NOT VERIFIED. Current host address is `192.168.0.101`; the network is classified Public and observed peer service ports are closed. A final audit identified two pre-existing RemoteAssist test processes bound to stale `192.168.1.102:8080` and `:8090` addresses. After verifying their command lines, they were stopped following the runbook cleanup instruction. An unrelated loopback development service remains active.
-- Go Race rerun on 2026-11-26 passed across all server packages using Go 1.26.11 and the preserved temporary LLVM-MinGW toolchain. `CGO_ENABLED` and compiler `PATH` were scoped to the test command and restored afterward. Go sources were unchanged in this follow-up.
+- On 2026-11-26, Go 1.26.11 normal tests, Vet, signaling build, module verification, and fresh `go test -race -count=1 ./...` all passed. The Race run used the preserved temporary LLVM-MinGW toolchain. `CGO_ENABLED` and compiler `PATH` were scoped to the command and restored afterward. The signaling executable was written outside the repository. Go source files were unchanged in this follow-up.
 
 ## Security review notes
 

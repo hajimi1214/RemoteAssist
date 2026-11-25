@@ -61,6 +61,7 @@ The GPU timer measures asynchronous GPU execution between the timer-query marker
 - Explicit DXGI smoke: PASS for the animated pattern with `REMOTEASSIST_CAPTURE_REQUIRE_FRAME=1`. Empty/static scene results are reported as empty responses, not as fabricated throughput.
 - Compose syntax: `docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config --quiet` PASS. This does not validate an actual deployment.
 - `npm audit`: PASS, zero reported vulnerabilities.
+- Fresh scans on 2026-11-26: `govulncheck v1.10.0` on Go 1.26.11 reports no reachable vulnerabilities; `cargo-audit 0.23.0` loads 1,568 advisories and exits successfully with three allowed warnings. `npm audit` reports zero vulnerabilities in the preceding result.
 - Rust advisory remediation updated `url`, `cookie` and `rustix` in the lockfile. No GPU timer or runtime vendor SDK dependency was added.
 - Windows x64 NSIS installer: PASS, 2,434,253 bytes, SHA-256 `1948AD0A82F63DDC7AC073F00C9B338823F9868E374F13967DD558C7F608A88B`, `NotSigned`.
 - Portable Windows EXE: PASS, 10,601,472 bytes, SHA-256 `03608738EA34F7B9375D6E1B09D3F9698D1BBC2BFF4989521A07F22D8E23E690`, `NotSigned`.
@@ -70,7 +71,7 @@ The GPU timer measures asynchronous GPU execution between the timer-query marker
 ## Verification gaps
 
 - Go Race and Go advisory scans passed on the upgraded local Go toolchain. The temporary cross-compiler is not part of the product or repository.
-- Go Race rerun on 2026-11-26 passed across all server packages using Go 1.26.11 and the preserved temporary LLVM-MinGW toolchain. The compiler and `CGO_ENABLED=1` were scoped to that command only.
+- Go 1.26.11 follow-up on 2026-11-26: normal Go tests, Vet, signaling build, module verification, and fresh `go test -race -count=1 ./...` passed. The Race run used the preserved temporary LLVM-MinGW compiler with environment changes scoped to the command.
 - Cargo audit reported three informational Rust advisories after fixing all vulnerabilities. The `glib` soundness advisory is limited to GTK's Linux target and is not in the Windows target dependency graph. The two unmaintained crates are transitive build/runtime dependencies with no fixed version currently offered by RustSec.
 - No physical RemoteAssist session, two-account code session, public DNS/TLS, TURN UDP/TCP, weak-network run, 30-minute session, or route-change recovery was tested. The latest host address is `192.168.0.101`, and Windows currently classifies its network as Public. Final process cleanup stopped the two pre-existing project test listeners bound to stale `192.168.1.102:8080` and `:8090`. An unrelated loopback development service remains active.
 - No sustained WebView2 encoder selection/FPS, actual monitor scanout, 4K game capture or physical input-to-photon P50/P95 was measured. A synchronized optical measurement is required for input-to-display latency.

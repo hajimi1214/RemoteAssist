@@ -32,7 +32,7 @@ This matrix describes evidence from the current source and current-machine check
 | System/game audio | UNSUPPORTED | No WASAPI loopback, Opus audio track, playback, mute or audio/video sync pipeline is implemented. |
 | Multi-monitor/rotation/HDR output | UNVERIFIED | Current capture targets the primary display. Real rotated/secondary display mapping, HDR output fidelity and DPI input mapping need device tests. |
 | 30-minute session and recovery | UNVERIFIED | No physical long-duration, route-change or power/network-interruption run this turn. |
-| Go race detector | VERIFIED, local Windows | `go test -race ./...` passed across all Go packages with Go 1.26.11, `CGO_ENABLED=1` and a temporary LLVM-MinGW compiler kept outside the repository. |
+| Go race detector | VERIFIED, local Windows | Fresh `go test -race -count=1 ./...` passed across all Go packages with Go 1.26.11, `CGO_ENABLED=1` and a temporary LLVM-MinGW compiler kept outside the repository. |
 | Go module checksums | VERIFIED | `go mod verify` reports all cached modules verified. |
 | npm dependency audit | VERIFIED | `npm audit` reported 0 vulnerabilities. |
 | Go/Rust advisory scan | VERIFIED, current local lockfiles | `govulncheck ./...` reports no reachable Go vulnerabilities on Go 1.26.11. Cargo audit reports zero Rust vulnerabilities after updating `url`, `cookie` and `rustix`; three informational advisories remain for two transitive unmaintained crates and GTK `glib` soundness outside the Windows target. |
