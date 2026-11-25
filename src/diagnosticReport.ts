@@ -41,6 +41,8 @@ export function createDiagnosticReport(
     report.push(`采集窗口样本：${sample.captureTiming.samples}`);
     report.push(`取帧响应 P50/P95/P99/最大：${number(sample.captureTiming.replyP50Ms, "ms")} / ${number(sample.captureTiming.replyP95Ms, "ms")} / ${number(sample.captureTiming.replyP99Ms, "ms")} / ${number(sample.captureTiming.replyMaxMs, "ms")}`);
     report.push(`绘制提交 P50/P95/P99/最大：${number(sample.captureTiming.renderSubmitP50Ms, "ms")} / ${number(sample.captureTiming.renderSubmitP95Ms, "ms")} / ${number(sample.captureTiming.renderSubmitP99Ms, "ms")} / ${number(sample.captureTiming.renderSubmitMaxMs, "ms")}`);
+    const gpu = sample.captureTiming.gpuImageTiming;
+    report.push(`GPU 图像更新 P50/P95/P99/最大：${number(gpu?.p50Ms, "ms")} / ${number(gpu?.p95Ms, "ms")} / ${number(gpu?.p99Ms, "ms")} / ${number(gpu?.maxMs, "ms")}`);
     const capture = sample.captureTiming.capture;
     if (capture) {
       report.push(`主机采集窗口：${number(capture.windowMs, "ms")} · 请求 ${capture.requests} · 像素帧 ${capture.pixelFrames} · 全帧 ${capture.fullFrames} · 增量 ${capture.deltaFrames} · 区域 ${capture.deltaRectangles} · 光标包 ${capture.cursorPackets} · 空响应 ${capture.emptyResponses} · 失败 ${capture.failedRequests}`);

@@ -12,14 +12,14 @@ func TestCaseInsensitiveUserIdentityMigrationPreflightsAndAddsUniqueIndexes(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) < 2 || files[0] != "migrations/001_init.sql" || files[1] != "migrations/002_case_insensitive_user_identity.sql" {
+	if len(files) < 3 || files[0] != "migrations/001_init.sql" || files[1] != "migrations/002_user_roles.sql" || files[2] != "migrations/003_case_insensitive_user_identity.sql" {
 		t.Fatalf("unexpected migration order: %#v", files)
 	}
-	sql, err := migrationFS.ReadFile(files[1])
+	sql, err := migrationFS.ReadFile(files[2])
 	if err != nil {
 		t.Fatal(err)
 	}
-	mirroredSQL, err := os.ReadFile(filepath.Join("..", "..", "migrations", filepath.Base(files[1])))
+	mirroredSQL, err := os.ReadFile(filepath.Join("..", "..", "migrations", filepath.Base(files[2])))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestCaseInsensitiveUserIdentityMigrationPreflightsAndAddsUniqueIndexes(t *t
 		"idx_users_email_lower_unique",
 	} {
 		if !strings.Contains(text, required) {
-			t.Errorf("migration 002 missing %q", required)
+			t.Errorf("migration 003 missing %q", required)
 		}
 	}
 }

@@ -77,6 +77,32 @@ mod tests {
         assert!(permission.session_token.is_none());
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn capture_approval_expiry_accepts_rfc3339_with_an_eight_hour_bound() {
+        assert_eq!(capture_expiry_millis("1970-01-01T00:00:01Z", 0), Ok(1_000));
+        assert_eq!(
+            capture_expiry_millis("1970-01-01T00:00:00.000500Z", 0),
+            Err("invalid_expiry")
+        );
+        assert_eq!(
+            capture_expiry_millis("1970-01-01T08:00:00Z", 0),
+            Ok(28_800_000)
+        );
+        assert_eq!(
+            capture_expiry_millis("1970-01-01T08:00:00.001Z", 0),
+            Err("invalid_expiry")
+        );
+        assert_eq!(
+            capture_expiry_millis("1969-12-31T23:59:59Z", 0),
+            Err("invalid_expiry")
+        );
+        assert_eq!(
+            capture_expiry_millis("not-a-date", 0),
+            Err("invalid_expiry")
+        );
+    }
+
     #[test]
     fn only_currently_pressed_remote_inputs_are_tracked() {
         let mut permission = PermissionAdapter::default();
@@ -550,12 +576,7 @@ async fn authorize_capture(
     {
         return Err("invalid_capture_approval".into());
     }
-    let expiry = chrono::DateTime::parse_from_rfc3339(&approval.expires_at)
-        .map_err(|_| "invalid_expiry")?
-        .timestamp_millis();
-    if expiry <= now_ms() as i64 || expiry - now_ms() as i64 > 8 * 60 * 60 * 1000 {
-        return Err("invalid_expiry".into());
-    }
+    let expiry = capture_expiry_millis(&approval.expires_at, now_ms())?;
     let mut capture_state = state.capture.lock().map_err(|_| "capture_busy")?;
     if capture_state.generation != generation {
         return Err("capture_cancelled".into());
@@ -564,7 +585,7 @@ async fn authorize_capture(
     release_pressed(&mut permission).map_err(|_| "input_release_failed")?;
     permission.authorized = true;
     permission.session_token = Some(approval.controller_token.clone());
-    permission.expires_at_ms = Some(expiry as u64);
+    permission.expires_at_ms = Some(expiry);
     permission.lease_deadline = Some(Instant::now() + INITIAL_INPUT_LEASE);
     permission.recent_events.clear();
     capture_state.active = Some((approval.controller_token.clone(), capture));
@@ -979,6 +1000,23 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or(Duration::from_secs(0))
         .as_millis() as u64
+}
+
+#[cfg(windows)]
+fn capture_expiry_millis(expires_at: &str, now: u64) -> Result<u64, &'static str> {
+    let expiry_ns =
+        time::OffsetDateTime::parse(expires_at, &time::format_description::well_known::Rfc3339)
+            .map_err(|_| "invalid_expiry")?
+            .unix_timestamp_nanos();
+    let now_ns = i128::from(now) * 1_000_000;
+    if expiry_ns <= now_ns || expiry_ns - now_ns > 8 * 60 * 60 * 1_000_000_000 {
+        return Err("invalid_expiry");
+    }
+    let expiry_ms = u64::try_from(expiry_ns / 1_000_000).map_err(|_| "invalid_expiry")?;
+    if expiry_ms <= now {
+        return Err("invalid_expiry");
+    }
+    Ok(expiry_ms)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

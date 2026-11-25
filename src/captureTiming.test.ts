@@ -54,3 +54,18 @@ test("capture runtime telemetry validates request classes, empty responses and f
   assert.equal(parseCaptureTiming({...summary,capture:{...summary.capture,deltaRectangles:5_000}}),undefined);
   assert.equal(parseCaptureTiming({...summary,capture:{...summary.capture,pixelFps:16.1}}),undefined);
 });
+
+test("GPU image timings stay bounded and require enough samples for tail percentiles",()=>{
+  const window=new CaptureTimingWindow();
+  for(let sample=1;sample<=10;sample++)window.addGpuImageTime(sample);
+  let summary=window.snapshot();
+  assert.equal(summary?.samples,0);
+  assert.deepEqual(summary?.gpuImageTiming,{samples:10,p50Ms:5,p95Ms:10});
+  assert.deepEqual(parseCaptureTiming(summary),summary);
+  for(let sample=11;sample<=100;sample++)window.addGpuImageTime(sample);
+  window.addGpuImageTime(Number.NaN);
+  window.addGpuImageTime(-1);
+  summary=window.snapshot();
+  assert.deepEqual(summary?.gpuImageTiming,{samples:100,p50Ms:50,p95Ms:95,p99Ms:99,maxMs:100});
+  assert.equal(parseCaptureTiming({...summary,gpuImageTiming:{...summary!.gpuImageTiming!,p99Ms:94}}),undefined);
+});

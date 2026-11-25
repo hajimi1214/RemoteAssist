@@ -19,6 +19,11 @@ Reviewed 2026-11-25 against the local engineering branch. The product has two se
 
 The eight-digit code API is intentionally active for **Remote Assist**. It is not used by **My Devices**. Both paths still use short-lived host/controller capabilities, server session state and the host's native lease.
 
+## Dependency advisory follow-up
+
+- Go `govulncheck ./...` on Go 1.26.11 reported no reachable vulnerabilities after upgrading the vulnerable Go toolchain and dependencies. The local Go Race suite also passed.
+- RustSec audit reports zero vulnerabilities after upgrading `url`, `cookie`, and `rustix`. It continues to report informational advisories for transitive `chrono`/`proc-macro-error` maintenance status and GTK `glib` soundness. The GTK package is outside the Windows target graph, and the Windows-target audit reports zero vulnerabilities.
+
 ## Limits
 
 The interactive same-account and code flows remain unverified on two physical Windows PCs. Public TURN behavior, revocation during live cross-account assistance, live PostgreSQL, and hardware codec selection remain unverified. Per-account local browser storage is not OS-level isolation from other users of the same profile. No full penetration test, privacy audit, accessibility certification, cloud deployment or hardware codec capability validation is claimed.

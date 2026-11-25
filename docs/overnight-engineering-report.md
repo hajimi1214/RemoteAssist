@@ -8,13 +8,24 @@
 
 ## Work completed
 
+- Follow-up hardening continued from local commit `bd9334c8daeeccec4d81157330d575aec89e9fa7`, retaining the `0.15.1-alpha` app version.
+- `govulncheck` initially found 14 reachable findings across the Go 1.26.4 standard library, Gorilla WebSocket 1.5.3 and old `x/crypto` packages. Upgraded to the patched Gorilla WebSocket commit, `golang.org/x/crypto` v0.59.0 and selected `x/net`/`x/sys` dependencies. This raises the Go module floor from 1.24 to 1.26.0. Pinned local module and CI toolchains to Go 1.26.11, where `govulncheck ./...` reports no vulnerabilities.
+- Ran `go test -race ./...` successfully with a temporary LLVM-MinGW C compiler and `CGO_ENABLED=1`. The compiler archive was stored outside the repository and no runtime dependency was added.
+- Cargo audit found two Rust vulnerabilities in transitive `url` 2.5.8 and `cookie` 0.18.2. Updated them to 2.5.9 and 0.18.3. Updated `rustix` 1.1.4 to 1.1.6 after a related advisory review. The refreshed audit reports zero vulnerabilities. Three informational advisories remain, covering transitive `chrono` and `proc-macro-error` maintenance status and GTK `glib` soundness on non-Windows targets.
+- Corrected the account index migration's sequence to 003 because 002 was already used for user roles. Strengthened the migration test to assert the complete existing order and SQL mirror.
+- Verified migrations 001–003 and failure rollback with the Go migration runner over a temporary PostgreSQL-wire endpoint backed by PGlite/PostgreSQL WASM. Legacy duplicate username and email cases each failed with an actionable error and left no partial indexes or version row. Re-running a clean migration completed idempotently. A standard PostgreSQL server remains untested.
+- Added optional `EXT_disjoint_timer_query` sampling around native-frame WebGL upload/draw operations. It samples each 30 drawn updates, bounds pending queries at eight, checks result availability before reading, rejects disjoint samples, and releases resources at stream stop. Unsupported extensions and query errors leave capture enabled with the metric unavailable.
+- Added diagnostic display/export and automated coverage for GPU update-time P50/P95/P99/max. This is GPU upload/draw execution duration, not panel scanout, Canvas/WebRTC encoding or input-to-display latency.
+- Research documents downloaded successfully for NVENC 13.1, AMD AMF, Intel VPL shared surfaces/hardware acceleration, Windows Media Foundation H.264 and WebGL disjoint timer queries. Their local hashes and source metadata are recorded in `.local/research/pc-game-0.16/manifest.json`.
+
 - Reviewed React/Tauri entry paths, native Rust capture and input, Go REST/WebSocket/session code, PostgreSQL migration setup, WebRTC stats/ICE/TURN configuration, Windows packaging scripts, threat model, current known limitations, and local CI checks.
 - Fixed a stale deployment example that set `SESSION_ACTIVE_TTL=30m` despite the current server default and documentation saying 8 hours. `deploy/.env.example` now agrees with `docker-compose.yml` and the supported server bounds.
-- Normalized newly registered usernames to lowercase and added migration 002 case-insensitive unique indexes for username/email, with an explicit legacy-duplicate preflight instead of renaming data silently. Kept the historical SQL mirror synchronized and added a test to enforce the mirror.
+- Normalized newly registered usernames to lowercase and added migration 003 case-insensitive unique indexes for username/email, following the existing migration 002 user-role schema. The new migration preflights legacy duplicates instead of renaming data silently. Kept the historical SQL mirror synchronized and added an ordering/mirror test.
 - Removed per-frame DXGI format logging from the normal smoke mode. Format diagnostics now require `REMOTEASSIST_CAPTURE_FORMAT_DEBUG=1` and only log when the source format changes. This matters because console output can itself animate the captured desktop and force full-frame transfers.
 - Extended the visible DXGI smoke report with empty timeout count, wall/request windows, request throughput, response P50/P95/P99/max and frame/rectangle/byte totals. A static scene with no changed pixels is now distinguishable from a failed frame transfer. `REMOTEASSIST_CAPTURE_REQUIRE_FRAME=1` can require a dynamic scene for an operator-selected run.
 - Extended host capture telemetry with bounded request-window counts for full frames, delta frames, delta regions, cursor packets, empty responses and failed requests. Percentiles require enough samples: P50/P95 at 10 samples and P99/max at 100. These summaries are carried by the existing authenticated heartbeat path, not sent for every frame.
 - Added browser video-frame callback statistics using `requestVideoFrameCallback` where supported. Summaries are limited to four per second, use a 2-second sample window with storage compaction exercised at 60 FPS, and leave values unavailable when the API or samples are missing.
+- Added capability-gated asynchronous WebGL disjoint timer queries around texture upload and draw operations. Sampling occurs once per 30 pixel draws; the queue is capped at eight, results are read only when available, and GPU disjoint samples are discarded. Unsupported or failing queries do not stop capture.
 - Added stats extraction for the browser-reported encoder and decoder implementation when WebRTC exposes those fields. The label says browser-reported implementation and does not claim hardware acceleration. Unit coverage exercises exposed implementation names.
 - Added regression coverage for percentiles, malformed/runtime capture summaries, frame presentation counter resets and reported encoder/decoder implementation.
 - Added a one-click copyable diagnostic report from a field whitelist, with absent metrics labeled unavailable and no identifiers, candidate addresses or session/input content.
@@ -32,29 +43,33 @@ These native samples exclude the complete Canvas/WebRTC encode, network path, re
 
 The installed host exposes an AMD Radeon 780M and NVIDIA RTX 4060 Laptop GPU. `nvidia-smi` reported zero active encode sessions during the check. The app source still performs DXGI GPU copy to CPU staging, IPC to WebView, WebGL upload, Canvas capture and browser-managed WebRTC encoding. No native NVENC, AMF, QSV or Media Foundation encoding integration was introduced.
 
-Hardware encoder evaluation: NVENC is a candidate on this host's RTX 4060 and AMF is a candidate on its Radeon 780M. No Intel GPU was enumerated. The runtime packages no encoder SDK and does not feed the D3D11 duplication texture directly into an encoder. The project's stored NVENC 13.1 guide and SDK landing-page fetch entries are marked `FAIL` in `.local/research/pc-game-0.16/manifest.json` because source retrieval was unavailable; therefore this run did not claim a source-level API feasibility verification. A future experiment must establish a real selected implementation and preserve WebRTC congestion control/fallback before replacing the browser path. AV1/HEVC availability and interoperability across both deployed endpoints are also NOT VERIFIED.
+Hardware encoder evaluation: NVENC is a candidate on this host's RTX 4060 and AMF is a candidate on its Radeon 780M. No Intel GPU was enumerated. The NVENC guide describes opening an encode session against a DirectX device and registering/mapping externally allocated input textures. Supported input formats depend on the selected hardware, so the current BGRA/scRGB staging path is not a directly verified encoder surface. Intel VPL documents import of D3D11 textures without mapping/copying through system memory, with a copy fallback when shared surfaces are unavailable. The AMF header documents low-latency usage modes and DirectX memory selection. Media Foundation's H.264 MFT documents NV12/I420/YUY2-family input, H.264 output and codec latency parameters. These establish plausible APIs, not runtime support, selected hardware, zero-copy behavior, or WebRTC integration on this machine. The host has both AMD and NVIDIA adapters, so adapter identity and cross-adapter transfer cost must be measured. The current application still has no native encoder integration. AV1/HEVC availability and interoperability across deployed endpoints remain UNVERIFIED.
 
 ## Validation results
 
-- Frontend: `npm test` PASS, 113/113.
+- Frontend: `npm test` PASS, 118/118.
 - Frontend: `npm run build` PASS.
 - Go server: `go test ./...` PASS.
 - Go server: `go vet ./...` PASS.
 - Go module cache: `go mod verify` PASS for the modules already downloaded.
 - Go module checksums: `go mod verify` PASS for downloaded modules.
-- Rust: `cargo fmt --check`, `cargo check --locked`, `cargo test --locked` PASS. The unit suite has 23 tests, 1 visible-desktop test is ignored by default, and 23 normal tests pass after adding the percentile test.
+- Rust: `cargo fmt --check`, `cargo check --locked`, `cargo test --locked` PASS. The unit suite has 24 tests, 1 visible-desktop test is ignored by default, and 24 normal tests pass.
+- Go Race: PASS across all packages using temporary LLVM-MinGW GCC, `CGO_ENABLED=1`, and Go 1.26.11.
+- `govulncheck ./...`: PASS, no reachable Go vulnerabilities on Go 1.26.11.
+- Cargo audit: PASS, zero Rust vulnerabilities. It reports three informational warnings, covering `chrono` and `proc-macro-error` maintenance status and GTK `glib` soundness on non-Windows targets. The Windows-target audit also reports zero vulnerabilities.
+- PostgreSQL migration runner: PASS against PGlite 0.6.0/PostgreSQL 19 WASM over its PostgreSQL wire adapter. Clean application and rerun, both unique indexes, each duplicate preflight error and transaction rollback were checked. Standard PostgreSQL server behavior remains UNVERIFIED.
 - DXGI visible desktop: dynamic smoke PASS for the animated UI pattern. A no-update run returned 30 empty DXGI timeout replies and zero pixel frames, reported as no pixel transfer rather than as a fabricated zero-FPS stream.
 - Compose: `docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config --quiet` PASS. This validates compose syntax and not actual public networking.
 - npm dependency audit: PASS, zero reported vulnerabilities.
-- Go race detector: NOT VERIFIED because this Windows Go installation has `CGO_ENABLED=0` and no C compiler. WSL is installed without a Go toolchain. Normal Go tests and Vet pass.
-- Go advisory scan: NOT VERIFIED because fetching `govulncheck` from `proxy.golang.org` timed out. `go list -m all` also needed uncached module metadata from that proxy and could not complete.
-- Rust dependency tree: inspected from `Cargo.lock`; some transitive version duplicates are present under Tauri, Reqwest and build tooling. No dependency was added or upgraded.
-- Rust advisory scan: NOT VERIFIED because `cargo-audit` is not installed and the advisory database is not available locally.
-- Current Windows NSIS x64 installer: PASS, 2,429,607 bytes, SHA-256 `B11CC44CBE8984D85359F5CF64086B9E6B319A4DB5CF236916091BA48B0613E2`, `NotSigned`.
-- Portable Windows EXE: PASS, 10,604,032 bytes, SHA-256 `36954B133AFF4406B87679172F71F74CEED0B07C2731244663AA5B1573F2DCBA`, `NotSigned`.
-- Current LAN test NSIS package: PASS, 3,213,539 bytes, SHA-256 `66F5CD8B01B2B8EA8CB4891638411C622E19F0082905A5F97BFBCBF1EDDF3026`, configured for `192.168.1.102:8080` with a matching exact-origin HTTP/WS CSP.
+- Go race detector: PASS using a temporary LLVM-MinGW compiler and `CGO_ENABLED=1`. No compiler files were added to the repository.
+- Go advisory scan: PASS with Go 1.26.11 and the patched dependency versions. The final `govulncheck ./...` run reports no reachable vulnerabilities.
+- Rust dependency audit prompted safe lockfile updates to patched `url`, `cookie` and `rustix` versions. No new runtime feature dependency was added.
+- Rust advisory scan: PASS with zero vulnerabilities. Three informational advisories remain, including two unmaintained transitive crates and a GTK `glib` soundness advisory for non-Windows targets.
+- Current Windows NSIS x64 installer: PASS, 2,433,729 bytes, SHA-256 `0CD6A59F966098F613EFC3CB05DF6CB7B077F7C141D424C03D787C8F88A1BCF2`, `NotSigned`.
+- Portable Windows EXE: PASS, 10,611,712 bytes, SHA-256 `46924AC879BAA12BB7551142A1EACA393D2260885B4572AED4B2FE230C9CF5DC`, `NotSigned`.
+- Current LAN test NSIS package: PASS, 3,225,414 bytes, SHA-256 `F8FD304909C2661D882B1CF39F7E87DB629CE4A6AC8F619432DB6FC94FFFDFB5`, configured for `192.168.0.101:8080` with a matching exact-origin HTTP/WS CSP.
 - Neither artifact embeds a production signaling domain. They verify build/packaging only and require a configured HTTPS service before operational use.
-- Physical second-Windows installation, same-LAN flows, public STUN/TURN and long-session behavior: NOT VERIFIED.
+- Physical second-Windows installation, same-LAN flows, public STUN/TURN and long-session behavior: NOT VERIFIED. Current host address is `192.168.0.101`; the network is classified Public and observed peer service ports are closed.
 
 ## Security review notes
 
@@ -67,7 +82,7 @@ This is a source and regression-test review, not a penetration test or a complet
 | Priority | Finding | Disposition |
 |---|---|---|
 | P2 | `deploy/.env.example` still set a 30-minute active TTL, conflicting with the current 8-hour server default and deployment docs. | Fixed the example to 8 hours. |
-| P2 | PostgreSQL's existing exact-case unique constraints permitted case variants although login queries match lowercased usernames/emails. | Registration now stores lowercase usernames. Migration 002 preflights existing case-folded collisions and adds unique expression indexes. Live PostgreSQL migration remains unverified. |
+| P2 | PostgreSQL's existing exact-case unique constraints permitted case variants although login queries match lowercased usernames/emails. | Registration now stores lowercase usernames. Migration 003 preflights existing case-folded collisions and adds unique expression indexes. |
 | P2 | The native smoke test emitted a format line for every frame when its smoke flag was set, which could dirty the captured screen and corrupt the benchmark. | Fixed by a separate opt-in format-debug flag and change-only logging. |
 | P2 | Capture timing lacked P99/max, and diagnostics could not distinguish full/delta/cursor/empty/failure windows. | Added sample-gated percentiles and bounded host counters. |
 | P2 | Controller reported decoded frames but not browser video-frame callbacks. | Added a separately labeled, capability-gated callback measurement. It is not physical scanout. |
@@ -75,8 +90,10 @@ This is a source and regression-test review, not a penetration test or a complet
 | P2 | Browser-reported codec was visible, but implementation detail was omitted. | Added encoder/decoder implementation fields only when exposed by WebRTC stats. |
 | P2 | The LAN-test CSP allowed generic HTTPS/WSS sources even though its signaling URL targeted one private test host. | Removed generic HTTPS/WSS sources, rebuilt the package and verified the generated CSP against the selected address. |
 | P2 | DataChannel callbacks issued independent asynchronous Tauri input commands, so native completion order could differ from event validation order under IPC load. | Serialize native event delivery and fail closed on a full backlog; a saturated release edge revokes native authorization, which releases held controls. Regression-tested. |
-| P2 | `go test -race` was requested by CI but this host lacked cgo tooling. | Recorded as NOT VERIFIED. CI's Ubuntu job remains the authoritative race check when available. |
-| P2 | `govulncheck` download failed due network timeout; Cargo audit binary/advisory DB were unavailable. | Recorded as NOT VERIFIED. No dependencies were added. |
+| P2 | Reachable Go advisories affected Go 1.26.4, Gorilla WebSocket 1.5.3 and selected `x/crypto` calls. | Upgraded the toolchain and dependencies; the repeat symbol scan reports no vulnerabilities. Go Race also passes with a locally downloaded temporary compiler. |
+| P2 | Cargo audit found RustSec advisories in transitive `url` and `cookie` versions. | Updated both to fixed releases and upgraded the affected `rustix`; rescan reports zero vulnerabilities. Three non-vulnerability informational advisories remain. |
+| P2 | Capture timing lacked a GPU execution measurement. | Added bounded, capability-gated asynchronous WebGL timer queries and synthetic tests. Real WebView2 counter availability and measurements remain unverified. |
+| P2 | The identity-index migration used sequence 002, already assigned to the user-role migration. | Renamed the new migration to 003, strengthened ordering/mirror tests, and verified it using the production Go runner against temporary PostgreSQL-wire test databases. |
 
 ## Next five investments
 
@@ -84,4 +101,4 @@ This is a source and regression-test review, not a penetration test or a complet
 2. Capture WebRTC sender/receiver statistics while the real stream runs. Confirm the `encoderImplementation`, codec, actual receive callback cadence, queue and drop counters.
 3. Measure physical mouse input-to-display with a repeatable optical test. Do not substitute RTT or frame callback metrics.
 4. Design a D3D11 texture-sharing prototype and compare it with the current staging readback using identical scenes before adding a native encoder. Keep WebRTC congestion control and fallback behavior in scope.
-5. Run Go Race/Vet and advisory scans in network-enabled CI, then decide whether a native Media Foundation/NVENC/AMF/QSV path is justified by measurements.
+5. Keep Go Race and advisory scans in CI, resolve or document the remaining Rust informational advisories, then decide whether a native Media Foundation/NVENC/AMF/QSV path is justified by measurements.

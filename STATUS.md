@@ -1,12 +1,26 @@
 # Status
 
+## M28 — dependency hardening and asynchronous GPU timing
+
+- Continued from local commit `bd9334c8daeeccec4d81157330d575aec89e9fa7`. All work remains on the local engineering branch; no push or release was performed.
+- Found and fixed reachable Go vulnerability advisories, including the 2026 Gorilla WebSocket issue and Go standard-library advisories. Upgraded Gorilla WebSocket to its patched upstream commit, `golang.org/x/crypto` to v0.59.0, its selected `x/net`/`x/sys` dependencies, and pinned CI/toolchain to Go 1.26.11.
+- PASS: `govulncheck ./...` reports no vulnerabilities on Go 1.26.11. `go test -race ./...`, normal Go tests, Vet and module verification pass using a temporary LLVM-MinGW C compiler outside the repository.
+- Fixed the migration sequence collision by renaming the case-insensitive account migration to 003 after the pre-existing user-role migration 002. A local PostgreSQL-wire server backed by PostgreSQL WASM exercised the Go migration runner, idempotent repeat, both unique indexes, both legacy collision failures, and rollback without partial indexes.
+- Upgraded Rust `url` to 2.5.9, `cookie` to 0.18.3, and `rustix` to 1.1.6. Cargo audit reports zero vulnerabilities. Informational warnings remain for transitive `chrono` and `proc-macro-error` maintenance status and Linux GTK `glib` unsoundness; the GTK issue is outside the supported Windows target.
+- Added asynchronous WebGL disjoint timer queries, sampled once per 30 drawn updates, with at most eight pending queries, no synchronous result wait, disjoint-result rejection and cleanup on stream stop. The diagnostic reports GPU image-update P50/P95 and P99/max only after sufficient samples. It measures queued GPU upload/draw execution, not Canvas/WebRTC encoding, scanout or input-to-display delay.
+- PASS: frontend tests 118/118 and production build. Rust `cargo fmt --check`, locked check/test pass with 24 tests passing and one visible-desktop smoke test ignored by default. Sustained WebView2 GPU counter availability and real values remain NOT VERIFIED.
+- PASS, unsigned Windows Release: NSIS 2,433,729 bytes, SHA-256 `0CD6A59F966098F613EFC3CB05DF6CB7B077F7C141D424C03D787C8F88A1BCF2`; portable EXE 10,611,712 bytes, SHA-256 `46924AC879BAA12BB7551142A1EACA393D2260885B4572AED4B2FE230C9CF5DC`.
+- PASS, unsigned LAN debug installer: built for current `192.168.0.101:8080`, 3,225,414 bytes, SHA-256 `F8FD304909C2661D882B1CF39F7E87DB629CE4A6AC8F619432DB6FC94FFFDFB5`. Generated CSP and bundle allow only Tauri IPC, loopback and that exact HTTP/WS origin.
+- LAN status: `192.168.0.101` is assigned to this host. `.100` and `.102` responded to ICMP probes, while tested signaling/download ports on `.100` and port 8080 on `.102` were closed. Windows classifies the active Ethernet network as Public. No listener or firewall rule was opened, and two-PC application acceptance remains NOT VERIFIED.
+- NOT VERIFIED: two physical Windows computers, standard PostgreSQL server/container, actual hardware encoder selection, public STUN/TURN, 30-minute session and physical input-to-display latency.
+
 ## M27 — engineering hardening and media observability
 
 - Starting commit `2e4806f57ecef4bc295a6cdda2e9639a930443a8`; local-only branch `codex/overnight-engineering-hardening`.
 - Add authenticated bounded capture-window counts, sampling-window P99/max after 100 samples, decoded-vs-WebView-presented callback cadence, and browser-reported encoder/decoder implementation when exposed. Presentation summaries are capped at four updates/second, and their sample storage is compacted during ordinary 60 FPS sessions. No per-frame logs or image persistence were added.
 - Add copyable aggregate-only diagnostics with fields whitelisted for route, codec, rates, timing and drops; absent values stay unavailable.
 - Fix `deploy/.env.example` to match the current eight-hour active-session default. Disable per-frame DXGI format logging during the smoke test; retain optional change-only format diagnostics on a separate explicit flag.
-- Normalize new usernames to lowercase and add PostgreSQL migration 002 for case-insensitive username/email uniqueness. The migration refuses to proceed if legacy case-folded collisions exist; no accounts are rewritten automatically.
+- Normalize new usernames to lowercase and add PostgreSQL migration 003 for case-insensitive username/email uniqueness, following the existing 002 user-role migration. The new migration refuses to proceed if legacy case-folded collisions exist; no accounts are rewritten automatically.
 - Serialize native input deliveries to preserve event order across Tauri IPC. Bound pending work at 256 events; if a release edge arrives at capacity, revoke native authorization and release all held inputs instead of allowing stale input to follow it.
 - PASS: frontend tests 113/113 and production build; Go tests/build/Vet/module checksum verification; Rust format/check and 23 tests pass with one opt-in visible capture test ignored by the normal suite; npm audit reports zero vulnerabilities; Compose config syntax validates; release and LAN test installers build.
 - PASS, package unsigned: final Windows x64 NSIS installer is 2,429,607 bytes, SHA-256 `B11CC44CBE8984D85359F5CF64086B9E6B319A4DB5CF236916091BA48B0613E2`. The release portable EXE is 10,604,032 bytes, SHA-256 `36954B133AFF4406B87679172F71F74CEED0B07C2731244663AA5B1573F2DCBA`. Both are unsigned and have no production signaling domain configured.
@@ -33,7 +47,7 @@
 
 ## Current milestone
 
-M27 — engineering hardening and media observability. Local validation and current-source Windows package builds completed 2026-11-25. Two-Windows acceptance remains NOT VERIFIED.
+M28 — dependency hardening and asynchronous GPU timing. Source validation is complete. Current-source Windows release and LAN packages are rebuilt after final code and documentation updates. Two-Windows acceptance remains NOT VERIFIED.
 
 ## Direct connection workflow
 

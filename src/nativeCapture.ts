@@ -5,12 +5,14 @@ import { captureDamage, damageScissor, visibleCaptureCursor } from "./captureDam
 import type { CaptureCursor } from "./captureDamage";
 import { CaptureTimingWindow } from "./captureTiming";
 import type { CaptureRuntimeSummary, CaptureTimingSummary } from "./captureTiming";
+import { createAsyncGpuTimer } from "./gpuTiming";
 
 /** One raw BGRA frame in flight; GPU swizzle feeds the browser's WebRTC encoder. */
 export async function startNativeStream(token: string, onFailure: () => void, onTiming?: (summary: CaptureTimingSummary) => void): Promise<{ stream: MediaStream; stop: () => void; setFrameRate: (fps: number) => void }> {
   const canvas = document.createElement("canvas");
   const gl = canvas.getContext("webgl", { alpha: false, antialias: false, preserveDrawingBuffer: true });
   if (!gl) throw new Error("GPU canvas unavailable");
+  const gpuTimer = createAsyncGpuTimer(gl);
   // Partial draws require the previous canvas pixels to survive presentation.
   const partialDraws = gl.getContextAttributes()?.preserveDrawingBuffer === true;
   const shaders: WebGLShader[] = [];
@@ -37,6 +39,7 @@ export async function startNativeStream(token: string, onFailure: () => void, on
   };
   const reportTimings = () => {
     const now = performance.now();
+    for (const milliseconds of gpuTimer?.collect() ?? []) captureTiming.addGpuImageTime(milliseconds);
     const timing = captureTiming.snapshot();
     runtimeStats.windowMs = Math.max(1, now - timingWindowStarted);
     runtimeStats.pixelFps = Math.round(runtimeStats.pixelFrames * 1000 / runtimeStats.windowMs * 10) / 10;
@@ -52,6 +55,7 @@ export async function startNativeStream(token: string, onFailure: () => void, on
   const stop = () => {
     if (stopped) return;
     stopped = true; clearTimeout(timer); stream?.getTracks().forEach(track => track.stop());
+    gpuTimer?.stop();
     canvas.removeEventListener("webglcontextlost", contextLost);
     gl.deleteTexture(texture); gl.deleteBuffer(buffer); gl.deleteProgram(program); shaders.forEach(value => gl.deleteShader(value));
     gl.getExtension("WEBGL_lose_context")?.loseContext();
@@ -71,7 +75,7 @@ export async function startNativeStream(token: string, onFailure: () => void, on
     const maximumTexture = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
     // These capability queries happen once at setup, never in the per-frame GPU path.
     if (gl.isContextLost() || gl.getError() !== gl.NO_ERROR) throw new Error("GPU capture setup failed");
-    let width = 0, height = 0;
+    let width = 0, height = 0, gpuTimingActive = false;
     let baseline: CaptureBaseline | null = null;
     let cursor: CaptureCursor = null;
     const exactScissor = partialDraws && (gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT)?.precision ?? 0) >= 16;
@@ -98,25 +102,37 @@ export async function startNativeStream(token: string, onFailure: () => void, on
         else if (frame.kind === "delta") { runtimeStats.pixelFrames++; runtimeStats.deltaFrames++; runtimeStats.deltaRectangles += frame.rects.length; }
         else if (frame.kind === "cursor") runtimeStats.cursorPackets++;
       };
-      gl.uniform2f(dimensionsUniform, width, height); gl.uniform2f(cursorUniform, (nextCursor?.x ?? 0) / width, (nextCursor?.y ?? 0) / height); gl.uniform1i(visibleUniform, nextCursor ? 1 : 0);
-      for (const rect of frame.rects) gl.texSubImage2D(gl.TEXTURE_2D, 0, rect.x, rect.y, rect.width, rect.height, gl.RGBA, gl.UNSIGNED_BYTE, rect.pixels);
-      cursor = nextCursor;
-      baseline = { width, height, sequence: frame.sequence };
-      if (!fullDraw && !damage.length) { recordFrame(); return false; }
-      if (fullDraw) gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      else {
-        gl.enable(gl.SCISSOR_TEST);
-        for (const rect of damage) {
-          gl.scissor(...damageScissor(rect, height));
-          gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      const gpuQuery = gpuTimingActive && (fullDraw || damage.length > 0) ? gpuTimer?.begin() : undefined;
+      let gpuQueryEnded = false;
+      const endGpuQuery = () => {
+        if (gpuQueryEnded) return;
+        gpuTimer?.end(gpuQuery);
+        gpuQueryEnded = true;
+      };
+      try {
+        gl.uniform2f(dimensionsUniform, width, height); gl.uniform2f(cursorUniform, (nextCursor?.x ?? 0) / width, (nextCursor?.y ?? 0) / height); gl.uniform1i(visibleUniform, nextCursor ? 1 : 0);
+        for (const rect of frame.rects) gl.texSubImage2D(gl.TEXTURE_2D, 0, rect.x, rect.y, rect.width, rect.height, gl.RGBA, gl.UNSIGNED_BYTE, rect.pixels);
+        cursor = nextCursor;
+        baseline = { width, height, sequence: frame.sequence };
+        if (!fullDraw && !damage.length) { recordFrame(); return false; }
+        if (fullDraw) gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        else {
+          gl.enable(gl.SCISSOR_TEST);
+          for (const rect of damage) {
+            gl.scissor(...damageScissor(rect, height));
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+          }
+          gl.disable(gl.SCISSOR_TEST);
         }
-        gl.disable(gl.SCISSOR_TEST);
+        endGpuQuery();
+        // Canvas capture snapshots the current bitmap when requestFrame is called.
+        // Request only after drawing all damage to avoid publishing the prior image.
+        requestFrame?.();
+        recordFrame();
+        return true;
+      } finally {
+        endGpuQuery();
       }
-      // Canvas capture snapshots the current bitmap when requestFrame is called.
-      // Request only after drawing all damage to avoid publishing the prior image.
-      requestFrame?.();
-      recordFrame();
-      return true;
     };
     const firstDeadline = performance.now() + 2500;
     while (!stopped && !width && performance.now() < firstDeadline) {
@@ -136,6 +152,7 @@ export async function startNativeStream(token: string, onFailure: () => void, on
     // Startup baseline and decoder negotiation are excluded from steady-state request windows.
     timingWindowStarted = performance.now();
     resetRuntimeStats();
+    gpuTimingActive = true;
     let fps = 60, lastPull = performance.now();
     const schedulePull = () => {
       timer = setTimeout(() => {

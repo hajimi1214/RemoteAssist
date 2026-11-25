@@ -2,7 +2,9 @@
 
 The canonical PostgreSQL migrations live in `server/internal/database/migrations` and are embedded by the Go migration command. Matching SQL files are mirrored in `server/migrations` for deployment inspection. Migration tests verify the mirrored copies stay identical.
 
-Migration 002 adds case-insensitive unique indexes for usernames and email addresses. It checks for case-folded duplicates before creating the indexes and fails with an actionable error without renaming or deleting accounts if conflicts exist. Normalize or resolve any such legacy accounts before retrying deployment.
+Migration 003 adds case-insensitive unique indexes for usernames and email addresses after the existing migration 002 adds user roles. It checks for case-folded duplicates before creating the indexes and fails with an actionable error without renaming or deleting accounts if conflicts exist. Normalize or resolve any such legacy accounts before retrying deployment.
+
+Migrations 001–003 were exercised through the Go migration runner over a temporary loopback PostgreSQL-wire endpoint backed by PostgreSQL 19 WASM/PGlite 0.6.0. Clean repeat application, case-insensitive uniqueness, legacy duplicate preflight and rollback were checked. A standard PostgreSQL server remains unverified.
 
 ## Tables
 

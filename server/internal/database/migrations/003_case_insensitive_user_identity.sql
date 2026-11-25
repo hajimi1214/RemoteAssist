@@ -8,7 +8,7 @@ BEGIN
         GROUP BY lower(username)
         HAVING count(*) > 1
     ) THEN
-        RAISE EXCEPTION 'case-insensitive duplicate usernames exist; resolve them before migration 002';
+        RAISE EXCEPTION 'case-insensitive duplicate usernames exist; resolve them before migration 003';
     END IF;
     IF EXISTS (
         SELECT lower(email)
@@ -16,7 +16,7 @@ BEGIN
         GROUP BY lower(email)
         HAVING count(*) > 1
     ) THEN
-        RAISE EXCEPTION 'case-insensitive duplicate emails exist; resolve them before migration 002';
+        RAISE EXCEPTION 'case-insensitive duplicate emails exist; resolve them before migration 003';
     END IF;
 END
 $migration$;
