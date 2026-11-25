@@ -836,7 +836,11 @@ impl Desktop {
                         let duplication = match output.cast::<IDXGIOutput5>() {
                             Ok(output5) => output5
                                 .DuplicateOutput1(&device, 0, &[DXGI_FORMAT_B8G8R8A8_UNORM])
-                                .or_else(|_| {
+                                .or_else(|preferred_error| {
+                                    eprintln!(
+                                        "desktop_duplication_preferred_format_failed hresult=0x{:08X}",
+                                        preferred_error.code().0 as u32
+                                    );
                                     output.cast::<IDXGIOutput1>()?.DuplicateOutput(&device)
                                 }),
                             Err(_) => output
