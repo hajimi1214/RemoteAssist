@@ -74,7 +74,7 @@ On the host, verify `http://127.0.0.1:8080/healthz` returns status `ok`. A worki
 
 1. Sign in to the same disposable test account on both PCs.
 2. Keep the Windows host client visible and signed in.
-3. On the controller, open **My Devices** and select the online host.
+3. On the controller, open **My Devices** and click the online Windows host once. The desktop should enter full-window control directly.
 4. Confirm the desktop appears without a code-entry or per-session approval dialog.
 5. Confirm the host shows who is connected and that its visible pause/stop action ends control.
 6. Move the mouse, click, use the wheel, press/release keys, and send bounded text.
@@ -118,3 +118,5 @@ Run a 5-minute moving pattern first, then a 30-minute desktop/game session. Repe
 For every check use `PASS`, `FAIL`, or `NOT VERIFIED`, and attach the tested machine/build/route and measured values. Do not label a synthetic browser loopback as dual-PC evidence. Close both foreground test servers after the run. No LAN service or port-forward should be left running.
 
 Current machine record on 2026-11-25: this host's Ethernet address is `192.168.0.101`; Windows classifies the network as Public. ICMP probes to `.100` and `.102` responded. TCP `192.168.0.100:8080`, `:8090`, and `192.168.0.102:8080` did not establish connections. The final LAN installer was built for `192.168.0.101:8080`, 3,228,005 bytes, SHA-256 `0FFDE82F1D7C79F80BCF778BFF98C045E6671D51583E4519480E3A6864D8240F`. Its JavaScript bundle and CSP permit that exact HTTP/WS origin. This turn did not start a service or change firewall rules. The final process audit identified and stopped two pre-existing project test services bound to the stale `192.168.1.102` address. The unrelated `127.0.0.1:8080` development service remains running. Installed-client screen/input acceptance remains NOT VERIFIED.
+
+2026-11-26 follow-up: rebuilt the unsigned LAN debug installer for `192.168.0.101:8080`, 3,229,002 bytes, SHA-256 `750B7EECF85A5F045AF5EC1A5D77E1BE295E1DF73DFE751C7D62D5B779AF6C64`. It includes one-click full-window control and the lower Balanced startup bitrate ceiling. No local listener was present on ports 8080 or 8090 after packaging, and no firewall rule was changed. Install the updated package on both PCs before recording the one-click or stream-quality result. The UI and startup policy are automated-tested, but installed two-PC acceptance remains NOT VERIFIED.

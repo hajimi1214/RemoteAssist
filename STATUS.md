@@ -1,5 +1,17 @@
 # Status
 
+## M30 — direct fullscreen control entry and capture wait pacing
+
+- **My Devices** now opens control with one device click from focus, sidebar, grid and list layouts. The duplicate view-only card action was removed; the in-session toolbar still pauses input while leaving the desktop visible.
+- Windows controller awaits native Tauri fullscreen before opening the session. The visible main-window capability allows `setFullscreen`. Once video arrives, remote input activates automatically. The remote view occupies the full app window during setup and control. Disconnect and Escape restore the previous window mode. Compact in-session controls retain pause, tools and stop.
+- DXGI acquire wait follows the requested sender FPS interval, capped at 40 ms. The 60 FPS target maps to a 17 ms wait. Frontend and Rust boundary tests cover 60/45/30/15 FPS, invalid values and the native cap. No before/after physical latency improvement is claimed.
+- Automatic video quality now starts at the measured-policy `Balanced` tier instead of `Sharp`. At 4K the initial bitrate ceiling is 20 Mbps rather than 40 Mbps; sharp mode remains available, and automatic upgrades require measured headroom. This reduces startup load but has not yet been measured on the two Windows PCs.
+- PASS after the final quality change: frontend tests 122/122 and production build; `scripts/test.ps1` passes frontend, Go tests/build and Rust check/tests; separate Go Vet and module verification pass; Rust format check passes with 25 tests and one visible-desktop smoke test ignored.
+- PASS, unsigned Windows x64 release: NSIS installer 2,434,253 bytes, SHA-256 `1948AD0A82F63DDC7AC073F00C9B338823F9868E374F13967DD558C7F608A88B`; portable EXE 10,601,472 bytes, SHA-256 `03608738EA34F7B9375D6E1B09D3F9698D1BBC2BFF4989521A07F22D8E23E690`.
+- PASS, unsigned LAN debug installer: 3,229,002 bytes, SHA-256 `750B7EECF85A5F045AF5EC1A5D77E1BE295E1DF73DFE751C7D62D5B779AF6C64`, configured for `192.168.0.101:8080`. It is copied to `.local/lan-test-download/` for LAN distribution.
+- Real WebView2 acquisition/presentation, installed-client input behavior, physical two-PC session, and measured latency remain NOT VERIFIED.
+- The Go Race attempt could not start because the current shell has `CGO_ENABLED=0` and no C compiler in `PATH`; the earlier M29 Go Race result remains recorded separately.
+
 ## M29 — active WebSocket heartbeat regression
 
 - Added a lifecycle regression with real test WebSocket connections. An authorized controller's active-session ping receives a local pong with the original timestamp, the capability token stays private, and the host does not receive the controller's ping.
@@ -15,6 +27,7 @@
 - Fixed the migration sequence collision by renaming the case-insensitive account migration to 003 after the pre-existing user-role migration 002. A local PostgreSQL-wire server backed by PostgreSQL WASM exercised the Go migration runner, idempotent repeat, both unique indexes, both legacy collision failures, and rollback without partial indexes.
 - Upgraded Rust `url` to 2.5.9, `cookie` to 0.18.3, and `rustix` to 1.1.6. Cargo audit reports zero vulnerabilities. Informational warnings remain for transitive `chrono` and `proc-macro-error` maintenance status and Linux GTK `glib` unsoundness; the GTK issue is outside the supported Windows target.
 - Added asynchronous WebGL disjoint timer queries, sampled once per 30 drawn updates, with at most eight pending queries, no synchronous result wait, disjoint-result rejection and cleanup on stream stop. The diagnostic reports GPU image-update P50/P95 and P99/max only after sufficient samples. It measures queued GPU upload/draw execution, not Canvas/WebRTC encoding, scanout or input-to-display delay.
+- PASS, Chromium capability smoke: standalone WebGL 1 on RTX 4060/ANGLE D3D11 returned a non-disjoint 1.090336 ms query for 100 valid triangle draws, with `gl.getError() == NO_ERROR`. Packaged RemoteAssist/WebView2 measurements remain NOT VERIFIED.
 - PASS: frontend tests 118/118 and production build. Rust `cargo fmt --check`, locked check/test pass with 24 tests passing and one visible-desktop smoke test ignored by default. Sustained WebView2 GPU counter availability and real values remain NOT VERIFIED.
 - PASS, unsigned Windows Release: NSIS 2,433,729 bytes, SHA-256 `0CD6A59F966098F613EFC3CB05DF6CB7B077F7C141D424C03D787C8F88A1BCF2`; portable EXE 10,611,712 bytes, SHA-256 `46924AC879BAA12BB7551142A1EACA393D2260885B4572AED4B2FE230C9CF5DC`.
 - PASS, unsigned LAN debug installer: built for current `192.168.0.101:8080`, 3,228,005 bytes, SHA-256 `0FFDE82F1D7C79F80BCF778BFF98C045E6671D51583E4519480E3A6864D8240F`. Generated JavaScript bundle and CSP both contain that exact HTTP/WS origin, with no generic HTTPS/WSS sources.

@@ -47,7 +47,6 @@ export function App() {
   const [view, setView] = useState<View>("My Devices");
   const [targetDevice,setTargetDevice]=useState<Device|null>(null);
   const [assistCode,setAssistCode]=useState<string|null>(null);
-  const [viewOnly,setViewOnly]=useState(false);
   const [serviceStatus, setServiceStatus] = useState("Disconnected");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -55,6 +54,9 @@ export function App() {
   const [assistHostActive, setAssistHostActive] = useState(false);
   const [retry, setRetry] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const controlFullscreenEpoch = useRef(0);
+  const restoreControlFullscreen = useRef(false);
+  const openingDevice = useRef(false);
   const preferences = usePreferences();
   const journal=useSessionJournal(auth?.user.id);
   const directHost=useDirectHost(auth,device,signaling,!assistHostActive);
@@ -66,7 +68,35 @@ export function App() {
   function updateActivity(active: boolean) { setSessionActive(active); }
   function guard(action: () => void) { action(); }
   function requestLogin(next: View = view) { if(androidClient&&!configuredServer()&&!import.meta.env.VITE_SIGNALING_URL){setServerOpen(true);return;} if (!authLoaded) { setNotice("正在恢复登录，请稍候再试。"); return; } setLoginError(""); setAuthMode("signin"); setLoginTarget({ view: next }); }
-  function connectDevice(item:Device,watchOnly=false){if(!auth){requestLogin("My Devices");return;}guard(()=>{setAssistCode(null);setViewOnly(watchOnly);setTargetDevice(item);setView("Remote Assist");});}
+  async function enterControlFullscreen() {
+    if(!nativeWindow)return;
+    const epoch=++controlFullscreenEpoch.current;
+    const currentWindow=getCurrentWindow();
+    restoreControlFullscreen.current=false;
+    const wasFullscreen=await currentWindow.isFullscreen();
+    if(epoch!==controlFullscreenEpoch.current)return;
+    restoreControlFullscreen.current=!wasFullscreen;
+    if(!wasFullscreen)await currentWindow.setFullscreen(true);
+  }
+  function leaveControlFullscreen() {
+    controlFullscreenEpoch.current++;
+    const shouldRestore=restoreControlFullscreen.current;
+    restoreControlFullscreen.current=false;
+    if(nativeWindow&&shouldRestore)void getCurrentWindow().setFullscreen(false).catch(()=>undefined);
+  }
+  function returnToDevices() { leaveControlFullscreen();setAssistCode(null);setTargetDevice(null);setView("My Devices"); }
+  function connectDevice(item:Device){
+    if(!auth){requestLogin("My Devices");return;}
+    if(openingDevice.current)return;
+    openingDevice.current=true;
+    setError("");setNotice("");
+    void (async()=>{
+      try{await enterControlFullscreen();}
+      catch{setNotice("全屏切换失败，正在以大画面打开远程桌面。可通过悬浮控制栏退出。")}
+      setAssistCode(null);setTargetDevice(item);setView("Remote Assist");
+      openingDevice.current=false;
+    })();
+  }
   function refreshDevices(){if(!auth||!device)return;const owner=auth.user.id;void signaling.devices(auth.accessToken,device.id).then(list=>{if(authRef.current?.user.id===owner)setDevices(list);}).catch(err=>{if(authRef.current?.user.id===owner)setError(friendlyError(err));});}
   function navigate(next: View) {
     if (next === viewRef.current) return;
@@ -219,10 +249,10 @@ export function App() {
         {view === "Dashboard" && <DashboardPage username={signedIn?user?.username:undefined} onlineDevices={devices.filter(item=>item.online&&item.osName==="Windows").length} onMyDevices={()=>navigate("My Devices")} onRemoteAssist={()=>navigate("Remote Assist")}/>}
         {view === "My Devices" && signedIn && device && <DeviceWorkspace devices={devices} currentDevice={device} onConnect={connectDevice} onRefresh={refreshDevices}/>}
         {view === "My Devices" && !signedIn && <MobileHome signedIn={false} onConnect={()=>requestLogin("My Devices")} onServer={()=>setServerOpen(true)}/>}
-        {view === "Remote Assist" && signedIn && auth && device && assistCode && <ControlComputer key={`code-${assistCode}`} auth={auth} controller={device} viewOnly={false} joinCode={assistCode} onActivity={updateActivity} onRecord={summary=>journal.add(auth.user.id,summary)} onBack={()=>{setAssistCode(null);setView("Remote Assist");}}/>}
-        {view === "Remote Assist" && signedIn && auth && device && !targetDevice && !assistCode && <RemoteAssistWorkspace auth={auth} device={device} signaling={signaling} onLogin={()=>requestLogin("Remote Assist")} onJoin={code=>{setTargetDevice(null);setAssistCode(code);}} onActivity={updateActivity} onHostActive={setAssistHostActive} onRecord={summary=>journal.add(auth.user.id,summary)}/>}
+        {view === "Remote Assist" && signedIn && auth && device && assistCode && <ControlComputer key={`code-${assistCode}`} auth={auth} controller={device} joinCode={assistCode} onActivity={updateActivity} onRecord={summary=>journal.add(auth.user.id,summary)} onExitFullscreen={leaveControlFullscreen} onBack={()=>{leaveControlFullscreen();setAssistCode(null);setView("Remote Assist");}}/>}
+        {view === "Remote Assist" && signedIn && auth && device && !targetDevice && !assistCode && <RemoteAssistWorkspace auth={auth} device={device} signaling={signaling} onLogin={()=>requestLogin("Remote Assist")} onJoin={code=>{void enterControlFullscreen().catch(()=>undefined).finally(()=>{setTargetDevice(null);setAssistCode(code);});}} onActivity={updateActivity} onHostActive={setAssistHostActive} onRecord={summary=>journal.add(auth.user.id,summary)}/>}
         {view === "Remote Assist" && !signedIn && <RemoteAssistWorkspace auth={null} device={null} signaling={signaling} onLogin={()=>requestLogin("Remote Assist")} onJoin={()=>undefined} onActivity={updateActivity} onHostActive={()=>undefined} onRecord={()=>undefined}/>}
-        {view === "Remote Assist" && auth && device && targetDevice && <ControlComputer key={`device-${targetDevice.id}`} auth={auth} target={targetDevice} controller={device} viewOnly={viewOnly} onActivity={updateActivity} onRecord={summary=>journal.add(auth.user.id,summary)} onBack={()=>{setTargetDevice(null);setView("My Devices");}}/>}
+        {view === "Remote Assist" && auth && device && targetDevice && <ControlComputer key={`device-${targetDevice.id}`} auth={auth} target={targetDevice} controller={device} onActivity={updateActivity} onRecord={summary=>journal.add(auth.user.id,summary)} onExitFullscreen={leaveControlFullscreen} onBack={returnToDevices}/>}
         {!signedIn && view === "Sessions" && <MobileGuestPage page="Sessions" onLogin={()=>requestLogin("Sessions")} onServer={()=>setServerOpen(true)}/>}
         {view === "Sessions" && signedIn && <SessionsPage records={journal.records} persist={journal.persist} storageError={journal.storageError} onPersistence={journal.setPersistence} onClear={journal.clear} onRetryStorage={journal.retryStorage} onStart={()=>navigate("My Devices")} />}
         {view === "Settings" && <SettingsPage onLogin={()=>requestLogin()} onChangeServer={()=>guard(()=>setServerOpen(true))} onNavigate={next=>navigate(next)} onFeedback={()=>setFeedbackOpen(true)} user={publicView} device={device} version={appVersion} serviceStatus={serviceStatus} preferences={preferences} auth={auth} signaling={signaling} />}
@@ -236,7 +266,7 @@ export function App() {
   );
 }
 
-function ControlComputer({ auth, target, controller, viewOnly, joinCode, onBack, onActivity, onRecord }: { auth: AuthResult; target?:Device;controller:Device;viewOnly:boolean;joinCode?:string;onBack:()=>void;onActivity: (active: boolean) => void; onRecord:(summary:SessionSummary)=>void }) {
+function ControlComputer({ auth, target, controller, joinCode, onBack, onExitFullscreen, onActivity, onRecord }: { auth: AuthResult; target?:Device;controller:Device;joinCode?:string;onBack:()=>void;onExitFullscreen:()=>void;onActivity: (active: boolean) => void; onRecord:(summary:SessionSummary)=>void }) {
   const recorder=useRef<ReturnType<typeof createSessionRecorder>|null>(null);
   const latestAuth=useRef(auth);latestAuth.current=auth;
   const [status, setStatus] = useState("Idle");
@@ -383,7 +413,7 @@ function ControlComputer({ auth, target, controller, viewOnly, joinCode, onBack,
     setRelay("Unknown");
     if(reason!=="Closed")setStatus(reason);
     setSession(null);
-    setBusy(false); onActivity(false);
+    setBusy(false); onActivity(false);onExitFullscreen();
   }
 
   useEffect(() => { const timer=setTimeout(()=>void connect(),0); return()=>{clearTimeout(timer);disconnect("Closed");}; }, []);
@@ -444,7 +474,7 @@ function ControlComputer({ auth, target, controller, viewOnly, joinCode, onBack,
       {qualityNotice&&<p className="field-hint" role="status">{qualityNotice}</p>}
       {!session&&!busy&&<button className="primary-action" onClick={()=>void connect()}>重新连接</button>}
       {busy&&<p role="status">正在连接设备…</p>}
-      <RemoteScreen qualityMode={qualityMode} gameInputSupported={gameInputSupported} onGameMouse={sendGameMouse} onQualityModeChange={qualityControl?mode=>{if(mode==="game"&&!gameInputSupported)return;qualityModeRef.current=mode;setQualityMode(mode);writePreference("remoteassist.qualityMode",mode);setQualityNotice(peerRef.current?.setQualityMode(mode)?"正在调整电脑端画质…":"画质未调整，连接可能已断开。");}:undefined} telemetry={telemetry} latency={latency} onMobileAction={sendMobile} textSupported={textSupported} videoRef={videoRef} connected={status==="connected"} autoFullscreen autoControl={!viewOnly} deviceName={targetName} status={connectionLabel(status)} onPointer={sendPointer} onKey={sendKey} onWheel={sendWheel} onRelease={releaseInputs} onDisconnect={()=>{disconnect("Stopped by controller");onBack();}} />
+      <RemoteScreen qualityMode={qualityMode} gameInputSupported={gameInputSupported} onGameMouse={sendGameMouse} onQualityModeChange={qualityControl?mode=>{if(mode==="game"&&!gameInputSupported)return;qualityModeRef.current=mode;setQualityMode(mode);writePreference("remoteassist.qualityMode",mode);setQualityNotice(peerRef.current?.setQualityMode(mode)?"正在调整电脑端画质…":"画质未调整，连接可能已断开。");}:undefined} telemetry={telemetry} latency={latency} onMobileAction={sendMobile} textSupported={textSupported} videoRef={videoRef} connected={status==="connected"} autoFullscreen deviceName={targetName} status={connectionLabel(status)} onPointer={sendPointer} onKey={sendKey} onWheel={sendWheel} onRelease={releaseInputs} onExitFullscreen={onExitFullscreen} onDisconnect={()=>{disconnect("Stopped by controller");onBack();}} />
       <dl className="connection-details"><div><dt>连接状态</dt><dd>{connectionLabel(status)}</dd></div><div><dt>传输路径</dt><dd>{relay==="P2P"?"设备直连":relay==="TURN Relay"?"中继连接":"等待连接"}</dd></div><div><dt>往返延迟</dt><dd>{latency == null ? "待测量" : `${latency} ms`}</dd></div></dl>
       <ConnectionDiagnostics sample={telemetry} version={appVersion} />
     </section>

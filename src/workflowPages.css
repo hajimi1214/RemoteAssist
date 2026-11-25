@@ -27,7 +27,12 @@
 .remote-screen.modern-screen .screen-floating-ball:hover,.remote-screen.modern-screen .screen-floating-ball:focus-visible { background: #263956; }
 .screen-floating-ball .ui-icon { inline-size: 19px; block-size: 19px; }
 .app-frame.session-active > .window-bar,.app-frame.session-active .app-nav,.app-frame.session-active .page-heading,.app-frame.session-active .workspace-footer,.app-frame.session-active .direct-host-indicator { display: none !important; }
+.app-frame.session-active > .desktop-shell { grid-template-rows: minmax(0,1fr); }
+.app-frame.session-active .desktop-shell > .workspace { inline-size: 100%; max-inline-size: none; block-size: 100%; padding: 0; margin: 0; overflow: hidden; }
 .app-frame.session-active .control-panel > :not(.remote-screen) { display: none !important; }
+.app-frame.session-active .control-panel { display: block; inline-size: 100%; block-size: 100%; min-block-size: 0; margin: 0; }
+.app-frame.session-active .control-panel > .remote-screen.modern-screen { position: fixed; inset: 0; z-index: 100; inline-size: 100vw; block-size: 100dvh; min-block-size: 0; margin: 0; border: 0; border-radius: 0; padding: 0; overflow: hidden; }
+.app-frame.session-active .control-panel > .remote-screen.modern-screen > .remote-viewport { position: absolute; inset: 0; inline-size: 100%; block-size: 100% !important; min-block-size: 0; margin: 0; border: 0; }
 @media (max-width: 800px) {
   .assist-flow-grid { grid-template-columns: minmax(0,1fr); }
   .assist-auth-card { flex-wrap: wrap; }

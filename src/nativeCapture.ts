@@ -6,6 +6,7 @@ import type { CaptureCursor } from "./captureDamage";
 import { CaptureTimingWindow } from "./captureTiming";
 import type { CaptureRuntimeSummary, CaptureTimingSummary } from "./captureTiming";
 import { createAsyncGpuTimer } from "./gpuTiming";
+import { captureAcquireTimeoutMs, MAX_CAPTURE_FPS } from "./framePacing";
 
 /** One raw BGRA frame in flight; GPU swizzle feeds the browser's WebRTC encoder. */
 export async function startNativeStream(token: string, onFailure: () => void, onTiming?: (summary: CaptureTimingSummary) => void): Promise<{ stream: MediaStream; stop: () => void; setFrameRate: (fps: number) => void }> {
@@ -76,6 +77,7 @@ export async function startNativeStream(token: string, onFailure: () => void, on
     // These capability queries happen once at setup, never in the per-frame GPU path.
     if (gl.isContextLost() || gl.getError() !== gl.NO_ERROR) throw new Error("GPU capture setup failed");
     let width = 0, height = 0, gpuTimingActive = false;
+    let fps = MAX_CAPTURE_FPS;
     let baseline: CaptureBaseline | null = null;
     let cursor: CaptureCursor = null;
     const exactScissor = partialDraws && (gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT)?.precision ?? 0) >= 16;
@@ -138,7 +140,7 @@ export async function startNativeStream(token: string, onFailure: () => void, on
     while (!stopped && !width && performance.now() < firstDeadline) {
       runtimeStats.requests++;
       let raw: ArrayBuffer;
-      try { raw = await invoke<ArrayBuffer>("next_desktop_frame", { sessionToken: token }); }
+      try { raw = await invoke<ArrayBuffer>("next_desktop_frame", { sessionToken: token, timeoutMs: captureAcquireTimeoutMs(fps) }); }
       catch { runtimeStats.failedRequests++; throw new Error("capture_frame_request_failed"); }
       render(raw);
     }
@@ -153,7 +155,7 @@ export async function startNativeStream(token: string, onFailure: () => void, on
     timingWindowStarted = performance.now();
     resetRuntimeStats();
     gpuTimingActive = true;
-    let fps = 60, lastPull = performance.now();
+    let lastPull = performance.now();
     const schedulePull = () => {
       timer = setTimeout(() => {
         timer = undefined;
@@ -168,7 +170,7 @@ export async function startNativeStream(token: string, onFailure: () => void, on
         const replyStarted = performance.now();
         runtimeStats.requests++;
         let raw: ArrayBuffer;
-        try { raw = await invoke<ArrayBuffer>("next_desktop_frame", { sessionToken: token }); }
+        try { raw = await invoke<ArrayBuffer>("next_desktop_frame", { sessionToken: token, timeoutMs: captureAcquireTimeoutMs(fps) }); }
         catch { runtimeStats.failedRequests++; requestFailed = true; throw new Error("capture_frame_request_failed"); }
         const replyMs = performance.now() - replyStarted;
         const renderStarted = performance.now();
@@ -187,7 +189,7 @@ export async function startNativeStream(token: string, onFailure: () => void, on
     };
     schedulePull();
     return { stream, stop, setFrameRate: value => {
-      if (stopped || !Number.isFinite(value) || value < 1 || value > 60 || value === fps) return;
+      if (stopped || !Number.isFinite(value) || value < 1 || value > MAX_CAPTURE_FPS || value === fps) return;
       fps = value;
       if (timer !== undefined) { clearTimeout(timer); schedulePull(); }
     } };

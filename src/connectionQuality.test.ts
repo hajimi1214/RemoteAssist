@@ -57,6 +57,13 @@ test("4K60 target budgets source pixels without upscaling smaller desktops",()=>
   assert.equal(videoEncoding("Sharp","auto",{width:NaN,height:0}).maxBitrate,16_000_000);
 });
 
+test("automatic sessions start at a bounded balanced bitrate before measured upgrades",()=>{
+  const policy=new AdaptiveVideoPolicy();
+  assert.equal(policy.current,"Balanced");
+  assert.equal(videoEncoding(policy.current,"auto",{width:3840,height:2160}).maxBitrate,20_000_000);
+  assert.equal(videoEncoding("Sharp","auto",{width:3840,height:2160}).maxBitrate,40_000_000);
+});
+
 test("high startup target yields to sustained congestion and does not bypass hysteresis",()=>{
   const policy=new AdaptiveVideoPolicy("Sharp");
   assert.equal(policy.observe({}),"Sharp");

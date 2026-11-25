@@ -175,7 +175,7 @@ export class HostPeer extends SessionPeer {
   private lastHeartbeat=0;
   private preference: VideoPreference;
   private appliedProfile="";
-  private readonly policy=new AdaptiveVideoPolicy("Sharp");
+  private readonly policy=new AdaptiveVideoPolicy();
   private lastInputWarning=-Infinity;
   private rejectedInputs=0;
   private qualityMode:QualityMode="auto";

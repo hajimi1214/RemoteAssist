@@ -138,8 +138,9 @@ const screenTools = [
 ] as const;
 type ScreenTool = (typeof screenTools)[number]["id"];
 
-export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, onWheel, onRelease, onDisconnect, onMobileAction, textSupported, gameInputSupported = false, onGameMouse = () => false, autoControl = false, autoFullscreen = autoControl, deviceName = "远程桌面", telemetry = null, latency = null, qualityMode = "auto", onQualityModeChange }: {
-  onMobileAction: (action: MobileAction) => boolean; textSupported: boolean; autoControl?: boolean; autoFullscreen?: boolean; deviceName?: string;
+export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, onWheel, onRelease, onDisconnect, onExitFullscreen, onMobileAction, textSupported, gameInputSupported = false, onGameMouse = () => false, autoFullscreen = true, deviceName = "远程电脑", telemetry = null, latency = null, qualityMode = "auto", onQualityModeChange }: {
+  onMobileAction: (action: MobileAction) => boolean; textSupported: boolean; autoFullscreen?: boolean; deviceName?: string;
+  onExitFullscreen?: () => void;
   gameInputSupported?: boolean; onGameMouse?: (action:{type:"mouse_relative"|"mouse_down"|"mouse_up";payload:Record<string,unknown>})=>boolean;
   videoRef: RefObject<HTMLVideoElement | null>; connected: boolean; status: string; telemetry?: VideoTelemetry | null; latency?: number | null;
   qualityMode?: QualityMode; onQualityModeChange?: (mode:QualityMode)=>void;
@@ -175,7 +176,7 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
   const releaseRef = useRef(onRelease); releaseRef.current = ()=>{gameMouse.current.reset();onRelease();};
   const wheelRef = useRef(onWheel); wheelRef.current = onWheel;
   const inputRef = useRef(false); inputRef.current = inputEnabled&&!toolsOpen;
-  const live = useRef({connected,autoControl,manualPaused,source}); live.current={connected,autoControl,manualPaused,source};
+  const live = useRef({connected,manualPaused,source}); live.current={connected,manualPaused,source};
   const hasVideo = connected && source.width > 0 && source.height > 0;
   const immersive = fullscreen || expanded;
   useEffect(()=>{gameMouse.current.reset();},[gameSensitivity,inputEnabled,gamePointerLocked,connected,toolsOpen]);
@@ -259,17 +260,17 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
       if(document.fullscreenElement===surface.current)void document.exitFullscreen().catch(()=>{});
       return;
     }
-    if(hasVideo&&autoFullscreen&&!autoOpened.current){autoOpened.current=true;setExpanded(true);setToolsOpen(false);if(autoControl)videoRef.current?.focus({preventScroll:true});}
-    if(hasVideo&&autoControl&&!manualPaused&&!backgroundPaused&&!document.hidden)setInputEnabled(true);
+    if(hasVideo&&autoFullscreen&&!autoOpened.current){autoOpened.current=true;setExpanded(true);setToolsOpen(false);videoRef.current?.focus({preventScroll:true});}
+    if(hasVideo&&!manualPaused&&!backgroundPaused&&!document.hidden)setInputEnabled(true);
     if(!hasVideo)setInputEnabled(false);
-  },[connected,hasVideo,autoControl,autoFullscreen,manualPaused,backgroundPaused]);
+  },[connected,hasVideo,autoFullscreen,manualPaused,backgroundPaused]);
   useEffect(() => {
     const suspend=()=>{releaseRef.current();setInputEnabled(false);setBackgroundPaused(true);};
     const resume=()=>{
       if(document.hidden)return;
       setBackgroundPaused(false);
       const current=live.current;
-      if(current.connected&&current.source.width>0&&current.autoControl&&!current.manualPaused)setInputEnabled(true);
+      if(current.connected&&current.source.width>0&&!current.manualPaused)setInputEnabled(true);
     };
     const visibility=()=>document.hidden?suspend():resume();
     const geometry=()=>releaseRef.current();
@@ -292,6 +293,7 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
   }
   async function exitFullscreen(){
     onRelease();setExpanded(false);
+    onExitFullscreen?.();
     if(document.pointerLockElement===videoRef.current)document.exitPointerLock();
     if(document.fullscreenElement===surface.current){
       explicitFullscreenExit.current=true;
@@ -300,7 +302,7 @@ export function RemoteScreen({ videoRef, connected, status, onPointer, onKey, on
   }
   async function enterFullscreen(){onRelease();setExpanded(true);setToolsOpen(false);try{await surface.current?.requestFullscreen();}catch{/* The fixed application surface fills WebViews without native fullscreen. */}}
   useEffect(()=>{
-    const escape=(event:globalThis.KeyboardEvent)=>{if(event.key!=="Escape"||!live.current.connected)return;if(document.pointerLockElement===videoRef.current){event.preventDefault();event.stopPropagation();document.exitPointerLock();return;}event.preventDefault();event.stopPropagation();releaseRef.current();setInputEnabled(false);setManualPaused(true);setExpanded(false);setTool("input");setToolsOpen(true);toolToggle.current?.focus({preventScroll:true});if(document.fullscreenElement===surface.current)void document.exitFullscreen().catch(()=>{});};
+    const escape=(event:globalThis.KeyboardEvent)=>{if(event.key!=="Escape"||!live.current.connected)return;if(document.pointerLockElement===videoRef.current){event.preventDefault();event.stopPropagation();document.exitPointerLock();return;}event.preventDefault();event.stopPropagation();releaseRef.current();setInputEnabled(false);setManualPaused(true);setExpanded(false);setTool("input");setToolsOpen(true);toolToggle.current?.focus({preventScroll:true});onExitFullscreen?.();if(document.fullscreenElement===surface.current)void document.exitFullscreen().catch(()=>{});};
     document.addEventListener("keydown",escape,true);return()=>document.removeEventListener("keydown",escape,true);
   },[]);
   function key(type:"key_down"|"key_up",event:KeyboardEvent<HTMLVideoElement>){if(event.key!=="Escape"&&inputEnabled&&!toolsOpen){if(!shouldForwardRemoteKey(type,event.repeat,gamePointerLocked)){event.preventDefault();return;}onKey(type,event);}}

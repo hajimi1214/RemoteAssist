@@ -695,11 +695,12 @@ fn clear_direct_capture(request_id: String, state: State<'_, AppState>) -> Resul
 #[tauri::command]
 async fn next_desktop_frame(
     session_token: String,
+    timeout_ms: Option<u32>,
     state: State<'_, AppState>,
 ) -> Result<tauri::ipc::Response, String> {
     #[cfg(not(windows))]
     {
-        let _ = (session_token, state);
+        let _ = (session_token, timeout_ms, state);
         Err("windows_host_required".into())
     }
     #[cfg(windows)]
@@ -724,9 +725,12 @@ async fn next_desktop_frame(
             }
             (lock.generation, capture.requester())
         };
+        let acquire_timeout_ms = desktop_capture::bounded_acquire_timeout_ms(timeout_ms);
         let data = tauri::async_runtime::spawn_blocking(move || {
             let (tx, rx) = std::sync::mpsc::channel();
-            sender.try_send(tx).map_err(|_| "capture_busy")?;
+            sender
+                .try_send(desktop_capture::FrameRequest::new(tx, acquire_timeout_ms))
+                .map_err(|_| "capture_busy")?;
             rx.recv_timeout(Duration::from_secs(2))
                 .map_err(|_| "capture_timeout")?
         })

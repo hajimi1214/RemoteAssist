@@ -16,12 +16,33 @@ use windows::Win32::Graphics::Gdi::{MonitorFromPoint, MONITOR_DEFAULTTOPRIMARY};
 use windows::Win32::UI::WindowsAndMessaging::{GetCursorInfo, CURSORINFO, CURSOR_SHOWING};
 
 pub struct Capture {
-    requests: SyncSender<Sender<Result<Vec<u8>, String>>>,
+    requests: SyncSender<FrameRequest>,
     cancelled: Arc<AtomicBool>,
 }
+
+pub struct FrameRequest {
+    reply: Sender<Result<Vec<u8>, String>>,
+    timeout_ms: u32,
+}
+
+impl FrameRequest {
+    pub fn new(reply: Sender<Result<Vec<u8>, String>>, timeout_ms: u32) -> Self {
+        Self { reply, timeout_ms }
+    }
+}
+
+const DEFAULT_ACQUIRE_TIMEOUT_MS: u32 = 40;
+const MAX_ACQUIRE_TIMEOUT_MS: u32 = 40;
+
+pub fn bounded_acquire_timeout_ms(requested_ms: Option<u32>) -> u32 {
+    requested_ms
+        .unwrap_or(DEFAULT_ACQUIRE_TIMEOUT_MS)
+        .clamp(1, MAX_ACQUIRE_TIMEOUT_MS)
+}
+
 impl Capture {
     pub fn start() -> Result<Self, String> {
-        let (tx, rx) = mpsc::sync_channel::<Sender<Result<Vec<u8>, String>>>(1);
+        let (tx, rx) = mpsc::sync_channel::<FrameRequest>(1);
         let cancelled = Arc::new(AtomicBool::new(false));
         let stop = cancelled.clone();
         let (ready, check) = mpsc::sync_channel(1);
@@ -36,15 +57,15 @@ impl Capture {
                     return;
                 }
             };
-            while let Ok(reply) = rx.recv() {
+            while let Ok(request) = rx.recv() {
                 if stop.load(Ordering::Acquire) {
                     break;
                 }
-                let frame = desktop.frame(&stop);
+                let frame = desktop.frame(&stop, request.timeout_ms);
                 if stop.load(Ordering::Acquire) {
                     break;
                 }
-                let _ = reply.send(frame);
+                let _ = request.reply.send(frame);
             }
         });
         check
@@ -55,7 +76,7 @@ impl Capture {
             cancelled,
         })
     }
-    pub fn requester(&self) -> SyncSender<Sender<Result<Vec<u8>, String>>> {
+    pub fn requester(&self) -> SyncSender<FrameRequest> {
         self.requests.clone()
     }
 }
@@ -68,6 +89,15 @@ impl Drop for Capture {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn acquire_timeout_tracks_requested_frame_period_with_a_hard_bound() {
+        assert_eq!(bounded_acquire_timeout_ms(None), 40);
+        assert_eq!(bounded_acquire_timeout_ms(Some(17)), 17);
+        assert_eq!(bounded_acquire_timeout_ms(Some(34)), 34);
+        assert_eq!(bounded_acquire_timeout_ms(Some(0)), 1);
+        assert_eq!(bounded_acquire_timeout_ms(Some(1_000)), 40);
+    }
 
     #[test]
     fn percentile_ms_uses_nearest_rank_and_rejects_invalid_inputs() {
@@ -446,7 +476,9 @@ mod tests {
             let request_started = std::time::Instant::now();
             request_window_started.get_or_insert(request_started);
             let (tx, rx) = mpsc::channel();
-            sender.try_send(tx).unwrap();
+            sender
+                .try_send(FrameRequest::new(tx, DEFAULT_ACQUIRE_TIMEOUT_MS))
+                .unwrap();
             let frame = rx
                 .recv_timeout(Duration::from_secs(2))
                 .unwrap()
@@ -832,13 +864,13 @@ impl Desktop {
             Err("primary_display_not_found".into())
         }
     }
-    fn frame(&mut self, cancelled: &AtomicBool) -> Result<Vec<u8>, String> {
+    fn frame(&mut self, cancelled: &AtomicBool, timeout_ms: u32) -> Result<Vec<u8>, String> {
         unsafe {
             let mut info = DXGI_OUTDUPL_FRAME_INFO::default();
             let mut resource = None;
-            if let Err(error) = self
-                .duplication
-                .AcquireNextFrame(40, &mut info, &mut resource)
+            if let Err(error) =
+                self.duplication
+                    .AcquireNextFrame(timeout_ms, &mut info, &mut resource)
             {
                 if error.code() == DXGI_ERROR_WAIT_TIMEOUT {
                     return Ok(Vec::new());

@@ -1,12 +1,18 @@
 # Overnight Engineering Report
 
-- Date: 2026-11-25
+- Date: 2026-11-25, follow-up: 2026-11-26
 - Branch: `codex/overnight-engineering-hardening`
 - Starting commit: `2e4806f57ecef4bc295a6cdda2e9639a930443a8`
 - Starting worktree: clean. Existing commits and the current GitHub `main` were preserved.
 - Release version: unchanged at `0.15.1-alpha`.
 
 ## Work completed
+
+- **My Devices** opens control with one click from its focus preview, sidebar row, grid tile, or list name. The preview says `远程电脑`, and duplicate control/watch buttons were removed. The in-session toolbar can pause input while keeping the desktop visible.
+- On Windows, the app awaits native Tauri fullscreen before mounting the controller. The main-window capability explicitly grants `setFullscreen`. After the first video frame, remote input activates automatically, so no control-enable click is required. Disconnect and Escape restore the previous window mode and release held inputs.
+- Tightened DXGI frame pacing. Each request passes the sender FPS target; `AcquireNextFrame` waits at most the corresponding frame interval, capped at 40 ms. This lowers the 60 FPS wait ceiling from 40 ms to 17 ms without changing the frame protocol. It is a scheduling optimization and does not establish a measured end-to-end latency improvement.
+- Added direct-device activation tests plus frame-pacing tests for 60/45/30/15 FPS, invalid values and the native timeout cap.
+- 2026-11-26 follow-up starts automatic encoding at `Balanced` instead of `Sharp`. A 4K source has a 20 Mbps configured startup ceiling instead of 40 Mbps. Automatic upgrades still require measured headroom, and the manual sharp setting remains available. This is a bounded startup-load reduction, not a physical latency result.
 
 - Added an active-session WebSocket heartbeat regression. It proves a controller ping is answered locally with the original timestamp, the token is omitted from the pong, and the host receives no relayed probe. The test passed 50 normal repetitions and 25 Race-enabled repetitions. `go test ./...`, `go vet ./...` and `go test -race ./...` pass after the addition.
 
@@ -19,6 +25,7 @@
 - Verified migrations 001–003 and failure rollback with the Go migration runner against both PGlite/PostgreSQL WASM and a temporary PostgreSQL 18.2 Windows server bound to loopback. Legacy duplicate username and email cases each failed with an actionable error and left no partial indexes or version row. Re-running a clean migration completed idempotently. Production and Compose PostgreSQL instances remain untested.
 - Added optional `EXT_disjoint_timer_query` sampling around native-frame WebGL upload/draw operations. It samples each 30 drawn updates, bounds pending queries at eight, checks result availability before reading, rejects disjoint samples, and releases resources at stream stop. Unsupported extensions and query errors leave capture enabled with the metric unavailable.
 - Added diagnostic display/export and automated coverage for GPU update-time P50/P95/P99/max. This is GPU upload/draw execution duration, not panel scanout, Canvas/WebRTC encoding or input-to-display latency.
+- Standalone Chromium smoke used valid WebGL shaders and a hardware renderer of NVIDIA RTX 4060 Laptop GPU via ANGLE/Direct3D 11. `EXT_disjoint_timer_query` returned a non-disjoint 1.090336 ms result for 100 triangle draws with `gl.getError() == NO_ERROR`. This verifies that browser's GPU timer mechanism only; it is not a packaged RemoteAssist/WebView2 session measurement.
 - Research documents downloaded successfully for NVENC 13.1, AMD AMF, Intel VPL shared surfaces/hardware acceleration, Windows Media Foundation H.264 and WebGL disjoint timer queries. Their local hashes and source metadata are recorded in `.local/research/pc-game-0.16/manifest.json`.
 
 - Reviewed React/Tauri entry paths, native Rust capture and input, Go REST/WebSocket/session code, PostgreSQL migration setup, WebRTC stats/ICE/TURN configuration, Windows packaging scripts, threat model, current known limitations, and local CI checks.
@@ -50,13 +57,12 @@ Hardware encoder evaluation: NVENC is a candidate on this host's RTX 4060 and AM
 
 ## Validation results
 
-- Frontend: `npm test` PASS, 118/118.
-- Frontend: `npm run build` PASS.
+- Frontend: `npm test` PASS, 122/122. `npm run build` PASS.
 - Go server: `go test ./...` PASS.
 - Go server: `go vet ./...` PASS.
 - Go module cache: `go mod verify` PASS for the modules already downloaded.
 - Go module checksums: `go mod verify` PASS for downloaded modules.
-- Rust: `cargo fmt --check`, `cargo check --locked`, `cargo test --locked` PASS. The unit suite has 24 tests, 1 visible-desktop test is ignored by default, and 24 normal tests pass.
+- Rust: `cargo fmt --check`, `cargo check --locked`, `cargo test --locked` PASS. The unit suite has 26 tests, 1 visible-desktop test is ignored by default, and 25 normal tests pass.
 - Go Race: PASS across all packages using temporary LLVM-MinGW GCC, `CGO_ENABLED=1`, and Go 1.26.11.
 - `govulncheck ./...`: PASS, no reachable Go vulnerabilities on Go 1.26.11.
 - Cargo audit: PASS, zero Rust vulnerabilities. It reports three informational warnings, covering `chrono` and `proc-macro-error` maintenance status and GTK `glib` soundness on non-Windows targets. The Windows-target audit also reports zero vulnerabilities.
@@ -68,11 +74,12 @@ Hardware encoder evaluation: NVENC is a candidate on this host's RTX 4060 and AM
 - Go advisory scan: PASS with Go 1.26.11 and the patched dependency versions. The final `govulncheck ./...` run reports no reachable vulnerabilities.
 - Rust dependency audit prompted safe lockfile updates to patched `url`, `cookie` and `rustix` versions. No new runtime feature dependency was added.
 - Rust advisory scan: PASS with zero vulnerabilities. Three informational advisories remain, including two unmaintained transitive crates and a GTK `glib` soundness advisory for non-Windows targets.
-- Current Windows NSIS x64 installer: PASS, 2,433,729 bytes, SHA-256 `0CD6A59F966098F613EFC3CB05DF6CB7B077F7C141D424C03D787C8F88A1BCF2`, `NotSigned`.
-- Portable Windows EXE: PASS, 10,611,712 bytes, SHA-256 `46924AC879BAA12BB7551142A1EACA393D2260885B4572AED4B2FE230C9CF5DC`, `NotSigned`.
-- Current LAN test NSIS package: PASS, 3,228,005 bytes, SHA-256 `0FFDE82F1D7C79F80BCF778BFF98C045E6671D51583E4519480E3A6864D8240F`, configured for `192.168.0.101:8080`. Its generated JavaScript bundle and CSP both match the exact HTTP/WS origin.
+- Current Windows NSIS x64 installer: PASS, 2,434,253 bytes, SHA-256 `1948AD0A82F63DDC7AC073F00C9B338823F9868E374F13967DD558C7F608A88B`, `NotSigned`.
+- Portable Windows EXE: PASS, 10,601,472 bytes, SHA-256 `03608738EA34F7B9375D6E1B09D3F9698D1BBC2BFF4989521A07F22D8E23E690`, `NotSigned`.
+- Current LAN test NSIS package: PASS, 3,229,002 bytes, SHA-256 `750B7EECF85A5F045AF5EC1A5D77E1BE295E1DF73DFE751C7D62D5B779AF6C64`, configured for `192.168.0.101:8080`. The generated Tauri CSP contains only that private HTTP/WS origin plus IPC and loopback.
 - Neither artifact embeds a production signaling domain. They verify build/packaging only and require a configured HTTPS service before operational use.
 - Physical second-Windows installation, same-LAN flows, public STUN/TURN and long-session behavior: NOT VERIFIED. Current host address is `192.168.0.101`; the network is classified Public and observed peer service ports are closed. A final audit identified two pre-existing RemoteAssist test processes bound to stale `192.168.1.102:8080` and `:8090` addresses. After verifying their command lines, they were stopped following the runbook cleanup instruction. An unrelated loopback development service remains active.
+- The 2026-11-26 Go Race attempt could not start because the current shell has `CGO_ENABLED=0` and no C compiler in `PATH`. The prior M29 Go Race run passed on Go 1.26.11 with a temporary LLVM-MinGW compiler. Go sources were unchanged in this follow-up.
 
 ## Security review notes
 
