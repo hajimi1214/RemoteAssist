@@ -5,6 +5,7 @@
 - Ran the ignored, opt-in primary-display smoke with 12 requested samples. `DuplicateOutput1` rejected the BGRA preference with `DXGI_ERROR_UNSUPPORTED (0x887A0004)`; its compatibility fallback `DuplicateOutput` then returned `E_ACCESSDENIED (0x80070005)`. `Capture::start()` failed before acquiring any frame.
 - Added HRESULT-only stderr diagnostics for the preferred format attempt and final duplication failure; no pixels, credentials or window content are logged. This narrows diagnosis but does not resolve whether access denial is from the desktop/session environment or the capture path.
 - Rechecked with a fresh smoke configured for three samples in the same desktop state; it failed before the first frame request with the same preferred-format and fallback errors. Further capture retries are deferred until the desktop is unlocked/available.
+- A separate read-only `OpenInputDesktop` probe in the command runner also failed with Win32 access denied (5), confirming this runner cannot access the interactive desktop. This makes the DXGI failure inconclusive for a user-launched interactive client.
 - Full `scripts/test.ps1`, `cargo fmt --check`, frontend 122/122 and production build pass. The actual capture result for this execution is FAIL; rerun after the Windows desktop is unlocked/available before classifying the Windows capture path.
 
 ## M36 — native fullscreen runtime check attempt
