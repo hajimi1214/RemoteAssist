@@ -843,7 +843,13 @@ impl Desktop {
                                 .cast::<IDXGIOutput1>()
                                 .and_then(|value| value.DuplicateOutput(&device)),
                         }
-                        .map_err(|_| "desktop_duplication_failed")?;
+                        .map_err(|error| {
+                            eprintln!(
+                                "desktop_duplication_failed hresult=0x{:08X}",
+                                error.code().0 as u32
+                            );
+                            "desktop_duplication_failed"
+                        })?;
                         if duplication.GetDesc().Rotation != DXGI_MODE_ROTATION_IDENTITY {
                             return Err("rotated_primary_display_not_supported".into());
                         }

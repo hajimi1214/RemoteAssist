@@ -1,5 +1,11 @@
 # Status
 
+## M38 — DXGI initialization denial diagnosed
+
+- Ran the ignored, opt-in primary-display smoke with 12 requested samples. `Capture::start()` failed before any frame was acquired. The DXGI duplication call returned `E_ACCESSDENIED (0x80070005)`.
+- Added an HRESULT-only stderr diagnostic on duplication initialization failures; no pixels, credentials or window content are logged. This narrows diagnosis but does not resolve whether the denial is from the desktop/session environment or the capture path.
+- Full `scripts/test.ps1`, `cargo fmt --check`, frontend 122/122 and production build pass. The actual capture result for this execution is FAIL; rerun after the Windows desktop is unlocked/available before classifying the Windows capture path.
+
 ## M36 — native fullscreen runtime check attempt
 
 - Launched a temporary Tauri dev page that calls `isFullscreen` and `setFullscreen`, then restores the prior window mode. The Windows automation helper returned `GetCursorPos access denied` and exposed no targetable RemoteAssist window, so no UI action or runtime result was obtained.
