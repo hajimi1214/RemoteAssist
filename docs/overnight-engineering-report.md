@@ -70,6 +70,7 @@ Hardware encoder evaluation: NVENC is a candidate on this host's RTX 4060 and AM
 - PostgreSQL migration runner: PASS against a temporary PostgreSQL 18.2 Windows server bound to loopback. Clean application and rerun, both unique indexes, each duplicate preflight error and transaction rollback were checked. Production and Compose PostgreSQL instances remain UNVERIFIED.
 - DXGI visible desktop: dynamic smoke PASS for the animated UI pattern. A no-update run returned 30 empty DXGI timeout replies and zero pixel frames, reported as no pixel transfer rather than as a fabricated zero-FPS stream.
 - Compose: `docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config --quiet` PASS. This validates compose syntax and not actual public networking.
+- Deployment verifier: `scripts/verify-deploy-config.ps1` PASS with a temporary synthetic fixture and rendered Compose JSON. Generated test-only secrets and a reserved hostname were used, then the fixture was removed. This does not validate live infrastructure.
 - npm dependency audit: PASS, zero reported vulnerabilities.
 - Go race detector: PASS using a temporary LLVM-MinGW compiler and `CGO_ENABLED=1`. No compiler files were added to the repository.
 - Go advisory scan: PASS with Go 1.26.11 and the patched dependency versions. The final `govulncheck ./...` run reports no reachable vulnerabilities.

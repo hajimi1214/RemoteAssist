@@ -9,6 +9,11 @@
 - Source inspection confirms the Windows capture path uses DXGI and has no screenshot-picker or browser `getDisplayMedia` flow. Any OS/runtime prompt on the installed two-PC build still needs direct observation.
 - LAN recheck: `.100` responds to ICMP, but TCP `:8080` and `:8090` are closed; `.102` does not respond to ICMP. This host remains `.101` on a Public Windows network profile, with no local test listener. No firewall changes were made.
 
+## M32 — deployment configuration verification
+
+- Ran `scripts/verify-deploy-config.ps1` against a temporary fixture with generated test-only secrets, a reserved `.invalid` hostname and a public placeholder IP. The full validator and rendered Docker Compose configuration passed.
+- The fixture was removed after the check. No real `deploy/.env`, secret or firewall setting was read or changed. This verifies configuration invariants, not an actual public deployment.
+
 ## M30 — direct fullscreen control entry and capture wait pacing
 
 - **My Devices** now opens control with one device click from focus, sidebar, grid and list layouts. The duplicate view-only card action was removed; the in-session toolbar still pauses input while leaving the desktop visible.

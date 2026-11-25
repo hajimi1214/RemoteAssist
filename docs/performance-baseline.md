@@ -60,6 +60,7 @@ The GPU timer measures asynchronous GPU execution between the timer-query marker
 - PostgreSQL migrations 001–003: PASS through the Go migration runner against PostgreSQL 18.2 on loopback. Production/Compose PostgreSQL remains UNVERIFIED.
 - Explicit DXGI smoke: PASS for the animated pattern with `REMOTEASSIST_CAPTURE_REQUIRE_FRAME=1`. Empty/static scene results are reported as empty responses, not as fabricated throughput.
 - Compose syntax: `docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config --quiet` PASS. This does not validate an actual deployment.
+- Full deployment config verifier: PASS with a removed temporary fixture. It checked required settings, exact origins, public TURN address, subnet/port-range invariants, Compose interpolation and Coturn arguments. No live deployment was exercised.
 - `npm audit`: PASS, zero reported vulnerabilities.
 - Fresh scans on 2026-11-26: `govulncheck v1.10.0` on Go 1.26.11 reports no reachable vulnerabilities; `cargo-audit 0.23.0` loads 1,568 advisories and exits successfully with three allowed warnings. `npm audit` reports zero vulnerabilities in the preceding result.
 - Rust advisory remediation updated `url`, `cookie` and `rustix` in the lockfile. No GPU timer or runtime vendor SDK dependency was added.
