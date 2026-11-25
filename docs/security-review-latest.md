@@ -7,6 +7,7 @@ Reviewed 2026-11-25 against the local engineering branch. The product has two se
 - **My Devices** requires the controller and target device to belong to the same live account. The native host receives an owner-validated acceptance from the service.
 - **Remote Assist** requires authenticated code creation and join. The host itself generates and presents the one-time code, so revealing it consents to this session. The join consumes the pending code capability.
 - The shared native capture path validates the approval response, session ID, active state, bounded expiry and host-device ID for direct sessions. Each input event remains token-, lease-, timestamp-, structure- and rate-validated.
+- After a session is active, an authorized controller's WebSocket ping is acknowledged locally. Regression tests verify timestamp correlation, token omission, and that the host does not receive the controller's probe.
 - The host stays visible. Disconnect, logout, device revocation, peer heartbeat loss and expiry release pressed inputs and stop capture.
 - release-all is a sequence barrier: older lossy pointer messages are rejected after local control release. Reliable button releases remain accepted.
 - Zero reported bandwidth triggers adaptation; missing/invalid estimates remain distinct.
@@ -26,4 +27,4 @@ The eight-digit code API is intentionally active for **Remote Assist**. It is no
 
 ## Limits
 
-The interactive same-account and code flows remain unverified on two physical Windows PCs. Public TURN behavior, revocation during live cross-account assistance, live PostgreSQL, and hardware codec selection remain unverified. Per-account local browser storage is not OS-level isolation from other users of the same profile. No full penetration test, privacy audit, accessibility certification, cloud deployment or hardware codec capability validation is claimed.
+The interactive same-account and code flows remain unverified on two physical Windows PCs. Public TURN behavior, revocation during live cross-account assistance, production/Compose PostgreSQL migration, and hardware codec selection remain unverified. Per-account local browser storage is not OS-level isolation from other users of the same profile. No full penetration test, privacy audit, accessibility certification, cloud deployment or hardware codec capability validation is claimed.
