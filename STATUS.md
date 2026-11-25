@@ -22,6 +22,7 @@
 - Started the in-memory signaling service on `192.168.0.101:8080` and a static package server on `192.168.0.101:8090`. `/healthz` and the installer HEAD request returned 200; the served installer is 3,229,002 bytes with the recorded SHA-256.
 - Recreated disposable `hajim` and `hajim-assist` accounts in the memory store. Both local login/logout checks passed. Account records are lost when the signaling process stops.
 - `.100` responds to ICMP. TCP reachability from `.100` to `.101` still awaits checking on that PC. No firewall setting was changed. Keep the test services open only for the manual run, then stop them.
+- Follow-up read-only check: both accounts still authenticate and receive one STUN ICE server, but each device list is empty. No remote PC has registered with the restarted in-memory service yet, and no TURN server is configured.
 
 ## M33 — Chromium loopback verifies startup profile and immersive viewer
 

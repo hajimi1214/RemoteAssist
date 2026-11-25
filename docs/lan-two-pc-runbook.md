@@ -125,4 +125,6 @@ The test services were subsequently started on `.101`. The in-memory signaling s
 
 Current process check on 2026-11-26: `.101:8080` and `.101:8090` remain listening, local health/download checks return HTTP 200, and the installer length is 3,229,002 bytes. The only other known untracked workspace item is the prior `.playwright-cli/` automation output. The temporary browser/dev server for the `DeviceWorkspace` entry checks has been closed.
 
+Latest signaling check: both accounts can log in and receive the configured public STUN entry, but both device lists are empty. No TURN server is configured. The remote PC has not registered on this restarted memory service yet, so physical device discovery and media connectivity remain NOT VERIFIED.
+
 Live endpoint check on 2026-11-26: separate accounts created and joined a one-time code, a replay was rejected, and host rejection ended the pending session. Two synthetic Windows device records under one account completed direct connect and host acceptance, returning `AUTHORIZED_ACTIVE`; both records were then revoked and confirmed removed. These are HTTP API checks on `.101`, not a two-PC media/input acceptance. The foreground services remain active for the user's manual run and should be closed afterward.
