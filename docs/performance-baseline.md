@@ -78,6 +78,7 @@ The GPU timer measures asynchronous GPU execution between the timer-query marker
 - Cargo audit reported three informational Rust advisories after fixing all vulnerabilities. The `glib` soundness advisory is limited to GTK's Linux target and is not in the Windows target dependency graph. The two unmaintained crates are transitive build/runtime dependencies with no fixed version currently offered by RustSec.
 - No physical RemoteAssist session, two-account code session, public DNS/TLS, TURN UDP/TCP, weak-network run, 30-minute session, or route-change recovery was tested. The latest host address is `192.168.0.101`, and Windows currently classifies its network as Public. Final process cleanup stopped the two pre-existing project test listeners bound to stale `192.168.1.102:8080` and `:8090`. An unrelated loopback development service remains active.
 - LAN reachability recheck on 2026-11-26: peer `.100` responds to ICMP but ports 8080/8090 are closed; `.102` does not respond to ICMP. The host has no current 8080/8090 listener.
+- Subsequent LAN setup started `.101:8080` signaling and `.101:8090` installer serving. Local health/download requests returned 200; TCP reachability from `.100` remains unverified.
 - No sustained WebView2 encoder selection/FPS, actual monitor scanout, 4K game capture or physical input-to-photon P50/P95 was measured. A synchronized optical measurement is required for input-to-display latency.
 
 ## Historical repository baseline
