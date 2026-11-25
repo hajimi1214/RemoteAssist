@@ -75,7 +75,7 @@ On the host, verify `http://127.0.0.1:8080/healthz` returns status `ok`. A worki
 1. Sign in to the same disposable test account on both PCs.
 2. Keep the Windows host client visible and signed in.
 3. On the controller, open **My Devices** and click the online Windows host once. The desktop should enter full-window control directly.
-4. Confirm the desktop appears without a code-entry or per-session approval dialog.
+4. Confirm the desktop appears without a code-entry, screenshot-picker or per-session approval dialog. If a Windows/runtime prompt appears, record its title and publisher so the prompt source can be identified.
 5. Confirm the host shows who is connected and that its visible pause/stop action ends control.
 6. Move the mouse, click, use the wheel, press/release keys, and send bounded text.
 7. Disconnect from the floating control. Confirm the host releases held keys and mouse buttons.

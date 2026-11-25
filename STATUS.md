@@ -4,6 +4,7 @@
 
 - Located the previously downloaded LLVM-MinGW compiler in the external temporary toolchain directory and reran `go test -race ./...` across all server packages. Go 1.26.11 reported PASS.
 - `CGO_ENABLED=1`, `CC`, and the compiler directory in `PATH` were scoped to the test command, then restored. No compiler or runtime dependency was added to the repository.
+- `npm audit` reports zero vulnerabilities. Source inspection confirms the Windows capture path uses DXGI and has no screenshot-picker or browser `getDisplayMedia` flow. Any OS/runtime prompt on the installed two-PC build still needs direct observation.
 
 ## M30 — direct fullscreen control entry and capture wait pacing
 
