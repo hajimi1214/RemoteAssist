@@ -1,5 +1,10 @@
 # Status
 
+## M36 — native fullscreen runtime check attempt
+
+- Launched a temporary Tauri dev page that calls `isFullscreen` and `setFullscreen`, then restores the prior window mode. The Windows automation helper returned `GetCursorPos access denied` and exposed no targetable RemoteAssist window, so no UI action or runtime result was obtained.
+- Stopped the temporary dev process and removed the smoke page/config. No product capability or firewall setting changed. Native Tauri fullscreen remains UNVERIFIED beyond successful build/config validation.
+
 ## M35 — live signaling API flow checks
 
 - In the running in-memory service, two different test accounts created and joined a one-time assistance code. Reusing the code was rejected; the host then rejected the pending session.
