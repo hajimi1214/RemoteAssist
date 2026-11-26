@@ -13,6 +13,14 @@
 - Rechecked with a fresh smoke configured for three samples in the same desktop state; it failed before the first frame request with the same preferred-format and fallback errors. Further capture retries are deferred until the desktop is unlocked/available.
 - A separate read-only `OpenInputDesktop` probe in the command runner also failed with Win32 access denied (5), confirming this runner cannot access the interactive desktop. This makes the DXGI failure inconclusive for a user-launched interactive client.
 - Full `scripts/test.ps1`, `cargo fmt --check`, frontend 122/122 and production build pass. The actual capture result for this execution is FAIL; rerun after the Windows desktop is unlocked/available before classifying the Windows capture path.
+- `cargo clippy --locked --all-targets -- -D warnings` was also attempted and failed on existing structural/style lints: `items_after_test_module`, two `manual_is_multiple_of` cases, one eight-argument helper, and two `needless_return` reports in cfg-specific credential-store branches. No Clippy autofix was applied because moving a large test module or changing MSRV/authorization plumbing would be unrelated churn.
+
+## M40 — persistent LAN test services and refreshed package
+
+- Replaced expired foreground service sessions with hidden, explicitly named local helper processes. Signaling listens only on `192.168.0.101:8080`; package serving listens only on `.101:8090`. Logs go to ignored `.local/lan-service-log/` files. No firewall or network profile changes were made.
+- Rebuilt the LAN installer from the latest diagnostic source and downloaded it back over HTTP. Source and downloaded file both measure 3,226,303 bytes and SHA-256 `F7D071B86AD8E36CFB32CC5A37F4AF14D2DB574C0F088F6B3A0E5DB4EE627BA8`. It is unsigned and its test CSP/bundle target `.101:8080`.
+- Recreated the two disposable accounts after the memory-service restart. Live API checks again passed code creation/join, replay rejection, host rejection, same-account device connection and host acceptance. Temporary devices were revoked and the account device lists returned to empty.
+- `.100` still cannot reach `.101` TCP 8080/8090 and has not registered a device. Native capture remains unverified in a user desktop because the current command runner cannot open the input desktop; its DXGI smoke fails with `E_ACCESSDENIED` after the preferred-format fallback.
 
 ## M36 — native fullscreen runtime check attempt
 

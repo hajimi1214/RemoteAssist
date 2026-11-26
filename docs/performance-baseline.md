@@ -82,6 +82,7 @@ The GPU timer measures asynchronous GPU execution between the timer-query marker
 - LAN reachability recheck on 2026-11-26: peer `.100` responds to ICMP but ports 8080/8090 are closed; `.102` does not respond to ICMP. The host has no current 8080/8090 listener.
 - Subsequent LAN setup started `.101:8080` signaling and `.101:8090` installer serving. Local health/download requests returned 200; TCP reachability from `.100` remains unverified.
 - Final listener check confirms those two intended services are still available; the package endpoint reports 3,229,002 bytes. The temporary browser/dev server used for UI entry tests is closed.
+- Refreshed unsigned package after HRESULT logging: 3,226,303 bytes, SHA-256 `F7D071B86AD8E36CFB32CC5A37F4AF14D2DB574C0F088F6B3A0E5DB4EE627BA8`. A full local HTTP download matched the artifact hash. Services are now hidden local helpers bound only to `.101`; `.100` connectivity remains UNVERIFIED.
 - No sustained WebView2 encoder selection/FPS, actual monitor scanout, 4K game capture or physical input-to-photon P50/P95 was measured. A synchronized optical measurement is required for input-to-display latency.
 
 ## Historical repository baseline
