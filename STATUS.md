@@ -21,6 +21,7 @@
 - Rebuilt the LAN installer from the latest diagnostic source and downloaded it back over HTTP. Source and downloaded file both measure 3,226,303 bytes and SHA-256 `F7D071B86AD8E36CFB32CC5A37F4AF14D2DB574C0F088F6B3A0E5DB4EE627BA8`. It is unsigned and its test CSP/bundle target `.101:8080`.
 - Recreated the two disposable accounts after the memory-service restart. Live API checks again passed code creation/join, replay rejection, host rejection, same-account device connection and host acceptance. Temporary devices were revoked and the account device lists returned to empty.
 - `.100` still cannot reach `.101` TCP 8080/8090 and has not registered a device. Native capture remains unverified in a user desktop because the current command runner cannot open the input desktop; its DXGI smoke fails with `E_ACCESSDENIED` after the preferred-format fallback.
+- Outbound UDP smoke sent five RFC 5389 Binding Requests to the configured `stun.l.google.com:19302`; all five matching responses arrived. Probe RTT was 187–203 ms (median 188 ms). This only measures this host's path to that STUN endpoint.
 
 ## M36 — native fullscreen runtime check attempt
 

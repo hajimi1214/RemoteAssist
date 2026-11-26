@@ -25,6 +25,10 @@ The explicit visible smoke pulls one DXGI frame at a time, validates the packet,
 
 The synthetic UI sample is not a game or sustained stream test. The ambient run still contained incidental desktop activity, so it is not a strictly static image. A prior quiet-window run yielded 30 empty timeout responses and zero pixel frames. This is expected when DXGI sees no changed pixels; zero changed-frame FPS is not a capture failure. None of these runs provides an optimization A/B comparison.
 
+### Outbound STUN UDP smoke — 2026-11-26
+
+Five RFC 5389 Binding Requests to the configured `stun.l.google.com:19302` returned valid transaction-matched responses. Probe RTT samples were 188, 187, 203, 203 and 188 ms (median 188 ms, max 203 ms). This verifies only this machine's direct path to the public STUN endpoint. It is not WebRTC peer RTT, a selected candidate pair, TURN validation or input-to-display latency.
+
 An earlier smoke implementation logged DXGI format details for each smoke frame. Console redraws contaminated that run, producing a full-frame-only sample; it is excluded from the table. Format logging is now separately gated by `REMOTEASSIST_CAPTURE_FORMAT_DEBUG=1` and emits only when the source format changes. The normal smoke flag no longer enables format logging.
 
 ### Capture and presentation diagnostics
