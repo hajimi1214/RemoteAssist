@@ -72,15 +72,16 @@ The GPU timer measures asynchronous GPU execution between the timer-query marker
 - `npm audit`: PASS, zero reported vulnerabilities.
 - Fresh scans on 2026-11-26: `govulncheck v1.10.0` on Go 1.26.11 reports no reachable vulnerabilities; `cargo-audit 0.23.0` loads 1,568 advisories and exits successfully with three allowed warnings. `npm audit` reports zero vulnerabilities in the preceding result.
 - Rust advisory remediation updated `url`, `cookie` and `rustix` in the lockfile. No GPU timer or runtime vendor SDK dependency was added.
-- Windows x64 NSIS installer: PASS, 2,434,253 bytes, SHA-256 `1948AD0A82F63DDC7AC073F00C9B338823F9868E374F13967DD558C7F608A88B`, `NotSigned`.
-- Portable Windows EXE: PASS, 10,601,472 bytes, SHA-256 `03608738EA34F7B9375D6E1B09D3F9698D1BBC2BFF4989521A07F22D8E23E690`, `NotSigned`.
-- LAN test NSIS installer: PASS, 3,229,002 bytes, SHA-256 `750B7EECF85A5F045AF5EC1A5D77E1BE295E1DF73DFE751C7D62D5B779AF6C64`, configured for `192.168.0.101:8080`. Generated Tauri CSP allows only that private HTTP/WS origin, Tauri IPC and loopback.
+- Windows x64 NSIS Release installer: PASS, 2,434,731 bytes, SHA-256 `B69ACE2BE21927E2EF9A9022AF579AA23FA42B1885D63335E9DB03539E05F685`, `NotSigned`.
+- Portable Windows EXE: PASS, 10,602,496 bytes, SHA-256 `0A7119F3FE9542BD958B72F1E100D671DADDC39FFCCA9F4B8AD2021E1108DBD0`, `NotSigned`.
+- LAN test NSIS installer: PASS, 3,226,303 bytes, SHA-256 `F7D071B86AD8E36CFB32CC5A37F4AF14D2DB574C0F088F6B3A0E5DB4EE627BA8`, configured for `192.168.0.101:8080`. Generated Tauri CSP and JavaScript target only that private HTTP/WS origin, IPC and loopback.
 - Release artifacts contain no production signaling domain. They build and package successfully but need a configured HTTPS service before operational use.
 
 ## Verification gaps
 
 - Go Race and Go advisory scans passed on the upgraded local Go toolchain. The temporary cross-compiler is not part of the product or repository.
 - Go 1.26.11 follow-up on 2026-11-26: normal Go tests, Vet, signaling build, module verification, and fresh `go test -race -count=1 ./...` passed. The Race run used the preserved temporary LLVM-MinGW compiler with environment changes scoped to the command.
+- Strict Clippy with `-D warnings` failed on five existing lint categories: test-module placement, two metadata modulo checks, one helper argument count, and two platform-cfg return expressions. This command is not an established CI gate and no functional test failed.
 - Cargo audit reported three informational Rust advisories after fixing all vulnerabilities. The `glib` soundness advisory is limited to GTK's Linux target and is not in the Windows target dependency graph. The two unmaintained crates are transitive build/runtime dependencies with no fixed version currently offered by RustSec.
 - No physical RemoteAssist session, two-account code session, public DNS/TLS, TURN UDP/TCP, weak-network run, 30-minute session, or route-change recovery was tested. The latest host address is `192.168.0.101`, and Windows currently classifies its network as Public. Final process cleanup stopped the two pre-existing project test listeners bound to stale `192.168.1.102:8080` and `:8090`. An unrelated loopback development service remains active.
 - LAN reachability recheck on 2026-11-26: peer `.100` responds to ICMP but ports 8080/8090 are closed; `.102` does not respond to ICMP. The host has no current 8080/8090 listener.

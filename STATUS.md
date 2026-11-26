@@ -1,5 +1,11 @@
 # Status
 
+## M41 — current-source Windows Release package
+
+- Rebuilt the normal Windows x64 Release installer and portable executable after adding the DXGI HRESULT diagnostics. Release NSIS: 2,434,731 bytes, SHA-256 `B69ACE2BE21927E2EF9A9022AF579AA23FA42B1885D63335E9DB03539E05F685`. Portable EXE: 10,602,496 bytes, SHA-256 `0A7119F3FE9542BD958B72F1E100D671DADDC39FFCCA9F4B8AD2021E1108DBD0`. Both are unsigned.
+- The separate current LAN debug installer remains configured for `.101:8080`, 3,226,303 bytes, SHA-256 `F7D071B86AD8E36CFB32CC5A37F4AF14D2DB574C0F088F6B3A0E5DB4EE627BA8`.
+- `cargo clippy --locked --all-targets -- -D warnings` is not clean due the documented existing lints; no source auto-fixes were applied.
+
 ## M39 — awaiting interactive Windows acceptance
 
 - Rechecked Windows app discovery and the known `.100` peer. No targetable RemoteAssist desktop window or registered peer device is present; `.100` TCP 8080/8090 remain unreachable from this host. The `.101` health endpoint remains HTTP 200 and its two LAN test services stay available.

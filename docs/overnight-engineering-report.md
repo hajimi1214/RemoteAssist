@@ -82,9 +82,9 @@ Hardware encoder evaluation: NVENC is a candidate on this host's RTX 4060 and AM
 - Go advisory scan: PASS with Go 1.26.11 and the patched dependency versions. The final `govulncheck ./...` run reports no reachable vulnerabilities.
 - Rust dependency audit prompted safe lockfile updates to patched `url`, `cookie` and `rustix` versions. No new runtime feature dependency was added.
 - Rust advisory scan: PASS with zero vulnerabilities. Three informational advisories remain, including two unmaintained transitive crates and a GTK `glib` soundness advisory for non-Windows targets.
-- Current Windows NSIS x64 installer: PASS, 2,434,253 bytes, SHA-256 `1948AD0A82F63DDC7AC073F00C9B338823F9868E374F13967DD558C7F608A88B`, `NotSigned`.
-- Portable Windows EXE: PASS, 10,601,472 bytes, SHA-256 `03608738EA34F7B9375D6E1B09D3F9698D1BBC2BFF4989521A07F22D8E23E690`, `NotSigned`.
-- Current LAN test NSIS package: PASS, 3,229,002 bytes, SHA-256 `750B7EECF85A5F045AF5EC1A5D77E1BE295E1DF73DFE751C7D62D5B779AF6C64`, configured for `192.168.0.101:8080`. The generated Tauri CSP contains only that private HTTP/WS origin plus IPC and loopback.
+- Current-source Windows NSIS x64 Release installer: PASS, 2,434,731 bytes, SHA-256 `B69ACE2BE21927E2EF9A9022AF579AA23FA42B1885D63335E9DB03539E05F685`, `NotSigned`.
+- Current-source portable Windows EXE: PASS, 10,602,496 bytes, SHA-256 `0A7119F3FE9542BD958B72F1E100D671DADDC39FFCCA9F4B8AD2021E1108DBD0`, `NotSigned`.
+- Current LAN test NSIS package: PASS, 3,226,303 bytes, SHA-256 `F7D071B86AD8E36CFB32CC5A37F4AF14D2DB574C0F088F6B3A0E5DB4EE627BA8`, configured for `192.168.0.101:8080`. The generated Tauri CSP and JavaScript bundle target that private HTTP/WS origin plus IPC and loopback.
 - Neither artifact embeds a production signaling domain. They verify build/packaging only and require a configured HTTPS service before operational use.
 - Physical second-Windows installation, same-LAN flows, public STUN/TURN and long-session behavior: NOT VERIFIED. Current host address is `192.168.0.101`; the network is classified Public and observed peer service ports are closed. A final audit identified two pre-existing RemoteAssist test processes bound to stale `192.168.1.102:8080` and `:8090` addresses. After verifying their command lines, they were stopped following the runbook cleanup instruction. An unrelated loopback development service remains active.
 - LAN reachability recheck on 2026-11-26: `192.168.0.100` answers ICMP, its TCP 8080/8090 ports are closed, and `192.168.0.102` does not answer ICMP. No signaling/download service was started and no firewall setting changed.
@@ -94,6 +94,7 @@ Hardware encoder evaluation: NVENC is a candidate on this host's RTX 4060 and AM
 - A direct RFC 5389 UDP smoke to `stun.l.google.com:19302` received five transaction-matched responses, with 187–203 ms RTT (median 188 ms). It does not establish a peer route or TURN operation.
 - Current acceptance remains pending: no targetable RemoteAssist window or `.100` connection exists. Both LAN services on `.101` are live. The command runner cannot access the input desktop, and local DXGI duplication returns access denied. User-launched unlocked host/peer clients are required before native capture, media, input, latency or screenshot-prompt behavior can be verified.
 - On 2026-11-26, Go 1.26.11 normal tests, Vet, signaling build, module verification, and fresh `go test -race -count=1 ./...` all passed. The Race run used the preserved temporary LLVM-MinGW toolchain. `CGO_ENABLED` and compiler `PATH` were scoped to the command and restored afterward. The signaling executable was written outside the repository. Go source files were unchanged in this follow-up.
+- Strict `cargo clippy --locked --all-targets -- -D warnings` is not clean. It reports the test-module placement, two modulo-based metadata alignment checks, the eight-argument authorization helper, and two `needless_return` lints in mutually exclusive platform branches. These warnings predate the HRESULT-only logging edit; no lint-suppression or large test-module move was applied.
 
 ## Security review notes
 
