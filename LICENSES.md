@@ -6,7 +6,7 @@ The project-level license for RemoteAssist source code has not been selected. Un
 
 [`docs/third-party-components.csv`](docs/third-party-components.csv) lists the resolved npm, Cargo, and Go modules in the checked lockfiles, plus the container images, GitHub Actions, Android Gradle distribution, and Windows WebView2 runtime referenced by the current build and deployment configuration.
 
-The current linux/amd64 image snapshots are in [`docs/container-image-sbom/`](docs/container-image-sbom/README.md), with Caddy-module, Go-toolchain, and Coturn Debian-package and CPE crosswalks that record evidence scope and unresolved entries.
+The current linux/amd64 image snapshots are in [`docs/container-image-sbom/`](docs/container-image-sbom/README.md), with Caddy-module, Go-toolchain, Coturn Debian-package/CPE, and PostgreSQL component crosswalks that record license evidence and scope.
 
 Regenerate it with `npm run licenses:generate` after changing dependencies or build components. Run `npm run licenses:check` to verify it matches the current manifests and lockfiles. CI runs the drift check.
 
