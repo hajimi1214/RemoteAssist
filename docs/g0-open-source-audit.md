@@ -12,7 +12,7 @@ The source review covered React/TypeScript, Tauri configuration and capabilities
 
 RemoteAssist already has substantial product implementation. The React/Tauri client, Rust Windows capture and input layer, Go signaling service, PostgreSQL-backed account/device store, WebRTC transport, and Coturn/Caddy deployment composition are present. The client allows the operator to configure a signaling service, uses P2P with TURN candidates as fallback, and contains a private-LAN-only HTTP test build path. The production desktop configuration does not embed an author-operated service address.
 
-The project is not yet ready to describe itself as a generally supported, released open-source platform. It has no project-level license, no public contributor/security/community policies, and no published release workflow. Physical second-PC installation and control, public TLS deployment, and TURN relay operation remain unverified in the project records.
+The project is not yet ready to describe itself as a generally supported, released open-source platform. It has no project-level license or published release workflow. Contributor, support, conduct, changelog, and security-policy documents now exist, but the private vulnerability intake is not configured. Physical second-PC installation and control, public TLS deployment, and TURN relay operation remain unverified in the project records.
 
 ## Feature status
 
@@ -112,7 +112,8 @@ The repository now has English and Chinese project homepages, `CONTRIBUTING.md`,
 | GitHub Actions references | PASS, all workflow `uses:` entries pin verified commit SHAs. Checkout, setup-node and setup-go use action manifests declaring Node 24. Remote workflow execution remains unverified |
 | GitHub Actions workflow lint | PASS, actionlint 1.7.7 |
 | Markdown links in new project/participation docs | PASS, local targets resolve |
-| GitHub Issue form YAML | PASS, parsed with PyYAML |
+| GitHub Issue forms | PASS, required fields and privacy statements validated by local structure checks |
+| Community documentation | PASS, local links checked in 10 public project and contribution documents |
 | Upstream container image SBOMs | PARTIAL. Five linux/amd64 image manifests were scanned by digest with Syft 1.57.2, yielding 392 package records. 169 raw SPDX entries have `NOASSERTION` license metadata. A separate Caddy Go-module review mapped 121 of its 123 Go package entries to upstream licenses, leaving two Go entries and the OCI image root unresolved. SPDX files, crosswalk, and digests are recorded in `docs/container-image-sbom/`. The Dockerfile-built signaling image and other architectures remain unverified because Docker Engine is unavailable |
 | Rust formatting | PASS, `cargo fmt --check` |
 | Rust check | PASS, `cargo check --locked -j 1` |
