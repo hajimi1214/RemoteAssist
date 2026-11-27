@@ -25,6 +25,13 @@ The eight-digit code API is intentionally active for **Remote Assist**. It is no
 - Go `govulncheck ./...` on Go 1.26.11 reported no reachable vulnerabilities after upgrading the vulnerable Go toolchain and dependencies. The local Go Race suite also passed.
 - RustSec audit reports zero vulnerabilities after upgrading `url`, `cookie`, and `rustix`. It continues to report informational advisories for transitive `chrono`/`proc-macro-error` maintenance status and GTK `glib` soundness. The GTK package is outside the Windows target graph, and the Windows-target audit reports zero vulnerabilities.
 
+## Dependency advisory refresh — 2026-11-28
+
+- `npm audit --audit-level=high` scanned all 88 lockfile packages and reported zero vulnerabilities.
+- `go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...` with Go 1.26.11 reported `No vulnerabilities found` across the server packages.
+- Rust `cargo-audit` 0.23.0 scanned `src-tauri/Cargo.lock` and 447 resolved crate dependencies against 1,571 RustSec advisories. It reported zero vulnerabilities. The lockfile contains three separate findings: unmaintained `chrono` 0.4.45 (RUSTSEC-2026-0543), unmaintained `proc-macro-error` 1.0.4 (RUSTSEC-2024-0370), and `glib` 0.18.5 unsoundness (RUSTSEC-2024-0429). The `src-tauri` Windows/MSVC dependency graph does not include `glib` or GTK, as confirmed by `cargo tree --locked --target x86_64-pc-windows-msvc --invert glib` and its `gtk` counterpart. These are maintenance/platform findings, not reported vulnerability advisories.
+- The RustSec advisory database was refreshed to commit `c5279d0b0c9e8b70df666eb6d1edbabcfd1176bd`. The audit binary was built under ignored `.local` with no project manifest or lockfile change.
+
 ## Limits
 
 The interactive same-account and code flows remain unverified on two physical Windows PCs. Public TURN behavior, revocation during live cross-account assistance, production/Compose PostgreSQL migration, and hardware codec selection remain unverified. Per-account local browser storage is not OS-level isolation from other users of the same profile. No full penetration test, privacy audit, accessibility certification, cloud deployment or hardware codec capability validation is claimed.
