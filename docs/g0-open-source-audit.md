@@ -101,7 +101,7 @@ Not present in the audited source tree:
 - Container image digest pinning and image SBOM generation.
 - A repeatable full dependency/license report in CI.
 
-The existing `README.md`, `LICENSES.md`, deployment documentation, threat model, verification matrix, and CI are useful foundations. `PLANS.md` still names an early 0.3 scope and M11/M27 milestones. It should be replaced with a roadmap aligned to G0–G5 only after G0 acceptance.
+The existing `README.md`, `LICENSES.md`, deployment documentation, threat model, verification matrix, and CI are useful foundations. During this audit, `README.md` was updated to state the user-directed no-author-operated-service model, and `PLANS.md` was replaced with the staged G0–G5 roadmap. The source icon files still have no recorded creation history or copyright holder.
 
 ## Validation performed for this audit
 
@@ -132,10 +132,9 @@ The initial parallel test attempt failed because the host exhausted its page fil
 5. **P2 — Third-party license/SBOM delivery is incomplete.** Lockfile license metadata is now inventoried, but container package SBOMs and binary notice bundling are absent.
 6. **P2 — CI supply-chain versions are mutable tags.** Actions and container images are not pinned by immutable digest/commit.
 7. **P2 — CI lacks Windows installer artifact/checksum production.** Current workflow checks source and native compilation but not the user-facing release artifact.
-8. **P2 — Phase roadmap is stale.** `PLANS.md` does not represent the current project maturity or G0–G5 ordering.
-9. **P2 — Long-term session/media performance remains unmeasured on a known two-PC setup.** The reported LAN stutter has useful client-side telemetry but no simultaneous sender/receiver capture from a known package/build.
-10. **P2 — Platform claims need a capability matrix.** Windows is the first supported desktop target. Android controller paths exist but current-source physical validation is incomplete. Linux/macOS support is not established.
+8. **P2 — Long-term session/media performance remains unmeasured on a known two-PC setup.** The reported LAN stutter has useful client-side telemetry but no simultaneous sender/receiver capture from a known package/build.
+9. **P2 — Platform claims need a capability matrix.** Windows is the first supported desktop target. Android controller paths exist but current-source physical validation is incomplete. Linux/macOS support is not established.
 
 ## G0 disposition
 
-The source and workflow review, feature-status classification, dependency inventory, license comparison, technical debt list, and release risk list are recorded. G0 is **READY FOR OWNER REVIEW**, not a declaration that the project is legally licensed or release-ready. The project license/copyright holder and icon provenance remain owner decisions. Do not begin G1 implementation until the owner accepts the G0 findings and resolves any required ownership decisions.
+The source and workflow review, feature-status classification, dependency inventory, license comparison, technical debt list, and release risk list are recorded. The initial G0 report and inventory were committed as `b8fe8d79c0f83ac99eccedf412b134a4d03a0c66`. G0 is **READY FOR OWNER REVIEW**, not a declaration that the project is legally licensed or release-ready. The project license/copyright holder and icon provenance remain owner decisions. Do not begin G1 implementation until the owner accepts the G0 findings and resolves any required ownership decisions.
