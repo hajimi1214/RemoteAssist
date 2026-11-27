@@ -1,26 +1,35 @@
-# Licenses
+# Third-Party Notices and License Inventory
 
-## Runtime and Build Dependencies
+The project-level license for RemoteAssist source code has not been selected. Until the copyright holder chooses and applies one, this file records third-party components only and does not grant a license to the project itself.
 
-The 0.7 workspace, local-summary and trend implementation adds no runtime package. SVG/CSS presentation and lifecycle/data-validation logic are original; the user-supplied VelaMost reference informs visual direction only.
+## Dependency inventory
 
-The 0.6 communication/quality update adds no external runtime package. WebRTC stats formulas follow the W3C specification; the supplied research document is used as a roadmap reference. No proprietary codec, GPU SDK, commercial implementation, HDR/4:4:4 module or copied open-source media implementation was introduced.
+[`docs/third-party-components.csv`](docs/third-party-components.csv) lists the resolved npm, Cargo, and Go modules in the checked lockfiles, plus the container images, GitHub Actions, Android Gradle distribution, and Windows WebView2 runtime referenced by the current build and deployment configuration.
 
-The 0.5 UX update adds no runtime dependencies. CSS/SVG assets and UI components are original. WCAG, WAI-ARIA, W3C Screen Capture and Microsoft DPI documentation are referenced for engineering decisions; no third-party UI implementation was copied. See docs/research-and-decisions-0.5.md.
+The inventory is generated from `package-lock.json`, `cargo metadata --locked`, and `go list -m all`. SPDX license expressions come from package metadata or the upstream module license. `MIXED` container-image entries identify images whose operating-system and application packages have separate licenses. Generate an image SBOM for each release before publishing binaries or redistributable images.
 
-- Go standard library: BSD-3-Clause style license, used for HTTP service, JSON, crypto randomness, logging, and tests.
-- `github.com/gorilla/websocket`: BSD-2-Clause, used for signaling WebSocket transport.
-- `github.com/lib/pq`: MIT, used as the PostgreSQL database driver.
-- `golang.org/x/crypto`: BSD-3-Clause, used for Argon2id password hashing.
-- React: MIT, used for desktop UI.
-- React DOM: MIT, used to render the desktop UI.
-- Vite: MIT, used for frontend development and production build.
-- TypeScript: Apache-2.0, used for typed frontend code.
-- `@vitejs/plugin-react`: MIT, used for React support in Vite.
-- `@tauri-apps/api`: Apache-2.0 or MIT, used for frontend-to-Tauri command invocation.
-- `@tauri-apps/cli`: Apache-2.0 or MIT, used for Tauri development and Windows packaging.
-- Rust crates `tauri`, `tauri-build`, `serde`, `serde_json`, `thiserror`, and transitive crates: see generated `src-tauri/Cargo.lock`; used for desktop shell, command handling, serialization, and error handling.
-- Rust `windows` crate: Apache-2.0 or MIT, used for Win32 `SendInput`.
-- Version 0.4 adds no package dependency for adaptation, input ordering, or tests. Node's built-in test runner is used; Win32 calls reuse the existing windows crate.
-- W3C standards, IETF RFCs, Sunshine, and papers are research references only. No Sunshine GPL source or paper code/assets were copied; the implementations are original. See docs/research-and-decisions-0.4.md for URLs, document dates, licenses, and adopted ideas.
-- Docker images `golang`, `alpine`, `coturn/coturn`, and `caddy`: used for public deployment packaging; verify image licenses and pinned versions before production release.
+The npm lockfile currently resolves 88 packages, Cargo resolves 446 third-party crates, and the Go module graph resolves 7 third-party modules. Re-run the inventory after dependency or build-image changes. Review new, missing, changed, or dual-licensed entries before distribution.
+
+## License observations
+
+- npm package metadata declares a license for all 88 resolved packages.
+- Cargo package metadata declares SPDX license expressions for all 446 third-party crates. The graph includes MPL-2.0 crates and `r-efi` expressions that offer LGPL-2.1-or-later alongside permissive alternatives. Check the exact selected license obligations and source redistribution duties when defining a binary distribution process.
+- The Go application uses the standard library and seven external modules. Upstream module licenses are identified in the CSV. The cached module archives available in the audit environment did not contain standalone top-level license files for those modules, so preserve upstream attribution/source references in release notices.
+- `LICENSES.md` is not a substitute for the full license text of dependencies. Preserve notices and license texts required by each component when redistributing installers, Android packages, or container images.
+- The icon files are small project assets. Their creation history and copyright holder are not documented yet. Confirm provenance before public release.
+- No external web font, downloaded image library, copied remote-desktop implementation, proprietary codec SDK, or third-party UI source was found in the reviewed frontend/native source and build manifests. This is a source review, not a forensic scan of every generated Android/Windows build artifact.
+
+## Build and runtime components
+
+- Gradle Wrapper uses Gradle 9.6.1 and pins the distribution SHA-256 in `src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties`.
+- The Windows client relies on the Microsoft WebView2 Evergreen Runtime installed on the user's system. This repository does not bundle that runtime.
+- Container images currently use tags rather than immutable digests. The package-level licenses vary within the Alpine-based images. The component CSV records the direct image references, but not every OS package inside each image.
+- GitHub Actions are referenced by major tags rather than immutable commit SHAs. This is a supply-chain reproducibility issue to address before formal release.
+
+## Upstream license references
+
+- Gorilla WebSocket: <https://github.com/gorilla/websocket/blob/main/LICENSE>
+- lib/pq: <https://github.com/lib/pq/blob/master/LICENSE>
+- Go crypto, net, sys, term, and text modules: <https://go.googlesource.com/crypto/+/master/LICENSE>, <https://go.googlesource.com/net/+/master/LICENSE>, <https://go.googlesource.com/sys/+/master/LICENSE>, <https://go.googlesource.com/term/+/master/LICENSE>, <https://go.googlesource.com/text/+/master/LICENSE>
+- Rust crate license expressions: crates.io package metadata and `cargo metadata --locked`
+- npm package license expressions: resolved `package.json` metadata recorded in `package-lock.json`
