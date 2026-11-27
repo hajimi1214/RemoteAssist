@@ -1,5 +1,13 @@
 # Status
 
+## M42 — two-sided live diagnostics
+
+- The two-PC report shows a local P2P/UDP route with 1–2 ms RTT and 0% packet loss. Receive decode time is about 4.4–4.5 ms and average jitter-buffer delay about 20.7–20.8 ms. These samples do not point to network RTT or decoder cost as the primary source of the reported page-switch stutter.
+- During changing content, reported host capture cadence was 29.4 fps, capture reply P95 26.2–28.4 ms with maxima 163.2–197.5 ms, and receiver presentation cadence 23.1–27.7 fps with P95 intervals up to 158.4 ms. The captures implicate occasional capture/presentation pacing stalls but do not isolate their cause.
+- Code review found HostPeer already samples sender WebRTC statistics, but the same-account direct-host UI did not subscribe to or display them. Wired sender statistics and host capture summaries into the visible direct-host diagnostics so the next reproduction can compare encoder FPS/latency/queue with receiver metrics. No credentials, input payloads, or frame data are exposed.
+- PASS: `npm test` (122/122), `npm run build`, and LAN debug NSIS package build. The new unsigned package is `.local/lan-test-download/RemoteAssist_0.15.1-alpha-diagnostics_x64-setup.exe`, 3,228,160 bytes, SHA-256 `203A13988DBE181B0F2C60807A7F6CDC7B5D3DEFE02314BD265469F7E7E5C0A3`. HTTP HEAD from `.101:8090` returned 200 with the matching content length.
+- NOT VERIFIED: root cause of the first-seconds/page-switch stutter, because sender encoder stats were not visible during the supplied run and the two endpoints' display/driver/load details have not yet been compared. Install the diagnostics package on the host, reproduce a moving page switch, and compare host sender/capture statistics with controller receiver/presentation statistics.
+
 ## M41 — current-source Windows Release package
 
 - Rebuilt the normal Windows x64 Release installer and portable executable after adding the DXGI HRESULT diagnostics. Release NSIS: 2,434,731 bytes, SHA-256 `B69ACE2BE21927E2EF9A9022AF579AA23FA42B1885D63335E9DB03539E05F685`. Portable EXE: 10,602,496 bytes, SHA-256 `0A7119F3FE9542BD958B72F1E100D671DADDC39FFCCA9F4B8AD2021E1108DBD0`. Both are unsigned.

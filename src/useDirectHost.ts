@@ -6,6 +6,7 @@ import type { SignalMessage } from "./webrtc";
 import { InputEventGate } from "./inputEvents";
 import { startNativeStream } from "./nativeCapture";
 import type { CaptureTimingSummary } from "./captureTiming";
+import type { VideoTelemetry } from "./videoTelemetry";
 import { nativeDesktop } from "./platform";
 
 type RunningSession = {
@@ -21,15 +22,18 @@ type RunningSession = {
 /** Account/device authorization happens independently inside the native accept command. */
 export function useDirectHost(auth: AuthResult | null, device: Device | null, signaling: SignalingClient, enabled = true) {
   const [state, setState] = useState({ active: false, name: "", error: "" });
+  const [telemetry, setTelemetry] = useState<VideoTelemetry | null>(null);
   const latest = useRef(auth); latest.current = auth;
   const stopRef = useRef<() => void>(() => {});
   const [paused, setPaused] = useState(false);
   useEffect(() => {
     setState({active:false,name:"",error:""});
+    setTelemetry(null);
     if (!nativeDesktop || !enabled || !auth || !device || paused) return;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let current: RunningSession | undefined;
+    let captureTiming: CaptureTimingSummary | undefined;
     const live = (session: RunningSession) => !disposed && !session.stopped && current === session;
     const stop = (session: RunningSession | undefined = current) => {
       if (!session || session.stopped) return;
@@ -42,6 +46,7 @@ export function useDirectHost(auth: AuthResult | null, device: Device | null, si
       void signaling.disconnect(session.pending.id, session.pending.hostToken).catch(() => {});
       if (current === session) {
         current = undefined;
+        setTelemetry(null);
         if (!disposed) setState(previous => ({ ...previous, active: false, name: "" }));
       }
     };
@@ -83,12 +88,18 @@ export function useDirectHost(auth: AuthResult | null, device: Device | null, si
         });
         if (!live(session)) { void invoke("clear_direct_capture", { requestId: session.requestId }).catch(() => {}); return; }
         let peer: HostPeer | undefined;
-        const source = await startNativeStream(result.controllerToken, () => fail(session, "屏幕采集已中断，请重新连接。"), (summary: CaptureTimingSummary) => peer?.setCaptureTiming(summary));
+        const source = await startNativeStream(result.controllerToken, () => fail(session, "屏幕采集已中断，请重新连接。"), (summary: CaptureTimingSummary) => {
+          if (!live(session)) return;
+          captureTiming = summary;
+          peer?.setCaptureTiming(summary);
+          setTelemetry(previous => previous ? { ...previous, captureTiming: summary } : previous);
+        });
         if (!live(session)) { source.stop(); return; }
         session.capture = source;
         const gate = new InputEventGate(result.controllerToken, () => live(session));
         peer = new HostPeer(pending.id, pending.hostToken, socket, [], {
           onCaptureFrameRate: source.setFrameRate,
+          onTelemetry: sample => { if (live(session)) setTelemetry({ ...sample, captureTiming }); },
           onFailure: () => fail(session, "连接已中断，可重新进入设备。")
         }, { preference: "auto", gameInput: device.osName === "Windows", loadIceServers: () => signaling.iceServers(latest.current!.accessToken) });
         session.peer = peer;
@@ -118,5 +129,5 @@ export function useDirectHost(auth: AuthResult | null, device: Device | null, si
     void poll();
     return () => { disposed = true; clearTimeout(timer); stop(); };
   }, [auth?.user.id, device?.id, paused, signaling, enabled]);
-  return { ...state, paused, pause: () => { stopRef.current(); setPaused(true); }, resume: () => setPaused(false) };
+  return { ...state, telemetry, paused, pause: () => { stopRef.current(); setPaused(true); }, resume: () => setPaused(false) };
 }
