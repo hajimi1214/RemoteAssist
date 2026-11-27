@@ -67,7 +67,7 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --en
 
 RemoteAssist 不实现远程 Shell、命令或脚本执行、静默安装、隐藏运行、默认开机自启、UAC 绕过、Defender 规避、凭据抓取、键盘记录或会话结束后的采集。请勿在公开 Issue 中发布密码、Token、服务器密钥、屏幕画面或输入内容。
 
-当前仓库尚未配置完整的私密漏洞报告流程。正式公开前应编写 `SECURITY.md` 并设置 GitHub 私密漏洞接收方式。许可证状态、第三方依赖和未完成的开源准备事项见[G0 审计报告](docs/g0-open-source-audit.md)。
+项目的安全报告规则见 [`SECURITY.md`](SECURITY.md)。GitHub 私密漏洞接收尚未启用，公开发布前需要由仓库所有者配置。许可证状态、第三方依赖和未完成的开源准备事项见[G0 审计报告](docs/g0-open-source-audit.md)。
 
 ## 参与项目
 
