@@ -118,6 +118,7 @@ The existing `README.md`, `LICENSES.md`, deployment documentation, threat model,
 | Inventory drift check | PASS locally on Windows. The CI job is added, but its remote GitHub Actions run remains unverified |
 | GitHub Actions references | PASS, all workflow `uses:` entries pin verified commit SHAs. Checkout, setup-node and setup-go use action manifests declaring Node 24. Remote workflow execution remains unverified |
 | GitHub Actions workflow lint | PASS, actionlint 1.7.7 |
+| Container image package inventory | NOT VERIFIED. Docker Engine was unavailable on this host (`docker image ls` could not connect to the Docker Desktop Linux Engine named pipe), so no package-level image SBOM was produced |
 | Rust formatting | PASS, `cargo fmt --check` |
 | Rust check | PASS, `cargo check --locked -j 1` |
 | Rust tests | PASS, 25 passed, 1 ignored because it requires a visible unlocked desktop |
@@ -134,7 +135,7 @@ The initial parallel test attempt failed because the host exhausted its page fil
 3. **P1 — Unverified independent installation and real remote-control flow.** Current project evidence does not establish repeatable two-PC installation, stream stability, or input reliability.
 4. **P1 — Public HTTPS/TURN infrastructure unverified.** Self-hosting scripts and docs are implemented, but operational success is unknown.
 5. **P2 — Third-party license/SBOM delivery is incomplete.** Lockfile license metadata has a reproducible inventory and CI drift check, but container package SBOMs and binary notice bundling are absent.
-6. **P2 — Container image references are mutable tags.** Pin image digests and generate package-level SBOMs before release. GitHub Actions are pinned to verified commit SHAs.
+6. **P2 — Container image references are mutable tags.** Pin image digests and generate package-level SBOMs before release. A local image inventory could not run because Docker Engine was unavailable. GitHub Actions are pinned to verified commit SHAs.
 7. **P2 — CI lacks Windows installer artifact/checksum production.** Current workflow checks source and native compilation but not the user-facing release artifact.
 8. **P2 — Long-term session/media performance remains unmeasured on a known two-PC setup.** The reported LAN stutter has useful client-side telemetry but no simultaneous sender/receiver capture from a known package/build.
 9. **P2 — Platform claims need a capability matrix.** Windows is the first supported desktop target. Android controller paths exist but current-source physical validation is incomplete. Linux/macOS support is not established.
