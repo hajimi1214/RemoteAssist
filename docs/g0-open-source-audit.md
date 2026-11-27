@@ -96,6 +96,8 @@ Not present in the audited source tree:
 
 The Caddy binary crosswalk now classifies the imported `go.uber.org/zap/exp@v0.2.0` source using the complete copyright, MIT permission, and warranty-disclaimer notices in every non-test `exp/zapslog` package file at a pinned upstream commit. The Caddy source crosswalk now identifies 122 of 123 module records. Its remaining `command-line-arguments` identifier has no source module identity. The standalone OCI image-root record and other raw `NOASSERTION` package entries need separate upstream evidence.
 
+The Go 1.26.11 build-image follow-up matched the upstream tag's root `LICENSE` SHA-256 against the cached Go 1.26.11 distribution. This identifies the BSD-3-Clause grant for Go-authored portions corresponding to its 10 `cmd/*` package records and `go` binary record. Thirteen separate license files are present under the distribution's `src/cmd/vendor` tree, and their notices require independent review for the aggregate tool binaries. The raw SPDX package records are still marked `NOASSERTION`.
+
 The repository now has English and Chinese project homepages, `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`, bug/feature Issue forms, and a PR template. The security policy explicitly states that no private vulnerability intake is configured. The English README states the no-author-operated-service model, and `PLANS.md` was replaced with the staged G0–G5 roadmap. The simple solid-color icons do not contain visible third-party artwork, but their original selection/generation history is still unverified.
 
 ## Validation performed for this audit
@@ -123,6 +125,7 @@ The repository now has English and Chinese project homepages, `CONTRIBUTING.md`,
 | Rust tests | PASS, 25 passed, 1 ignored because it requires a visible unlocked desktop |
 | Windows LAN debug package | PASS on the preceding diagnostics commit. It is a local unsigned test installer and is not a public release |
 | 2026-11-28 Caddy `zap/exp` source-license review | PASS for the inspected `exp/zapslog` import: both non-test Go source files contain copyright, MIT permission, and warranty-disclaimer notices at upstream commit `87e467e9b7509962236295e116116980580ef8bc` |
+| Go 1.26.11 build-image source-license review | PARTIAL. The root `LICENSE` SHA-256 matches the exact upstream tag and identifies BSD-3-Clause for Go-authored toolchain source. The 10 `cmd/*` and `go` SBOM records also contain binaries with vendored dependencies covered by 13 independent license files. The supplementary [`Go toolchain crosswalk`](container-image-sbom/go-toolchain-license-crosswalk.csv) scopes its conclusion to Go-authored source |
 | Docker Engine-backed signaling-image build and SBOM scan | NOT VERIFIED; this host has no Docker Engine endpoint |
 | Go Race in this follow-up | NOT VERIFIED. `go test -race ./...` cannot start with the current `CGO_ENABLED=0`; this Windows host has no C compiler configured for Go cgo |
 | Public deployment, second-PC installation, TURN relay, code signing, penetration test | NOT VERIFIED |
