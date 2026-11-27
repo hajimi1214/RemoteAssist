@@ -20,6 +20,20 @@ Reviewed 2026-11-25 against the local engineering branch. The product has two se
 
 The eight-digit code API is intentionally active for **Remote Assist**. It is not used by **My Devices**. Both paths still use short-lived host/controller capabilities, server session state and the host's native lease.
 
+## Configured-service CSP and TLS decision — 2026-11-28
+
+RemoteAssist supports user-operated signaling servers, so desktop and Android Tauri `connect-src` directives allow the HTTPS and WSS schemes instead of pinning one publisher-owned origin. The remaining CSP policies keep documents self-only, disable objects and framing, and restrict scripts to the bundled source. Scheme-wide HTTPS/WSS sources are not an exact host allowlist. A script already running in the app context could attempt a connection to another HTTPS/WSS host, subject to browser CORS and server authorization.
+
+The user-configured transport path is constrained elsewhere:
+
+- The shared service-address dialog normalizes input to an HTTPS root origin, without credentials, paths, queries or fragments. Explicit LAN test builds may use private IPv4 HTTP. The underlying `SignalingClient` independently rejects insecure non-LAN schemes, credentials, paths, queries and fragments before issuing requests.
+- API requests omit browser cookies and attach bearer credentials only to the selected service URL. WebSocket URLs preserve the configured host and port while upgrading HTTPS to WSS.
+- The Go server validates browser CORS and WebSocket origins against exact `APP_ORIGINS` entries. Deployment validation rejects wildcard origins. Native WebSocket connections may omit `Origin`, but still pass normal session-token and lease checks.
+- Normal Android builds use the HTTPS WebView scheme and set cleartext traffic to false. The Android LAN test build trusts a generated test CA for the selected address. The Windows desktop LAN test build separately permits private-LAN HTTP at one compiled IPv4 origin.
+- HTTPS certificate validation uses the platform's normal trust store. The LAN Android test CA is limited to its package's selected host and does not replace system trust.
+
+Regression coverage is in `connectionSecurityConfig.test.ts`, `signaling.test.ts`, `mobileInput.test.ts`, `lanTest.test.ts`, Go `TestCORSAllowsExactConfiguredOriginAndRejectsOthers`, Go `TestWebSocketCheckOriginUsesExactAllowlist`, and the deployment verifier. This decision supports user-managed endpoints while retaining secure transport, app-document isolation, and server-side origin validation.
+
 ## Dependency advisory follow-up
 
 - Go `govulncheck ./...` on Go 1.26.11 reported no reachable vulnerabilities after upgrading the vulnerable Go toolchain and dependencies. The local Go Race suite also passed.

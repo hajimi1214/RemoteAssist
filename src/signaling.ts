@@ -215,7 +215,7 @@ export class SignalingClient {
     if (!(url.protocol === "https:" || (clientBuildEnv.DEV && url.protocol === "http:") || allowsLanHttp(url))) {
       throw new Error("signaling_service_requires_tls");
     }
-    if (url.username || url.password || url.search || url.hash) {
+    if (url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
       throw new Error("invalid_signaling_service_url");
     }
     return url.toString().replace(/\/$/, "");
