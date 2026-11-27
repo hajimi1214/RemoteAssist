@@ -2,6 +2,8 @@
 
 RemoteAssist does not provide or require an author-operated public signaling or TURN service. Use it with a signaling service you operate, a trusted LAN test service, or a community service you have explicitly chosen. The desktop release does not silently select a third-party public server. See the [self-hosted deployment guide](docs/public-server-deployment.md) and [LAN test runbook](docs/lan-two-pc-runbook.md).
 
+Read the [Chinese project overview](README.zh-CN.md) or the [contribution guide](CONTRIBUTING.md).
+
 Version 0.15.1 adds a five-section settings center with search, precise mouse sensitivity input, confirmed preference reset and visible save outcomes. Local storage failures retain usable in-memory preferences for the current run. See the [settings UX design and validation notes](docs/settings-ux-0.15.md).
 
 Version 0.15 adds opt-in relative mouse capture for game camera control, a bounded coalescing path that preserves accumulated mouse deltas, a game-oriented encoder target, and fixed the draw-before-requestFrame ordering for partial desktop updates. Aliyun ECS/Coturn setup and test guidance and the game-streaming references are included. See [game-streaming research and acceptance notes](docs/game-streaming-research.md) and [Aliyun deployment](docs/aliyun-game-deployment.md). The game-profile Sharp ceiling now targets up to 1440p60 / 18 Mbps, with the bitrate cap scaled to the source pixel count and congestion-based downgrade still enabled. These are limits, not verified output. Physical game and real ECS/WAN behavior remain unverified. This version is video-only and the Windows SendInput mouse path is not physical HID/Raw Input, so it is not yet a complete game-streaming replacement.

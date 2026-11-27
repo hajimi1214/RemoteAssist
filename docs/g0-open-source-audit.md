@@ -91,17 +91,14 @@ Dependency observations:
 Not present in the audited source tree:
 
 - Project license and copyright notices.
-- `README.zh-CN.md`.
-- `CONTRIBUTING.md`.
 - `SECURITY.md`.
 - `CODE_OF_CONDUCT.md`.
 - `SUPPORT.md`.
 - `CHANGELOG.md`.
-- GitHub issue and pull-request templates.
 - Automated Windows artifact publishing and checksum manifest.
 - Container image digest pinning and automated SBOM refresh in CI.
 
-The existing `README.md`, `LICENSES.md`, deployment documentation, threat model, verification matrix, and CI are useful foundations. During this audit, `README.md` was updated to state the user-directed no-author-operated-service model, and `PLANS.md` was replaced with the staged G0–G5 roadmap. The simple solid-color icons do not contain visible third-party artwork, but their original selection/generation history is still unverified.
+The existing `README.md`, `LICENSES.md`, deployment documentation, threat model, verification matrix, and CI are useful foundations. During this audit, English and Chinese project homepages, `CONTRIBUTING.md`, bug/feature Issue forms, and a PR template were added. The English README states the no-author-operated-service model, and `PLANS.md` was replaced with the staged G0–G5 roadmap. The simple solid-color icons do not contain visible third-party artwork, but their original selection/generation history is still unverified.
 
 ## Validation performed for this audit
 
@@ -118,6 +115,8 @@ The existing `README.md`, `LICENSES.md`, deployment documentation, threat model,
 | Inventory drift check | PASS locally on Windows. The CI job is added, but its remote GitHub Actions run remains unverified |
 | GitHub Actions references | PASS, all workflow `uses:` entries pin verified commit SHAs. Checkout, setup-node and setup-go use action manifests declaring Node 24. Remote workflow execution remains unverified |
 | GitHub Actions workflow lint | PASS, actionlint 1.7.7 |
+| Markdown links in new project/participation docs | PASS, local targets resolve |
+| GitHub Issue form YAML | PASS, parsed with PyYAML |
 | Upstream container image SBOMs | PARTIAL. Five linux/amd64 image manifests were scanned by digest with Syft 1.57.2, yielding 392 package records. 169 raw SPDX entries have `NOASSERTION` license metadata. A separate Caddy Go-module review mapped 121 of its 123 Go package entries to upstream licenses, leaving two Go entries and the OCI image root unresolved. SPDX files, crosswalk, and digests are recorded in `docs/container-image-sbom/`. The Dockerfile-built signaling image and other architectures remain unverified because Docker Engine is unavailable |
 | Rust formatting | PASS, `cargo fmt --check` |
 | Rust check | PASS, `cargo check --locked -j 1` |

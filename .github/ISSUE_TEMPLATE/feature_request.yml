@@ -1,0 +1,35 @@
+name: Feature request
+description: Propose a focused improvement or capability
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        RemoteAssist is alpha software. Keep the proposal focused and explain the use case, authorization implications, and how the result could be verified.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe who initiates the action and what the host or server must visibly authorize.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance evidence
+      description: List observable behavior and tests that would establish completion.
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Project boundaries
+      options:
+        - label: This proposal does not require hidden operation, remote shell/commands, default autostart, credential capture, or post-session collection.
+          required: true

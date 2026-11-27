@@ -1,0 +1,71 @@
+name: Bug report
+description: Report a reproducible RemoteAssist problem without sharing private session data
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include passwords, tokens, server secrets, screen contents, typed text, device identifiers, or private IP addresses. Do not use this public form to report a security vulnerability.
+  - type: input
+    id: version
+    attributes:
+      label: RemoteAssist version or commit
+      placeholder: "0.15.1-alpha or commit SHA"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: "Windows 11, build 26200"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Installation or startup
+        - Account or device list
+        - Signaling or session setup
+        - Video capture or display
+        - Mouse, keyboard, or text input
+        - Settings or preferences
+        - Self-hosted server or deployment
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Use synthetic account names and redact network addresses, tokens, and hostnames.
+      placeholder: |
+        1. Start the host client.
+        2. Connect from another test client.
+        3. Switch the host desktop to a test window.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized diagnostics
+      description: Include only aggregate performance fields. Remove addresses, identifiers, tokens, screenshots, and input content.
+      placeholder: "Route, codec, FPS, RTT, loss, capture timing, decode timing"
+    validations:
+      required: false
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Privacy and security
+      options:
+        - label: I removed credentials, tokens, server secrets, screen data, input content, and private identifiers.
+          required: true
+        - label: This report does not disclose a security vulnerability.
+          required: true
