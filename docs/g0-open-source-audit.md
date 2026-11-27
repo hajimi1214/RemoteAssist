@@ -4,7 +4,7 @@ Audit date: 2026-11-27
 
 ## Scope and source revision
 
-This audit starts from the repository's GitHub `main` tip observed on 2026-11-27, commit `2e4806f57ecef4bc295a6cdda2e9639a930443a8`. The local engineering branch contains that commit as an ancestor and adds local engineering and verification commits through `b8329a238a25b693819aa680c6f4c23f8960b674`. The work is on `codex/g0-open-source-audit`. No upstream branch was modified or pushed.
+This audit starts from the repository's GitHub `main` tip observed on 2026-11-27, commit `2e4806f57ecef4bc295a6cdda2e9639a930443a8`. A fresh `git ls-remote` check during the follow-up still returned that same `main` tip. The local engineering branch contains that commit as an ancestor and adds local engineering and verification commits through `b8329a238a25b693819aa680c6f4c23f8960b674`. The audit work is on `codex/g0-open-source-audit`. No upstream branch was modified or pushed.
 
 The source review covered React/TypeScript, Tauri configuration and capabilities, Rust capture and input, Go HTTP/WebSocket/session/authentication/database code, PostgreSQL migrations, Docker Compose, deployment scripts, Windows and Android packaging, and GitHub Actions. This is a repository review with automated checks. It is not a penetration test, legal opinion, full accessibility audit, or review of every generated installer and container package.
 
@@ -73,7 +73,7 @@ Two permissive options were evaluated:
 
 The official Apache text describes both copyright and patent grants and redistribution notice conditions. The Open Source Initiative's MIT text requires retaining its copyright and permission notice. See the [Apache License 2.0 text](https://www.apache.org/licenses/LICENSE-2.0.txt) and [MIT License text](https://opensource.org/license/mit).
 
-Recommendation: select Apache-2.0 after the copyright owner confirms they have authority to license all project-owned code and assets. The audit does not add a `LICENSE` file because the repository does not identify a copyright holder, and a license file would be a legal grant. The tiny icon assets also have no recorded provenance. Both ownership questions must be resolved before publication.
+Recommendation: select Apache-2.0 after the copyright owner confirms they have authority to license all project-owned code and assets. The audit does not add a `LICENSE` file because the repository does not identify a copyright holder, and a license file would be a legal grant. The bundled PNG and ICO are both 16×16 RGBA icons. Git history traces their presence to the initial MVP commit `4c4b175` dated 2026-06-07, but that commit does not identify their source, authoring tool, or license. Repository presence and commit authorship alone do not establish copyright provenance. Confirm these ownership questions before publication.
 
 Dependency observations:
 
@@ -101,7 +101,7 @@ Not present in the audited source tree:
 - Container image digest pinning and image SBOM generation.
 - A repeatable full dependency/license report in CI.
 
-The existing `README.md`, `LICENSES.md`, deployment documentation, threat model, verification matrix, and CI are useful foundations. During this audit, `README.md` was updated to state the user-directed no-author-operated-service model, and `PLANS.md` was replaced with the staged G0–G5 roadmap. The source icon files still have no recorded creation history or copyright holder.
+The existing `README.md`, `LICENSES.md`, deployment documentation, threat model, verification matrix, and CI are useful foundations. During this audit, `README.md` was updated to state the user-directed no-author-operated-service model, and `PLANS.md` was replaced with the staged G0–G5 roadmap. The icon files have existed in repository history since the initial MVP commit, but their original provenance is still unverified.
 
 ## Validation performed for this audit
 
