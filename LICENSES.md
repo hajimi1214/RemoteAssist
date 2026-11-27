@@ -25,8 +25,8 @@ The npm lockfile currently resolves 88 packages, Cargo resolves 446 third-party 
 
 - Gradle Wrapper uses Gradle 9.6.1 and pins the distribution SHA-256 in `src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties`.
 - The Windows client relies on the Microsoft WebView2 Evergreen Runtime installed on the user's system. This repository does not bundle that runtime.
+- GitHub Actions are pinned to immutable commit SHAs in the workflow. Review those pins deliberately when updating action versions.
 - Container images currently use tags rather than immutable digests. The package-level licenses vary within the Alpine-based images. The component CSV records the direct image references, but not every OS package inside each image.
-- GitHub Actions are referenced by major tags rather than immutable commit SHAs. This is a supply-chain reproducibility issue to address before formal release.
 
 ## Upstream license references
 

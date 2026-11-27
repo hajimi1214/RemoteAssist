@@ -130,10 +130,10 @@ const additionalComponents = [
   ["container image", "postgres:16-alpine", "runtime service", "MIXED", "PostgreSQL database and Alpine packages", "deploy/docker-compose.yml"],
   ["container image", "coturn/coturn:4.6.3", "runtime service", "MIXED", "TURN relay daemon and its image packages", "deploy/docker-compose.yml"],
   ["container image", "caddy:2.8-alpine", "runtime service", "MIXED", "TLS reverse proxy and Alpine packages", "deploy/docker-compose.yml"],
-  ["GitHub Action", "actions/checkout", "v4", "MIT", "CI source checkout", ".github/workflows/ci.yml"],
-  ["GitHub Action", "actions/setup-node", "v4", "MIT", "CI Node.js setup", ".github/workflows/ci.yml"],
-  ["GitHub Action", "actions/setup-go", "v5", "MIT", "CI Go setup", ".github/workflows/ci.yml"],
-  ["GitHub Action", "dtolnay/rust-toolchain", "stable", "MIT", "CI Rust toolchain setup", ".github/workflows/ci.yml"],
+  ["GitHub Action", "actions/checkout", "v7.0.1 @ 3d3c42e5aac5ba805825da76410c181273ba90b1", "MIT", "CI source checkout (Node 24 runtime)", ".github/workflows/ci.yml"],
+  ["GitHub Action", "actions/setup-node", "v7.1.0 @ 949feb2413d6458794dcd2491c4babbbce0c15c1", "MIT", "CI Node.js setup (Node 24 runtime)", ".github/workflows/ci.yml"],
+  ["GitHub Action", "actions/setup-go", "v6.2.0 @ 7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5", "MIT", "CI Go setup (Node 24 runtime)", ".github/workflows/ci.yml"],
+  ["GitHub Action", "dtolnay/rust-toolchain", "stable @ 39008827e6b4319a349e9a42dfc90579dd25f1ca", "MIT", "CI Rust toolchain setup", ".github/workflows/ci.yml"],
   ["build distribution", "Gradle Wrapper", "9.6.1-bin", "Apache-2.0", "Android build distribution, checksum pinned in wrapper properties", "src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties"],
   ["runtime platform", "Microsoft WebView2 Evergreen Runtime", "user/system installed", "Microsoft proprietary terms", "Windows Tauri webview runtime, not redistributed by this repository", "Tauri 2 Windows runtime dependency"]
 ];

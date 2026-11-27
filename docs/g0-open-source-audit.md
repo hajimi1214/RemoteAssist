@@ -75,6 +75,8 @@ The official Apache text describes both copyright and patent grants and redistri
 
 Recommendation: select Apache-2.0 after the copyright owner confirms they have authority to license all project-owned code and assets. The audit does not add a `LICENSE` file because the repository does not identify a copyright holder, and a license file would be a legal grant. The bundled PNG and ICO are each a 16×16 RGBA solid-color image, with all 256 pixels equal to `#146C94`. Git history traces them to the initial MVP commit `4c4b175` dated 2026-06-07, but that commit does not identify who selected or generated them. No third-party artwork is visible in their pixel data, but confirm ownership before publication.
 
+The CI workflow now pins each GitHub Action to an immutable commit. The pinned checkout v7.0.1, setup-node v7.1.0, and setup-go v6.2.0 action manifests were checked and declare the Node 24 runtime. This followed discovery that the previously pinned v4 actions still declared Node 20, which GitHub-hosted runners removed on 2026-09-23, as announced in the [GitHub Actions runtime notice](https://github.blog/changelog/2026-09-23-node-20-is-no-longer-available-in-github-actions/). Rust toolchain setup is also pinned to the observed `stable` branch commit. The pins are accurate as of 2026-11-27 and should be deliberately refreshed when updating CI dependencies.
+
 Dependency observations:
 
 - npm: 88 resolved packages, all with license metadata.
@@ -96,7 +98,6 @@ Not present in the audited source tree:
 - `SUPPORT.md`.
 - `CHANGELOG.md`.
 - GitHub issue and pull-request templates.
-- Immutable SHA references for GitHub Actions.
 - Automated Windows artifact publishing and checksum manifest.
 - Container image digest pinning and image SBOM generation.
 
@@ -115,6 +116,8 @@ The existing `README.md`, `LICENSES.md`, deployment documentation, threat model,
 | `go mod verify` | PASS |
 | Third-party component inventory generation | PASS, 552 resolved components |
 | Inventory drift check | PASS locally on Windows. The CI job is added, but its remote GitHub Actions run remains unverified |
+| GitHub Actions references | PASS, all workflow `uses:` entries pin verified commit SHAs. Checkout, setup-node and setup-go use action manifests declaring Node 24. Remote workflow execution remains unverified |
+| GitHub Actions workflow lint | PASS, actionlint 1.7.7 |
 | Rust formatting | PASS, `cargo fmt --check` |
 | Rust check | PASS, `cargo check --locked -j 1` |
 | Rust tests | PASS, 25 passed, 1 ignored because it requires a visible unlocked desktop |
@@ -131,7 +134,7 @@ The initial parallel test attempt failed because the host exhausted its page fil
 3. **P1 — Unverified independent installation and real remote-control flow.** Current project evidence does not establish repeatable two-PC installation, stream stability, or input reliability.
 4. **P1 — Public HTTPS/TURN infrastructure unverified.** Self-hosting scripts and docs are implemented, but operational success is unknown.
 5. **P2 — Third-party license/SBOM delivery is incomplete.** Lockfile license metadata has a reproducible inventory and CI drift check, but container package SBOMs and binary notice bundling are absent.
-6. **P2 — CI supply-chain versions are mutable tags.** Actions and container images are not pinned by immutable digest/commit.
+6. **P2 — Container image references are mutable tags.** Pin image digests and generate package-level SBOMs before release. GitHub Actions are pinned to verified commit SHAs.
 7. **P2 — CI lacks Windows installer artifact/checksum production.** Current workflow checks source and native compilation but not the user-facing release artifact.
 8. **P2 — Long-term session/media performance remains unmeasured on a known two-PC setup.** The reported LAN stutter has useful client-side telemetry but no simultaneous sender/receiver capture from a known package/build.
 9. **P2 — Platform claims need a capability matrix.** Windows is the first supported desktop target. Android controller paths exist but current-source physical validation is incomplete. Linux/macOS support is not established.
