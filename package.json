@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test src/*.test.ts",
+    "licenses:generate": "node scripts/generate-third-party-components.mjs",
+    "licenses:check": "node scripts/generate-third-party-components.mjs --check",
     "dev": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
     "preview": "vite preview --host 127.0.0.1",

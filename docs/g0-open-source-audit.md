@@ -99,7 +99,6 @@ Not present in the audited source tree:
 - Immutable SHA references for GitHub Actions.
 - Automated Windows artifact publishing and checksum manifest.
 - Container image digest pinning and image SBOM generation.
-- A repeatable full dependency/license report in CI.
 
 The existing `README.md`, `LICENSES.md`, deployment documentation, threat model, verification matrix, and CI are useful foundations. During this audit, `README.md` was updated to state the user-directed no-author-operated-service model, and `PLANS.md` was replaced with the staged G0–G5 roadmap. The icon files have existed in repository history since the initial MVP commit, but their original provenance is still unverified.
 
@@ -114,6 +113,8 @@ The existing `README.md`, `LICENSES.md`, deployment documentation, threat model,
 | Go tests, serialized with `GOMAXPROCS=2` and `-p=1` | PASS across all packages |
 | Go Vet, serialized with `-p=1` | PASS |
 | `go mod verify` | PASS |
+| Third-party component inventory generation | PASS, 552 resolved components |
+| Inventory drift check | PASS locally on Windows. The CI job is added, but its remote GitHub Actions run remains unverified |
 | Rust formatting | PASS, `cargo fmt --check` |
 | Rust check | PASS, `cargo check --locked -j 1` |
 | Rust tests | PASS, 25 passed, 1 ignored because it requires a visible unlocked desktop |
@@ -129,7 +130,7 @@ The initial parallel test attempt failed because the host exhausted its page fil
 2. **P1 — No public vulnerability reporting route.** Security issues need a documented private intake process before broad distribution.
 3. **P1 — Unverified independent installation and real remote-control flow.** Current project evidence does not establish repeatable two-PC installation, stream stability, or input reliability.
 4. **P1 — Public HTTPS/TURN infrastructure unverified.** Self-hosting scripts and docs are implemented, but operational success is unknown.
-5. **P2 — Third-party license/SBOM delivery is incomplete.** Lockfile license metadata is now inventoried, but container package SBOMs and binary notice bundling are absent.
+5. **P2 — Third-party license/SBOM delivery is incomplete.** Lockfile license metadata has a reproducible inventory and CI drift check, but container package SBOMs and binary notice bundling are absent.
 6. **P2 — CI supply-chain versions are mutable tags.** Actions and container images are not pinned by immutable digest/commit.
 7. **P2 — CI lacks Windows installer artifact/checksum production.** Current workflow checks source and native compilation but not the user-facing release artifact.
 8. **P2 — Long-term session/media performance remains unmeasured on a known two-PC setup.** The reported LAN stutter has useful client-side telemetry but no simultaneous sender/receiver capture from a known package/build.
