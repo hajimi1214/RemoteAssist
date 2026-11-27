@@ -7,7 +7,7 @@ RemoteAssist is being developed as an open-source remote desktop platform that p
 - Application version: `0.15.1-alpha`
 - GitHub `main` rechecked on 2026-11-28: `2e4806f57ecef4bc295a6cdda2e9639a930443a8`
 - Local engineering source at G0 start: `b8329a238a25b693819aa680c6f4c23f8960b674`
-- G0 audit work is on `codex/g0-open-source-audit`
+- G0 follow-up `524aed335b2880b3353dac84fea9e99d80958bd3` is pushed on `codex/g0-open-source-audit`; GitHub `main` is unchanged
 
 ## Staged roadmap
 

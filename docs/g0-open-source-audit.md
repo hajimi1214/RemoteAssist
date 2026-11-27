@@ -4,7 +4,7 @@ Audit date: 2026-11-28
 
 ## Scope and source revision
 
-This audit starts from the repository's GitHub `main` tip observed on 2026-11-27, commit `2e4806f57ecef4bc295a6cdda2e9639a930443a8`. Follow-up `git ls-remote` checks on 2026-11-28 still returned that same `main` tip. The local engineering branch contains that commit as an ancestor and adds local engineering and verification commits through `b8329a238a25b693819aa680c6f4c23f8960b674`. The audit work is on `codex/g0-open-source-audit`; no changes were pushed to `main`.
+This audit starts from the repository's GitHub `main` tip observed on 2026-11-27, commit `2e4806f57ecef4bc295a6cdda2e9639a930443a8`. Follow-up `git ls-remote` checks on 2026-11-28 still returned that same `main` tip. The local engineering branch contains that commit as an ancestor and adds local engineering and verification commits through `b8329a238a25b693819aa680c6f4c23f8960b674`. Follow-up commit `524aed335b2880b3353dac84fea9e99d80958bd3` is pushed to `origin/codex/g0-open-source-audit`; `main` was not modified.
 
 The source review covered React/TypeScript, Tauri configuration and capabilities, Rust capture and input, Go HTTP/WebSocket/session/authentication/database code, PostgreSQL migrations, Docker Compose, deployment scripts, Windows and Android packaging, and GitHub Actions. This is a repository review with automated checks. It is not a penetration test, legal opinion, full accessibility audit, or review of every generated installer and container package.
 
