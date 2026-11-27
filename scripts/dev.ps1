@@ -44,15 +44,20 @@ try {
   } else {
     $serviceUri = $null
     if (![Uri]::TryCreate($SignalingUrl, [UriKind]::Absolute, [ref]$serviceUri) -or
-        $serviceUri.Scheme -notin @("http", "https") -or $serviceUri.UserInfo -or $serviceUri.Query -or $serviceUri.Fragment) {
-      throw "SignalingUrl must be an HTTP(S) URL without credentials, a query, or a fragment."
+        $serviceUri.Scheme -notin @("http", "https") -or $serviceUri.UserInfo -or $serviceUri.Query -or
+        $serviceUri.Fragment -or $serviceUri.AbsolutePath -ne "/") {
+      throw "SignalingUrl must be an HTTP(S) service root without credentials, paths, queries, or fragments."
+    }
+    if ($Mode -eq "Desktop" -and $serviceUri.Scheme -eq "http" -and
+        (($serviceUri.Host -notin @("localhost", "127.0.0.1")) -or $serviceUri.Port -ne 8080)) {
+      throw "Desktop HTTP development signaling is limited to the local loopback server on port 8080."
     }
     $npmCommand = Get-Command npm.cmd -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (!$npmCommand) { throw "npm.cmd was not found. Install Node.js and add it to PATH." }
     $env:VITE_SIGNALING_URL = $SignalingUrl.TrimEnd("/")
     if ($Mode -eq "Desktop") {
       Write-Host "Opening the desktop client. Keep the existing signaling server running in its own terminal."
-      & $npmCommand.Source run tauri -- dev
+      & $npmCommand.Source run tauri:dev
     } else {
       Write-Host "Starting the browser preview at http://127.0.0.1:1420. Keep the existing signaling server running."
       & $npmCommand.Source run dev

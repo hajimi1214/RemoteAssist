@@ -9,6 +9,10 @@ type TauriConfig = {
   };
 };
 
+type PackageManifest = {
+  scripts?: Record<string, string>;
+};
+
 function loadTauriConfig(fileName: string): TauriConfig {
   const configURL = new URL(`../src-tauri/${fileName}`, import.meta.url);
   return JSON.parse(readFileSync(configURL, "utf8")) as TauriConfig;
@@ -43,16 +47,32 @@ test("desktop CSP confines document loads while supporting configured remote ser
   const directives = parseCsp(loadTauriConfig("tauri.conf.json"));
 
   assertDocumentAndScriptBoundaries(directives);
+  assert.deepEqual(directives.get("connect-src"), ["ipc:", "http://ipc.localhost", "https:", "wss:"]);
+  assert.deepEqual(directives.get("img-src"), ["'self'", "asset:", "http://asset.localhost", "data:", "blob:"]);
+  assert.deepEqual(directives.get("media-src"), ["'self'", "blob:"]);
+});
+
+test("desktop development overlay alone grants the local signaling origins", () => {
+  const directives = parseCsp(loadTauriConfig("tauri.dev.conf.json"));
+
+  assertDocumentAndScriptBoundaries(directives);
   assert.deepEqual(directives.get("connect-src"), [
     "ipc:",
     "http://ipc.localhost",
     "http://localhost:8080",
     "ws://localhost:8080",
+    "http://127.0.0.1:8080",
+    "ws://127.0.0.1:8080",
     "https:",
     "wss:",
   ]);
-  assert.deepEqual(directives.get("img-src"), ["'self'", "asset:", "http://asset.localhost", "data:", "blob:"]);
-  assert.deepEqual(directives.get("media-src"), ["'self'", "blob:"]);
+
+  const packageURL = new URL("../package.json", import.meta.url);
+  const packageManifest = JSON.parse(readFileSync(packageURL, "utf8")) as PackageManifest;
+  const developerScript = readFileSync(new URL("../scripts/dev.ps1", import.meta.url), "utf8");
+  assert.equal(packageManifest.scripts?.["tauri:dev"], "tauri dev --config src-tauri/tauri.dev.conf.json");
+  assert.match(developerScript, /run tauri:dev/);
+  assert.doesNotMatch(developerScript, /run tauri -- dev/);
 });
 
 test("Android CSP and generated manifest retain HTTPS-only transport", () => {
