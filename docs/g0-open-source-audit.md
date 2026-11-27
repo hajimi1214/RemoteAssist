@@ -136,7 +136,7 @@ The repository now has English and Chinese project homepages, `CONTRIBUTING.md`,
 | Coturn Debian binary copyright provenance | PARTIAL. All 20 Debian SBOM package archives matched by package, version, and architecture and passed SHA-1 verification. Copyright-file SHA-256 evidence is recorded for 17 binaries, with three GCC runtime packages traced to the verified GCC-12 source copyright file. Legacy copyright text still needs manual SPDX mapping |
 | Coturn generic CPE source mapping | PASS, five generic identifiers match packages and source versions in the final image dpkg status, with the status file bound to OCI layer `sha256:e229fde44d96d5262c5044f8570ebf19fd6f5abed30061ef3f6a36aa4a09da80`. Four map to Debian SBOM package records with SPDX expressions. The `krb5` alias maps to source-package records with legacy copyright text |
 | Docker Engine-backed signaling-image build and SBOM scan | NOT VERIFIED; this host has no Docker Engine endpoint |
-| Go Race in this follow-up | NOT VERIFIED. `go test -race ./...` cannot start with the current `CGO_ENABLED=0`; this Windows host has no C compiler configured for Go cgo |
+| Go Race in this follow-up | PASS, `go test -race -count=1 -p=1 ./...` with Go 1.26.11, `CGO_ENABLED=1`, LLVM-MinGW Clang 23.1.6, and `GOMAXPROCS=2`. All server packages passed. The compiler is stored in ignored `.local`, with no product dependency added |
 | Public deployment, second-PC installation, TURN relay, code signing, penetration test | NOT VERIFIED |
 
 The initial parallel test attempt failed because the host exhausted its page file while several Go/Rust compiler processes ran simultaneously. Serialized tests passed afterward. This is an environment resource failure, not a source test failure.
