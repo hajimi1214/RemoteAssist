@@ -106,7 +106,7 @@
 "go.uber.org/automaxprocs","v1.5.3","MIT","https://github.com/uber-go/automaxprocs/blob/v1.5.3/LICENSE"
 "go.uber.org/multierr","v1.11.0","MIT","https://github.com/uber-go/multierr/blob/v1.11.0/LICENSE.txt"
 "go.uber.org/zap","v1.27.0","MIT","https://github.com/uber-go/zap/blob/v1.27.0/LICENSE"
-"go.uber.org/zap/exp","v0.2.0","UNRESOLVED","go-licenses reports Unknown for zapslog and the module archive has no LICENSE file"
+"go.uber.org/zap/exp","v0.2.0","MIT","Copyright, MIT permission, and warranty-disclaimer notices in every non-test file in exp/zapslog at upstream commit 87e467e9b7509962236295e116116980580ef8bc; see https://github.com/uber-go/zap/blob/87e467e9b7509962236295e116116980580ef8bc/exp/zapslog/doc.go"
 "golang.org/x/crypto","v0.23.0","BSD-3-Clause","https://cs.opensource.google/go/x/crypto/+/v0.23.0:LICENSE"
 "golang.org/x/crypto/x509roots/fallback","v0.0.0-20240507223354-67b13616a595","BSD-3-Clause","https://cs.opensource.google/go/x/crypto/+/67b13616:x509roots/fallback/LICENSE"
 "golang.org/x/exp","v0.0.0-20240506185415-9bf2ced13842","BSD-3-Clause","https://cs.opensource.google/go/x/exp/+/9bf2ced1:LICENSE"

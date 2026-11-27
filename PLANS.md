@@ -5,7 +5,7 @@ RemoteAssist is being developed as an open-source remote desktop platform that p
 ## Current source
 
 - Application version: `0.15.1-alpha`
-- GitHub `main` observed on 2026-11-27: `2e4806f57ecef4bc295a6cdda2e9639a930443a8`
+- GitHub `main` rechecked on 2026-11-28: `2e4806f57ecef4bc295a6cdda2e9639a930443a8`
 - Local engineering source at G0 start: `b8329a238a25b693819aa680c6f4c23f8960b674`
 - G0 audit work is on `codex/g0-open-source-audit`
 
@@ -15,7 +15,7 @@ Complete and review each stage before starting the next one. Each stage needs a 
 
 | Stage | Scope | Current status | Gate |
 |---|---|---|---|
-| G0 | Source/security review, dependency and license inventory, feature-status matrix, technical debt, open-source release risks | READY FOR OWNER REVIEW. See [`G0 audit`](docs/g0-open-source-audit.md) | Owner confirms project copyright authority, license direction, and icon provenance |
+| G0 | Source/security review, dependency and license inventory, feature-status matrix, technical debt, open-source release risks | READY FOR OWNER REVIEW. See [`G0 audit`](docs/g0-open-source-audit.md) | Owner confirms project copyright authority, license direction, and icon provenance; configure private vulnerability reporting before a public release |
 | G1 | Trusted LAN use, safe self-hosted signaling/database/TURN deployment, server configuration and recovery, two-Windows LAN acceptance | NOT STARTED | Real two-PC LAN media/input and self-host configuration acceptance |
 | G2 | End-to-end capture, encode, network, decode, presentation and input latency measurement and optimization | NOT STARTED | Repeatable measured performance on documented physical endpoints and network conditions |
 | G3 | Additional remote-desktop capabilities such as multi-display, audio, clipboard and file transfer | NOT STARTED | Design and acceptance for each feature, with authorization/privacy controls |

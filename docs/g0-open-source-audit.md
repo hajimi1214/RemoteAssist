@@ -1,10 +1,10 @@
 # G0 Open-Source Audit
 
-Audit date: 2026-11-27
+Audit date: 2026-11-28
 
 ## Scope and source revision
 
-This audit starts from the repository's GitHub `main` tip observed on 2026-11-27, commit `2e4806f57ecef4bc295a6cdda2e9639a930443a8`. A fresh `git ls-remote` check during the follow-up still returned that same `main` tip. The local engineering branch contains that commit as an ancestor and adds local engineering and verification commits through `b8329a238a25b693819aa680c6f4c23f8960b674`. The audit work is on `codex/g0-open-source-audit`. No upstream branch was modified or pushed.
+This audit starts from the repository's GitHub `main` tip observed on 2026-11-27, commit `2e4806f57ecef4bc295a6cdda2e9639a930443a8`. Follow-up `git ls-remote` checks on 2026-11-28 still returned that same `main` tip. The local engineering branch contains that commit as an ancestor and adds local engineering and verification commits through `b8329a238a25b693819aa680c6f4c23f8960b674`. The audit work is on `codex/g0-open-source-audit`; no changes were pushed to `main`.
 
 The source review covered React/TypeScript, Tauri configuration and capabilities, Rust capture and input, Go HTTP/WebSocket/session/authentication/database code, PostgreSQL migrations, Docker Compose, deployment scripts, Windows and Android packaging, and GitHub Actions. This is a repository review with automated checks. It is not a penetration test, legal opinion, full accessibility audit, or review of every generated installer and container package.
 
@@ -75,7 +75,7 @@ The official Apache text describes both copyright and patent grants and redistri
 
 Recommendation: select Apache-2.0 after the copyright owner confirms they have authority to license all project-owned code and assets. The audit does not add a `LICENSE` file because the repository does not identify a copyright holder, and a license file would be a legal grant. The bundled PNG and ICO are each a 16×16 RGBA solid-color image, with all 256 pixels equal to `#146C94`. Git history traces them to the initial MVP commit `4c4b175` dated 2026-06-07, but that commit does not identify who selected or generated them. No third-party artwork is visible in their pixel data, but confirm ownership before publication.
 
-The CI workflow now pins each GitHub Action to an immutable commit. The pinned checkout v7.0.1, setup-node v7.1.0, and setup-go v6.2.0 action manifests were checked and declare the Node 24 runtime. This followed discovery that the previously pinned v4 actions still declared Node 20, which GitHub-hosted runners removed on 2026-09-23, as announced in the [GitHub Actions runtime notice](https://github.blog/changelog/2026-09-23-node-20-is-no-longer-available-in-github-actions/). Rust toolchain setup is also pinned to the observed `stable` branch commit. The pins are accurate as of 2026-11-27 and should be deliberately refreshed when updating CI dependencies.
+The CI workflow pins each GitHub Action to an immutable commit. The pinned checkout v7.0.1, setup-node v7.1.0, and setup-go v6.2.0 action manifests were checked and declare the Node 24 runtime. This followed discovery that the previously pinned v4 actions still declared Node 20, which GitHub-hosted runners removed on 2026-09-23, as announced in the [GitHub Actions runtime notice](https://github.blog/changelog/2026-09-23-node-20-is-no-longer-available-in-github-actions/). Rust toolchain setup is also pinned to the observed `stable` branch commit. The pins were rechecked against repository contents on 2026-11-28 and should be deliberately refreshed when updating CI dependencies.
 
 Dependency observations:
 
@@ -93,6 +93,8 @@ Not present in the audited source tree:
 - Project license and copyright notices.
 - Automated Windows artifact publishing and checksum manifest.
 - Container image digest pinning and automated SBOM refresh in CI.
+
+The Caddy binary crosswalk now classifies the imported `go.uber.org/zap/exp@v0.2.0` source using the complete copyright, MIT permission, and warranty-disclaimer notices in every non-test `exp/zapslog` package file at a pinned upstream commit. The Caddy source crosswalk now identifies 122 of 123 module records. Its remaining `command-line-arguments` identifier has no source module identity. The standalone OCI image-root record and other raw `NOASSERTION` package entries need separate upstream evidence.
 
 The repository now has English and Chinese project homepages, `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`, bug/feature Issue forms, and a PR template. The security policy explicitly states that no private vulnerability intake is configured. The English README states the no-author-operated-service model, and `PLANS.md` was replaced with the staged G0–G5 roadmap. The simple solid-color icons do not contain visible third-party artwork, but their original selection/generation history is still unverified.
 
@@ -114,12 +116,15 @@ The repository now has English and Chinese project homepages, `CONTRIBUTING.md`,
 | Markdown links in new project/participation docs | PASS, local targets resolve |
 | GitHub Issue forms | PASS, both YAML files parsed with temporary PyYAML 6.0.3 under `.local/`, and required fields/privacy statements checked. No Python project dependency was added |
 | Community documentation | PASS, local links checked in 10 public project and contribution documents |
-| Upstream container image SBOMs | PARTIAL. Five linux/amd64 image manifests were scanned by digest with Syft 1.57.2, yielding 392 package records. 169 raw SPDX entries have `NOASSERTION` license metadata. A separate Caddy Go-module review mapped 121 of its 123 Go package entries to upstream licenses, leaving two Go entries and the OCI image root unresolved. SPDX files, crosswalk, and digests are recorded in `docs/container-image-sbom/`. The Dockerfile-built signaling image and other architectures remain unverified because Docker Engine is unavailable |
+| 2026-11-28 follow-up checks | PASS, `npm test` 122/122, `npm audit` 0 vulnerabilities, `npm run build`, `npm run licenses:check` (552 entries), Go tests/Vet/module verification, `cargo fmt --check`, locked Rust check and tests (25 passed, one visible-desktop test ignored), actionlint 1.7.7, Docker Compose config, both Issue-form YAML parses, and Markdown links in the updated audit documents |
+| Upstream container image SBOMs | PARTIAL. Five linux/amd64 image manifests were scanned by digest with Syft 1.57.2, yielding 392 package records. 169 raw SPDX entries have `NOASSERTION` license metadata. The Caddy Go-module crosswalk identifies 122 of its 123 Go package entries. Its remaining build-package identifier and the OCI image root lack a resolvable source license identity. SPDX files, crosswalk, and digests are recorded in `docs/container-image-sbom/`. The Dockerfile-built signaling image and other architectures remain unverified because Docker Engine is unavailable |
 | Rust formatting | PASS, `cargo fmt --check` |
 | Rust check | PASS, `cargo check --locked -j 1` |
 | Rust tests | PASS, 25 passed, 1 ignored because it requires a visible unlocked desktop |
 | Windows LAN debug package | PASS on the preceding diagnostics commit. It is a local unsigned test installer and is not a public release |
-| Go Race in this audit run | NOT VERIFIED. Parallel build checks exhausted the Windows page file; the retry avoided the issue, but the race run was not repeated |
+| 2026-11-28 Caddy `zap/exp` source-license review | PASS for the inspected `exp/zapslog` import: both non-test Go source files contain copyright, MIT permission, and warranty-disclaimer notices at upstream commit `87e467e9b7509962236295e116116980580ef8bc` |
+| Docker Engine-backed signaling-image build and SBOM scan | NOT VERIFIED; this host has no Docker Engine endpoint |
+| Go Race in this follow-up | NOT VERIFIED. `go test -race ./...` cannot start with the current `CGO_ENABLED=0`; this Windows host has no C compiler configured for Go cgo |
 | Public deployment, second-PC installation, TURN relay, code signing, penetration test | NOT VERIFIED |
 
 The initial parallel test attempt failed because the host exhausted its page file while several Go/Rust compiler processes ran simultaneously. Serialized tests passed afterward. This is an environment resource failure, not a source test failure.
@@ -130,12 +135,12 @@ The initial parallel test attempt failed because the host exhausted its page fil
 2. **P1 — No public vulnerability reporting route.** Security issues need a documented private intake process before broad distribution.
 3. **P1 — Unverified independent installation and real remote-control flow.** Current project evidence does not establish repeatable two-PC installation, stream stability, or input reliability.
 4. **P1 — Public HTTPS/TURN infrastructure unverified.** Self-hosting scripts and docs are implemented, but operational success is unknown.
-5. **P2 — Third-party license/SBOM delivery is incomplete.** Lockfile license metadata has a reproducible inventory and CI drift check, but container package SBOMs and binary notice bundling are absent.
-6. **P2 — Container image and package licensing coverage is incomplete.** Compose image tags remain mutable, 169 raw SBOM entries have `NOASSERTION` before supplemental crosswalk review, two Caddy Go entries and the image-root record remain unresolved, and the Dockerfile-built signaling image was not scanned. Pin image digests, investigate the remaining license questions, and automate SBOM refreshes before release. GitHub Actions are pinned to verified commit SHAs.
+5. **P2 — Third-party license/SBOM delivery is incomplete.** Lockfile license metadata has a reproducible inventory and CI drift check, but package-level Linux SBOM conclusions, release-time SBOM refresh, and binary notice bundling remain incomplete.
+6. **P2 — Container image and package licensing coverage is incomplete.** Compose image tags remain mutable, 169 raw SBOM entries have `NOASSERTION` metadata, one Caddy Go binary record and the OCI image-root record have no source license identity, and the Dockerfile-built signaling image was not scanned. The zap/exp package source MIT grant and notice have been identified and recorded, but this does not fill gaps for other packages. Pin image digests, investigate remaining license questions, and automate SBOM refreshes before release. GitHub Actions are pinned to verified commit SHAs.
 7. **P2 — CI lacks Windows installer artifact/checksum production.** Current workflow checks source and native compilation but not the user-facing release artifact.
 8. **P2 — Long-term session/media performance remains unmeasured on a known two-PC setup.** The reported LAN stutter has useful client-side telemetry but no simultaneous sender/receiver capture from a known package/build.
 9. **P2 — Platform claims need a capability matrix.** Windows is the first supported desktop target. Android controller paths exist but current-source physical validation is incomplete. Linux/macOS support is not established.
 
 ## G0 disposition
 
-The source and workflow review, feature-status classification, dependency inventory, license comparison, technical debt list, and release risk list are recorded. The initial G0 report and inventory were committed as `b8fe8d79c0f83ac99eccedf412b134a4d03a0c66`. G0 is **READY FOR OWNER REVIEW**, not a declaration that the project is legally licensed or release-ready. The project license/copyright holder and icon provenance remain owner decisions. Do not begin G1 implementation until the owner accepts the G0 findings and resolves any required ownership decisions.
+The source and workflow review, feature-status classification, dependency inventory, license comparison, technical debt list, and release risk list are recorded. The initial G0 report and inventory were committed as `b8fe8d79c0f83ac99eccedf412b134a4d03a0c66`. G0 is **READY FOR OWNER REVIEW**, not a declaration that the project is legally licensed or release-ready. The project license/copyright holder, icon provenance, and security-report intake remain owner decisions. Do not begin G1 implementation until the owner accepts the G0 findings and resolves any required ownership decisions.
