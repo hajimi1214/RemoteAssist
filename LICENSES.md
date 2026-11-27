@@ -8,6 +8,8 @@ The project-level license for RemoteAssist source code has not been selected. Un
 
 The current linux/amd64 image snapshots are in [`docs/container-image-sbom/`](docs/container-image-sbom/README.md), with Caddy-module, Go-toolchain/vendored, Coturn package/CPE/copyright-text, and PostgreSQL component crosswalks that record license evidence and scope.
 
+The [`Cargo target/license scope`](docs/cargo-target-license-scope.csv) crosswalk distinguishes Windows and Android runtime dependencies from build-only crates and optional target alternatives. A copy of the Mozilla Public License 2.0 text used by the runtime crates is at [`docs/third-party-licenses/MPL-2.0.txt`](docs/third-party-licenses/MPL-2.0.txt). The copy normalizes one trailing space in the official text, and both the original and LF-normalized SHA-256 values are recorded in the crosswalk.
+
 Regenerate it with `npm run licenses:generate` after changing dependencies or build components. Run `npm run licenses:check` to verify it matches the current manifests and lockfiles. CI runs the drift check.
 
 The inventory is generated from `package-lock.json`, `cargo metadata --locked`, and `go list -m all`. SPDX license expressions come from package metadata or the upstream module license. `MIXED` container-image entries identify images whose operating-system and application packages have separate licenses. Generate an image SBOM for each release before publishing binaries or redistributable images.
