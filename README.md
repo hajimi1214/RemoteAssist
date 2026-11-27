@@ -2,7 +2,7 @@
 
 RemoteAssist does not provide or require an author-operated public signaling or TURN service. Use it with a signaling service you operate, a trusted LAN test service, or a community service you have explicitly chosen. The desktop release does not silently select a third-party public server. See the [self-hosted deployment guide](docs/public-server-deployment.md) and [LAN test runbook](docs/lan-two-pc-runbook.md).
 
-Read the [Chinese project overview](README.zh-CN.md) or the [contribution guide](CONTRIBUTING.md).
+Read the [Chinese project overview](README.zh-CN.md), [contribution guide](CONTRIBUTING.md), [support notes](SUPPORT.md), or [security policy](SECURITY.md).
 
 Version 0.15.1 adds a five-section settings center with search, precise mouse sensitivity input, confirmed preference reset and visible save outcomes. Local storage failures retain usable in-memory preferences for the current run. See the [settings UX design and validation notes](docs/settings-ux-0.15.md).
 

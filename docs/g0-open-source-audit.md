@@ -56,7 +56,7 @@ Open security and release risks:
 2. LAN test packages intentionally use private-address HTTP and cleartext credentials. They are compile-time isolated from the normal release package and must remain visibly test-only.
 3. Deployment secrets remain operator-managed. Actual TLS, firewall, database, TURN, and backup/restore operation has not been verified against public infrastructure.
 4. Local browser/client history is not an authoritative server audit record. Do not market it as one.
-5. The repository has no `SECURITY.md` describing a vulnerability reporting channel. Do not invent a private contact address. Add the policy before public launch once the owner selects the reporting mechanism.
+5. `SECURITY.md` now documents that no private vulnerability-reporting channel is configured. The owner must enable GitHub private vulnerability reporting or publish a monitored private contact method before public launch.
 
 No P0/P1 finding was established in this source review. This statement is limited to the reviewed code and tests. It is not a claim that the product has passed penetration testing.
 
@@ -91,14 +91,10 @@ Dependency observations:
 Not present in the audited source tree:
 
 - Project license and copyright notices.
-- `SECURITY.md`.
-- `CODE_OF_CONDUCT.md`.
-- `SUPPORT.md`.
-- `CHANGELOG.md`.
 - Automated Windows artifact publishing and checksum manifest.
 - Container image digest pinning and automated SBOM refresh in CI.
 
-The existing `README.md`, `LICENSES.md`, deployment documentation, threat model, verification matrix, and CI are useful foundations. During this audit, English and Chinese project homepages, `CONTRIBUTING.md`, bug/feature Issue forms, and a PR template were added. The English README states the no-author-operated-service model, and `PLANS.md` was replaced with the staged G0–G5 roadmap. The simple solid-color icons do not contain visible third-party artwork, but their original selection/generation history is still unverified.
+The repository now has English and Chinese project homepages, `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`, bug/feature Issue forms, and a PR template. The security policy explicitly states that no private vulnerability intake is configured. The English README states the no-author-operated-service model, and `PLANS.md` was replaced with the staged G0–G5 roadmap. The simple solid-color icons do not contain visible third-party artwork, but their original selection/generation history is still unverified.
 
 ## Validation performed for this audit
 
