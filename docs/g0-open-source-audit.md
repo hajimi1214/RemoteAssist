@@ -73,7 +73,7 @@ Two permissive options were evaluated:
 
 The official Apache text describes both copyright and patent grants and redistribution notice conditions. The Open Source Initiative's MIT text requires retaining its copyright and permission notice. See the [Apache License 2.0 text](https://www.apache.org/licenses/LICENSE-2.0.txt) and [MIT License text](https://opensource.org/license/mit).
 
-Recommendation: select Apache-2.0 after the copyright owner confirms they have authority to license all project-owned code and assets. The audit does not add a `LICENSE` file because the repository does not identify a copyright holder, and a license file would be a legal grant. The bundled PNG and ICO are both 16×16 RGBA icons. Git history traces their presence to the initial MVP commit `4c4b175` dated 2026-06-07, but that commit does not identify their source, authoring tool, or license. Repository presence and commit authorship alone do not establish copyright provenance. Confirm these ownership questions before publication.
+Recommendation: select Apache-2.0 after the copyright owner confirms they have authority to license all project-owned code and assets. The audit does not add a `LICENSE` file because the repository does not identify a copyright holder, and a license file would be a legal grant. The bundled PNG and ICO are each a 16×16 RGBA solid-color image, with all 256 pixels equal to `#146C94`. Git history traces them to the initial MVP commit `4c4b175` dated 2026-06-07, but that commit does not identify who selected or generated them. No third-party artwork is visible in their pixel data, but confirm ownership before publication.
 
 Dependency observations:
 
@@ -100,7 +100,7 @@ Not present in the audited source tree:
 - Automated Windows artifact publishing and checksum manifest.
 - Container image digest pinning and image SBOM generation.
 
-The existing `README.md`, `LICENSES.md`, deployment documentation, threat model, verification matrix, and CI are useful foundations. During this audit, `README.md` was updated to state the user-directed no-author-operated-service model, and `PLANS.md` was replaced with the staged G0–G5 roadmap. The icon files have existed in repository history since the initial MVP commit, but their original provenance is still unverified.
+The existing `README.md`, `LICENSES.md`, deployment documentation, threat model, verification matrix, and CI are useful foundations. During this audit, `README.md` was updated to state the user-directed no-author-operated-service model, and `PLANS.md` was replaced with the staged G0–G5 roadmap. The simple solid-color icons do not contain visible third-party artwork, but their original selection/generation history is still unverified.
 
 ## Validation performed for this audit
 
