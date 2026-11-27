@@ -1,5 +1,16 @@
 # Status
 
+## G0 — open-source and source audit, awaiting owner review
+
+- Rechecked GitHub `main` on 2026-11-27. It remained `2e4806f57ecef4bc295a6cdda2e9639a930443a8`. G0 work is on the separate local branch `codex/g0-open-source-audit`; nothing was pushed.
+- Added [`G0 audit`](docs/g0-open-source-audit.md), updated [`PLANS.md`](PLANS.md) to the G0–G5 stages, clarified the no-author-operated-service model in `README.md`, and updated the [`verification matrix`](docs/verification-matrix.md).
+- Added [`third-party component inventory`](docs/third-party-components.csv) and reproducible `npm run licenses:generate` / `npm run licenses:check` commands. CI now checks inventory drift. The current inventory has 552 components across npm, Cargo, Go, container images, GitHub Actions, Gradle, and WebView2.
+- Pinned all GitHub Actions to immutable commit SHAs. The checkout v7.0.1, setup-node v7.1.0 and setup-go v6.2.0 manifests declare Node 24, replacing the previous Node 20 actions. `actionlint` 1.7.7 passes. Remote GitHub Actions execution remains NOT VERIFIED.
+- Generated five SPDX 2.3 Linux/amd64 upstream image SBOMs by platform digest using checksum-verified Syft 1.57.2. The snapshots contain 392 package records, 169 of which have `NOASSERTION` license metadata. See [`container image SBOM notes`](docs/container-image-sbom/README.md) and its per-image summaries.
+- NOT VERIFIED: the Dockerfile-built signaling image after `apk add ca-certificates wget`, non-amd64 images, and upstream packages without license metadata. Docker Engine is not available on this host.
+- PASS: npm audit reports 0 vulnerabilities; frontend tests 122/122 and frontend build; serialized Go tests and Vet plus `go mod verify`; Rust format/check and 25 tests passed with one visible-desktop smoke ignored; Compose config; component inventory generation/check; workflow lint.
+- G0 is READY FOR OWNER REVIEW, not accepted. The project-level license remains unselected, and the repository does not identify who selected/generated the solid-color application icons. No `LICENSE` grant was created. G1 has not started.
+
 ## M42 — two-sided live diagnostics
 
 - The two-PC report shows a local P2P/UDP route with 1–2 ms RTT and 0% packet loss. Receive decode time is about 4.4–4.5 ms and average jitter-buffer delay about 20.7–20.8 ms. These samples do not point to network RTT or decoder cost as the primary source of the reported page-switch stutter.
