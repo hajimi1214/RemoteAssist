@@ -112,7 +112,7 @@ The repository now has English and Chinese project homepages, `CONTRIBUTING.md`,
 | GitHub Actions references | PASS, all workflow `uses:` entries pin verified commit SHAs. Checkout, setup-node and setup-go use action manifests declaring Node 24. Remote workflow execution remains unverified |
 | GitHub Actions workflow lint | PASS, actionlint 1.7.7 |
 | Markdown links in new project/participation docs | PASS, local targets resolve |
-| GitHub Issue forms | PASS, required fields and privacy statements validated by local structure checks |
+| GitHub Issue forms | PASS, both YAML files parsed with temporary PyYAML 6.0.3 under `.local/`, and required fields/privacy statements checked. No Python project dependency was added |
 | Community documentation | PASS, local links checked in 10 public project and contribution documents |
 | Upstream container image SBOMs | PARTIAL. Five linux/amd64 image manifests were scanned by digest with Syft 1.57.2, yielding 392 package records. 169 raw SPDX entries have `NOASSERTION` license metadata. A separate Caddy Go-module review mapped 121 of its 123 Go package entries to upstream licenses, leaving two Go entries and the OCI image root unresolved. SPDX files, crosswalk, and digests are recorded in `docs/container-image-sbom/`. The Dockerfile-built signaling image and other architectures remain unverified because Docker Engine is unavailable |
 | Rust formatting | PASS, `cargo fmt --check` |
