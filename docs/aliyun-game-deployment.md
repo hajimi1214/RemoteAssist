@@ -30,8 +30,8 @@ ECS 负责登录、设备在线状态和连接协商。游戏继续在被控 Win
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml config --quiet
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --wait postgres
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml build signaling
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --entrypoint /signaling-migrate signaling
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --no-deps --entrypoint /signaling-migrate signaling
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --no-build
 ```
 
 两端填写同一个 HTTPS 信令地址并登录。检查自己的 HTTPS `/healthz`、容器状态和两端登录。HTTP 健康检查通过不能证明 TURN 可分配端口、可传输。修改已有部署前，先按项目说明备份数据库并安排维护窗口；重建 Coturn 或信令容器会中断活动会话。

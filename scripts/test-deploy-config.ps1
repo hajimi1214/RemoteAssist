@@ -46,13 +46,32 @@ try {
   }
   Write-Host "PASS valid synthetic deployment configuration"
 
+  $recoveryFixture = @($fixture | ForEach-Object {
+    if ($_ -like "POSTGRES_DB=*") { "POSTGRES_DB=remoteassist_restore" }
+    elseif ($_ -like "DATABASE_URL=*") { "DATABASE_URL=postgres://remoteassist:$($postgresPassword.Replace('-', '%2D'))@postgres:5432/remoteassist_restore?sslmode=disable" }
+    else { $_ }
+  })
+  [System.IO.File]::WriteAllLines($envFile, $recoveryFixture, [System.Text.UTF8Encoding]::new($false))
+  & (Join-Path $PSScriptRoot "verify-deploy-config.ps1") -EnvFile $envFile
+  if ($LASTEXITCODE -ne 0) { throw "Separate empty recovery database configuration failed (exit $LASTEXITCODE)." }
+  Write-Host "PASS separate recovery database configuration"
+
+  [System.IO.File]::WriteAllLines($envFile, $fixture, [System.Text.UTF8Encoding]::new($false))
   foreach ($case in @(
-    @{ Name = "external database host"; Line = "DATABASE_URL=postgres://remoteassist:$($postgresPassword.Replace('-', '%2D'))@external-postgres:5432/remoteassist?sslmode=disable"; Message = "DATABASE_URL must target the Compose PostgreSQL service" },
-    @{ Name = "database name mismatch"; Line = "DATABASE_URL=postgres://remoteassist:$($postgresPassword.Replace('-', '%2D'))@postgres:5432/other?sslmode=disable"; Message = "DATABASE_URL database must match POSTGRES_DB" },
-    @{ Name = "database role mismatch"; Line = "DATABASE_URL=postgres://other:$($postgresPassword.Replace('-', '%2D'))@postgres:5432/remoteassist?sslmode=disable"; Message = "DATABASE_URL user must match POSTGRES_USER" },
-    @{ Name = "database password mismatch"; Line = "DATABASE_URL=postgres://remoteassist:wrong%2Dpassword@postgres:5432/remoteassist?sslmode=disable"; Message = "DATABASE_URL credentials must match POSTGRES_USER and POSTGRES_PASSWORD" }
+    @{ Name = "PUBLIC_BASE_URL host mismatch"; Key = "PUBLIC_BASE_URL"; Line = "PUBLIC_BASE_URL=https://different-domain.invalid"; Message = "PUBLIC_BASE_URL host must match PUBLIC_DOMAIN" },
+    @{ Name = "localhost production domain"; Key = "PUBLIC_DOMAIN"; Line = "PUBLIC_DOMAIN=localhost"; Message = "PUBLIC_BASE_URL host must match PUBLIC_DOMAIN" },
+    @{ Name = "malformed application origin"; Key = "APP_ORIGINS"; Line = "APP_ORIGINS=https://lan-config-test.invalid/private/path"; Message = "APP_ORIGINS contains a malformed or unsupported application origin" },
+    @{ Name = "wildcard application origin"; Key = "APP_ORIGINS"; Line = "APP_ORIGINS=*"; Message = "APP_ORIGINS must use exact origins" },
+    @{ Name = "invalid trusted proxy CIDR"; Key = "TRUSTED_PROXY_CIDRS"; Line = "TRUSTED_PROXY_CIDRS=172.16.0.0"; Message = "TRUSTED_PROXY_CIDRS contains an invalid or unrestricted CIDR range" },
+    @{ Name = "unrestricted trusted proxy CIDR"; Key = "TRUSTED_PROXY_CIDRS"; Line = "TRUSTED_PROXY_CIDRS=0.0.0.0/0"; Message = "TRUSTED_PROXY_CIDRS contains an invalid or unrestricted CIDR range" },
+    @{ Name = "external database host"; Key = "DATABASE_URL"; Line = "DATABASE_URL=postgres://remoteassist:$($postgresPassword.Replace('-', '%2D'))@external-postgres:5432/remoteassist?sslmode=disable"; Message = "DATABASE_URL must target the Compose PostgreSQL service" },
+    @{ Name = "database name omitted"; Key = "DATABASE_URL"; Line = "DATABASE_URL=postgres://remoteassist:$($postgresPassword.Replace('-', '%2D'))@postgres:5432/?sslmode=disable"; Message = "DATABASE_URL must name a nonempty PostgreSQL database" },
+    @{ Name = "connection-string-shaped database name"; Key = "DATABASE_URL"; Line = "DATABASE_URL=postgres://remoteassist:$($postgresPassword.Replace('-', '%2D'))@postgres:5432/host%3Devil?sslmode=disable"; Message = "DATABASE_URL and POSTGRES_DB must not name a libpq connection string" },
+    @{ Name = "database role mismatch"; Key = "DATABASE_URL"; Line = "DATABASE_URL=postgres://other:$($postgresPassword.Replace('-', '%2D'))@postgres:5432/remoteassist?sslmode=disable"; Message = "DATABASE_URL user must match POSTGRES_USER" },
+    @{ Name = "database password mismatch"; Key = "DATABASE_URL"; Line = "DATABASE_URL=postgres://remoteassist:wrong%2Dpassword@postgres:5432/remoteassist?sslmode=disable"; Message = "DATABASE_URL credentials must match POSTGRES_USER and POSTGRES_PASSWORD" }
   )) {
-    $invalidFixture = @($fixture | Where-Object { $_ -notmatch '^DATABASE_URL=' }) + $case.Line
+    $settingPattern = "^{0}=" -f [regex]::Escape($case.Key)
+    $invalidFixture = @($fixture | Where-Object { $_ -notmatch $settingPattern }) + $case.Line
     [System.IO.File]::WriteAllLines($envFile, $invalidFixture, [System.Text.UTF8Encoding]::new($false))
     $rejected = $false
     try {
@@ -79,10 +98,72 @@ try {
     try {
       & (Join-Path $PSScriptRoot "verify-deploy-config.ps1") -EnvFile $envFile
     } catch {
-      $overrideRejected = $_.Exception.Message -like "*Effective DATABASE_URL differs from the deployment env file*"
+      $overrideRejected = $_.Exception.Message -like "*Effective signaling setting 'DATABASE_URL' differs from the deployment env file*"
     }
     if (!$overrideRejected) { throw "The verifier did not reject a process-level DATABASE_URL override." }
     Write-Host "PASS process-level DATABASE_URL overrides are rejected"
+
+    $configuredDatabaseLine = $fixture | Where-Object { $_ -like "DATABASE_URL=*" } | Select-Object -Last 1
+    [Environment]::SetEnvironmentVariable("DATABASE_URL", $configuredDatabaseLine.Substring("DATABASE_URL".Length + 1), "Process")
+
+    $env:POSTGRES_PASSWORD = "different-process-only-test-password"
+    $postgresOverrideRejected = $false
+    try {
+      & (Join-Path $PSScriptRoot "verify-deploy-config.ps1") -EnvFile $envFile
+    } catch {
+      $postgresOverrideRejected = $_.Exception.Message -like "*Effective PostgreSQL initialization settings differ from the deployment env file*"
+    }
+    if (!$postgresOverrideRejected) { throw "The verifier did not reject a rendered POSTGRES_PASSWORD override." }
+    Write-Host "PASS process-level PostgreSQL initialization overrides are rejected"
+
+    $postgresPasswordLine = $fixture | Where-Object { $_ -like "POSTGRES_PASSWORD=*" } | Select-Object -Last 1
+    [Environment]::SetEnvironmentVariable("POSTGRES_PASSWORD", $postgresPasswordLine.Substring("POSTGRES_PASSWORD".Length + 1), "Process")
+
+    $env:PUBLIC_BASE_URL = "https://another-domain.invalid"
+    $serviceUrlOverrideRejected = $false
+    try {
+      & (Join-Path $PSScriptRoot "verify-deploy-config.ps1") -EnvFile $envFile
+    } catch {
+      $serviceUrlOverrideRejected = $_.Exception.Message -like "*Effective signaling setting 'PUBLIC_BASE_URL' differs from the deployment env file*"
+    }
+    if (!$serviceUrlOverrideRejected) { throw "The verifier did not reject a rendered PUBLIC_BASE_URL override." }
+    Write-Host "PASS process-level public HTTPS URL overrides are rejected"
+
+    $publicBaseUrlLine = $fixture | Where-Object { $_ -like "PUBLIC_BASE_URL=*" } | Select-Object -Last 1
+    [Environment]::SetEnvironmentVariable("PUBLIC_BASE_URL", $publicBaseUrlLine.Substring("PUBLIC_BASE_URL".Length + 1), "Process")
+
+    $env:PUBLIC_DOMAIN = "override.invalid"
+    $domainOverrideRejected = $false
+    try {
+      & (Join-Path $PSScriptRoot "verify-deploy-config.ps1") -EnvFile $envFile
+    } catch {
+      $domainOverrideRejected = $_.Exception.Message -like "*Effective Caddy HTTPS domain differs from the deployment env file*"
+    }
+    if (!$domainOverrideRejected) { throw "The verifier did not reject a rendered PUBLIC_DOMAIN override." }
+    Write-Host "PASS process-level Caddy/public HTTPS host overrides are rejected"
+
+    $env:APP_ORIGINS = "*"
+    $appOriginsOverrideRejected = $false
+    try {
+      & (Join-Path $PSScriptRoot "verify-deploy-config.ps1") -EnvFile $envFile
+    } catch {
+      $appOriginsOverrideRejected = $_.Exception.Message -like "*Effective signaling setting 'APP_ORIGINS' differs from the deployment env file*"
+    }
+    if (!$appOriginsOverrideRejected) { throw "The verifier did not reject a rendered wildcard APP_ORIGINS override." }
+    Write-Host "PASS process-level app origin overrides are rejected"
+
+    $appOriginsLine = $fixture | Where-Object { $_ -like "APP_ORIGINS=*" } | Select-Object -Last 1
+    [Environment]::SetEnvironmentVariable("APP_ORIGINS", $appOriginsLine.Substring("APP_ORIGINS".Length + 1), "Process")
+
+    $env:TRUSTED_PROXY_CIDRS = "0.0.0.0/0"
+    $proxyOverrideRejected = $false
+    try {
+      & (Join-Path $PSScriptRoot "verify-deploy-config.ps1") -EnvFile $envFile
+    } catch {
+      $proxyOverrideRejected = $_.Exception.Message -like "*Effective signaling setting 'TRUSTED_PROXY_CIDRS' differs from the deployment env file*"
+    }
+    if (!$proxyOverrideRejected) { throw "The verifier did not reject a broad TRUSTED_PROXY_CIDRS override." }
+    Write-Host "PASS process-level trusted proxy overrides are rejected"
   } finally {
     foreach ($name in $composeVariableNames) {
       [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], "Process")

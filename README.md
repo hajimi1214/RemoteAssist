@@ -76,8 +76,10 @@ The seed bootstrap is accepted only for a numeric loopback listener with in-memo
 Copy-Item deploy/.env.example deploy/.env
 notepad deploy/.env
 ./scripts/verify-deploy-config.ps1
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --entrypoint /signaling-migrate signaling
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --wait postgres
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml build signaling
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --no-deps --entrypoint /signaling-migrate signaling
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --no-build
 ```
 
 Do not hardcode TURN credentials in source. Put deployment secrets only in `deploy/.env` or equivalent server environment variables.

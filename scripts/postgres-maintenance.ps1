@@ -21,7 +21,6 @@ function Get-ComposePostgresTarget([string]$EnvFile) {
 
   $databaseName = [Uri]::UnescapeDataString($databaseUri.AbsolutePath.TrimStart('/'))
   $postgresDatabase = [string]$settings["POSTGRES_DB"]
-  if ($databaseName -cne $postgresDatabase) { throw "DATABASE_URL database must match POSTGRES_DB." }
   $userInfoParts = $databaseUri.UserInfo.Split(':', 2)
   if ($userInfoParts.Count -ne 2 -or [Uri]::UnescapeDataString($userInfoParts[1]) -cne [string]$settings["POSTGRES_PASSWORD"]) {
     throw "DATABASE_URL credentials must match POSTGRES_USER and POSTGRES_PASSWORD."
@@ -30,13 +29,17 @@ function Get-ComposePostgresTarget([string]$EnvFile) {
   $postgresUser = [string]$settings["POSTGRES_USER"]
   if ($databaseUser -cne $postgresUser) { throw "DATABASE_URL user must match POSTGRES_USER." }
 
-  foreach ($identifier in @($databaseName, $databaseUser)) {
+  foreach ($identifier in @($databaseName, $databaseUser, $postgresDatabase)) {
     if ([string]::IsNullOrWhiteSpace($identifier) -or [System.Text.Encoding]::UTF8.GetByteCount($identifier) -gt 63 -or $identifier -match '[\x00-\x1F\x7F]') {
       throw "PostgreSQL user and database names must be nonempty identifiers of at most 63 UTF-8 bytes."
     }
   }
+  if ($databaseName.Contains('=') -or $postgresDatabase.Contains('=') -or
+      $databaseName -match '^(postgres|postgresql)://' -or $postgresDatabase -match '^(postgres|postgresql)://') {
+    throw "PostgreSQL database names must not be libpq connection strings."
+  }
 
-  return [pscustomobject]@{ DatabaseName = $databaseName; UserName = $databaseUser }
+  return [pscustomobject]@{ DatabaseName = $databaseName; UserName = $databaseUser; PostgresDatabase = $postgresDatabase }
 }
 
 function Test-PlainPostgreSqlDumpHeader([string]$Path) {

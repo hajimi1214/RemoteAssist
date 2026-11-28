@@ -42,8 +42,20 @@ if ($values["JWT_SECRET"] -eq $values["REFRESH_TOKEN_SECRET"] -or
     $values["REFRESH_TOKEN_SECRET"] -eq $values["TURN_SECRET"]) {
   throw "JWT_SECRET, REFRESH_TOKEN_SECRET, and TURN_SECRET must be distinct."
 }
-if ([string]$values["PUBLIC_BASE_URL"] -notmatch '^https://') {
-  throw "PUBLIC_BASE_URL must use https://"
+$publicUri = $null
+if (![Uri]::TryCreate([string]$values["PUBLIC_BASE_URL"], [UriKind]::Absolute, [ref]$publicUri) -or
+    $publicUri.Scheme -cne "https" -or $publicUri.UserInfo -or $publicUri.Query -or $publicUri.Fragment -or
+    ($publicUri.AbsolutePath -ne "/" -and $publicUri.AbsolutePath -ne "")) {
+  throw "PUBLIC_BASE_URL must be a credential-free HTTPS service root."
+}
+$domain = ([string]$values["PUBLIC_DOMAIN"]).Trim().TrimEnd('.').ToLowerInvariant()
+$publicHost = $publicUri.DnsSafeHost.TrimEnd('.').ToLowerInvariant()
+$domainAddress = $null
+$domainIsIp = [Net.IPAddress]::TryParse($domain, [ref]$domainAddress)
+if ([Uri]::CheckHostName($domain) -ne [UriHostNameType]::Dns -or $domain -eq "localhost" -or $domain.EndsWith(".localhost") -or
+    $domainIsIp -or
+    $publicHost -cne $domain -or ($publicUri.Port -ne -1 -and $publicUri.Port -ne 443)) {
+  throw "PUBLIC_BASE_URL host must match PUBLIC_DOMAIN and use the default HTTPS port."
 }
 $databaseUri = $null
 if (![Uri]::TryCreate([string]$values["DATABASE_URL"], [UriKind]::Absolute, [ref]$databaseUri) -or $databaseUri.Scheme -notin @("postgres", "postgresql")) {
@@ -58,13 +70,44 @@ if ($databaseCredentials.Count -ne 2 -or [Uri]::UnescapeDataString($databaseCred
   throw "DATABASE_URL credentials must match POSTGRES_USER and POSTGRES_PASSWORD."
 }
 $databaseUser = [Uri]::UnescapeDataString($databaseCredentials[0])
-if ($databaseName -cne [string]$values["POSTGRES_DB"]) { throw "DATABASE_URL database must match POSTGRES_DB." }
 if ($databaseUser -cne [string]$values["POSTGRES_USER"]) { throw "DATABASE_URL user must match POSTGRES_USER." }
+if ([string]::IsNullOrWhiteSpace($databaseName) -or [System.Text.Encoding]::UTF8.GetByteCount($databaseName) -gt 63 -or $databaseName -match '[\x00-\x1F\x7F]') {
+  throw "DATABASE_URL must name a nonempty PostgreSQL database of at most 63 UTF-8 bytes."
+}
+$postgresDatabase = [string]$values["POSTGRES_DB"]
+if ($databaseName.Contains('=') -or $postgresDatabase.Contains('=') -or
+    $databaseName -match '^(postgres|postgresql)://' -or $postgresDatabase -match '^(postgres|postgresql)://') {
+  throw "DATABASE_URL and POSTGRES_DB must not name a libpq connection string."
+}
 if (!(([string]$values["TURN_URLS"] -split ',' | ForEach-Object { $_.Trim() }) -match '^turn:[A-Za-z0-9.-]+:3478(?:\?transport=udp)?$')) {
   throw "TURN_URLS must advertise a UDP listener at port 3478 (turn:hostname:3478?transport=udp)."
 }
 if ([string]$values["APP_ORIGINS"] -match '\*') {
   throw "APP_ORIGINS must use exact origins; wildcards are not allowed."
+}
+$appOrigins = @((([string]$values["APP_ORIGINS"]) -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }))
+if ($appOrigins.Count -eq 0) { throw "APP_ORIGINS must contain at least one exact application origin." }
+foreach ($origin in $appOrigins) {
+  $originUri = $null
+  if (![Uri]::TryCreate($origin, [UriKind]::Absolute, [ref]$originUri) -or $originUri.Scheme -notin @("http", "https", "tauri") -or
+      [string]::IsNullOrWhiteSpace($originUri.Host) -or $originUri.UserInfo -or $originUri.Query -or $originUri.Fragment -or
+      ($originUri.AbsolutePath -ne "/" -and $originUri.AbsolutePath -ne "")) {
+    throw "APP_ORIGINS contains a malformed or unsupported application origin."
+  }
+}
+$trustedProxyValue = [string]$values["TRUSTED_PROXY_CIDRS"]
+if ([string]::IsNullOrWhiteSpace($trustedProxyValue)) { $trustedProxyValue = "172.16.0.0/12" }
+$trustedProxyCidrs = @(($trustedProxyValue -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }))
+if ($trustedProxyCidrs.Count -eq 0) { throw "TRUSTED_PROXY_CIDRS must identify at least one exact proxy CIDR." }
+foreach ($cidr in $trustedProxyCidrs) {
+  $parts = $cidr.Split('/', 2)
+  $address = $null
+  $prefixLength = 0
+  if ($parts.Count -ne 2 -or ![Net.IPAddress]::TryParse($parts[0], [ref]$address) -or
+      ![int]::TryParse($parts[1], [ref]$prefixLength) -or
+      $prefixLength -lt 1 -or $prefixLength -gt ($address.GetAddressBytes().Length * 8)) {
+    throw "TRUSTED_PROXY_CIDRS contains an invalid or unrestricted CIDR range."
+  }
 }
 
 function Get-Setting($Name, $Default) {
@@ -135,12 +178,39 @@ $expectedArgs = @(
 foreach ($arg in $expectedArgs) {
   if ($arg -cnotin $turn.command) { throw "Coturn arguments do not match the verified deployment settings. Check Compose overrides." }
 }
-if ($compose.services.signaling.environment.DATABASE_URL -cne $values["DATABASE_URL"]) {
-  throw "Effective DATABASE_URL differs from the deployment env file. Check Compose overrides."
+if ([string]$compose.services.postgres.environment.POSTGRES_DB -cne [string]$values["POSTGRES_DB"] -or
+    [string]$compose.services.postgres.environment.POSTGRES_USER -cne [string]$values["POSTGRES_USER"] -or
+    [string]$compose.services.postgres.environment.POSTGRES_PASSWORD -cne [string]$values["POSTGRES_PASSWORD"]) {
+  throw "Effective PostgreSQL initialization settings differ from the deployment env file. Check Compose overrides."
 }
-if ($turn.networks.turn.ipv4_address -ne $relay -or $compose.networks.turn.ipam.config[0].subnet -ne $subnet -or
-    $compose.services.signaling.environment.TURN_URLS -cne $values["TURN_URLS"] -or
-    $compose.services.signaling.environment.TURN_SECRET -cne $values["TURN_SECRET"]) {
+$expectedSignalingSettings = @{
+  "DATABASE_URL" = [string]$values["DATABASE_URL"]
+  "JWT_SECRET" = [string]$values["JWT_SECRET"]
+  "REFRESH_TOKEN_SECRET" = [string]$values["REFRESH_TOKEN_SECRET"]
+  "PUBLIC_BASE_URL" = [string]$values["PUBLIC_BASE_URL"]
+  "TRUSTED_PROXY_CIDRS" = [string](Get-Setting "TRUSTED_PROXY_CIDRS" "172.16.0.0/12")
+  "APP_ORIGINS" = [string](Get-Setting "APP_ORIGINS" "http://tauri.localhost,https://tauri.localhost,tauri://localhost")
+  "TURN_URLS" = [string]$values["TURN_URLS"]
+  "TURN_SECRET" = [string]$values["TURN_SECRET"]
+  "TURN_CREDENTIAL_TTL" = [string](Get-Setting "TURN_CREDENTIAL_TTL" "10m")
+  "SESSION_CODE_TTL" = [string](Get-Setting "SESSION_CODE_TTL" "5m")
+  "SESSION_ACTIVE_TTL" = [string](Get-Setting "SESSION_ACTIVE_TTL" "8h")
+  "WS_MAX_MESSAGE_BYTES" = [string](Get-Setting "WS_MAX_MESSAGE_BYTES" "65536")
+  "RATE_LIMIT_PER_MINUTE" = [string](Get-Setting "RATE_LIMIT_PER_MINUTE" "120")
+  "LOGIN_FAIL_LIMIT_PER_MINUTE" = [string](Get-Setting "LOGIN_FAIL_LIMIT_PER_MINUTE" "10")
+  "LOG_LEVEL" = [string](Get-Setting "LOG_LEVEL" "info")
+}
+foreach ($name in $expectedSignalingSettings.Keys) {
+  $property = $compose.services.signaling.environment.PSObject.Properties[$name]
+  $actual = if ($property) { [string]$property.Value } else { "" }
+  if ($actual -cne $expectedSignalingSettings[$name]) {
+    throw "Effective signaling setting '$name' differs from the deployment env file. Check Compose overrides."
+  }
+}
+if ([string]$compose.services.caddy.environment.PUBLIC_DOMAIN -cne [string]$values["PUBLIC_DOMAIN"]) {
+  throw "Effective Caddy HTTPS domain differs from the deployment env file. Check Compose overrides."
+}
+if ($turn.networks.turn.ipv4_address -ne $relay -or $compose.networks.turn.ipam.config[0].subnet -ne $subnet) {
   throw "Effective TURN settings differ from the env file. Check Compose overrides."
 }
 $udpPorts = @{}

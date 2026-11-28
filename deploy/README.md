@@ -10,8 +10,8 @@ notepad deploy/.env
 ./scripts/verify-deploy-config.ps1
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --wait postgres
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml build signaling
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --entrypoint /signaling-migrate signaling
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --no-deps --entrypoint /signaling-migrate signaling
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --no-build
 ```
 
 ## Stop

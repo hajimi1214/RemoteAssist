@@ -57,8 +57,10 @@ npm run build
 ```powershell
 Copy-Item deploy/.env.example deploy/.env
 .\scripts\verify-deploy-config.ps1
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --entrypoint /signaling-migrate signaling
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --wait postgres
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml build signaling
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --no-deps --entrypoint /signaling-migrate signaling
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --no-build
 ```
 
 完整端口、TLS、数据库备份/恢复、升级和回滚步骤见[部署指南](docs/public-server-deployment.md)。实时公网 TLS、P2P 和 TURN 运行尚未被本项目验证。

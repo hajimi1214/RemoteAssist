@@ -2,7 +2,7 @@ param(
   [string]$Output = "remoteassist-backup.sql"
 )
 
-$sharedHelpers = Join-Path $PSScriptRoot "postgres-dump.ps1"
+$sharedHelpers = Join-Path $PSScriptRoot "postgres-maintenance.ps1"
 . $sharedHelpers
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
@@ -15,6 +15,9 @@ if (!(Test-Path -LiteralPath $envFile -PathType Leaf)) { throw "Deployment env f
 if (!$docker) { throw "Docker CLI was not found." }
 
 $databaseTarget = Get-ComposePostgresTarget $envFile
+if ($databaseTarget.DatabaseName -cne $databaseTarget.PostgresDatabase) {
+  throw "Backup only targets the configured POSTGRES_DB. DATABASE_URL points elsewhere."
+}
 
 $outputPath = [System.IO.Path]::GetFullPath($Output)
 $outputDirectory = Split-Path -Parent $outputPath
@@ -28,7 +31,7 @@ if (Test-Path -LiteralPath $temporaryPath) { throw "Temporary backup path alread
 $arguments = @(
   "compose", "--env-file", $envFile, "-f", $composeFile,
   "exec", "-T", "-e", "BACKUP_DATABASE=$($databaseTarget.DatabaseName)", "-e", "BACKUP_USERNAME=$($databaseTarget.UserName)", "postgres", "sh", "-c",
-  'exec pg_dump --no-password --username="$BACKUP_USERNAME" "$BACKUP_DATABASE"'
+  'export PGPASSWORD="$POSTGRES_PASSWORD"; export PGDATABASE="$BACKUP_DATABASE"; exec pg_dump --no-password --username="$BACKUP_USERNAME"'
 )
 
 try {

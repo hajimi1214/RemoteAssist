@@ -43,13 +43,12 @@ $LanCertDir = ".\.local\lan-certs\$LanHostAddress"
 & .\.local\lan-cert-venv\Scripts\python.exe .\scripts\new-lan-test-cert.py $LanHostAddress --out $LanCertDir --days 2
 ```
 
-Install only the generated public CA certificate in each test user's CurrentUser trusted roots. Verify the DER certificate's SHA-256 against the manifest and note the Windows thumbprint:
+Install only the generated public CA certificate in each test user's CurrentUser trusted roots. Open `certmgr.msc`, select **Trusted Root Certification Authorities → Certificates**, choose **All Tasks → Import**, and select `ca.cert.cer`. Verify the DER certificate's SHA-256 against the manifest and note the Windows thumbprint:
 
 ```powershell
 $LanCertificate = Get-Content -LiteralPath "$LanCertDir\manifest.json" -Raw | ConvertFrom-Json
 $LanCaThumbprint = $LanCertificate.caThumbprintSha1
 if ((Get-FileHash -LiteralPath "$LanCertDir\ca.cert.cer" -Algorithm SHA256).Hash.ToLowerInvariant() -ne $LanCertificate.caSha256) { throw "LAN CA fingerprint does not match the manifest." }
-certutil.exe -user -addstore Root "$LanCertDir\ca.cert.cer"
 ```
 
 For the controller, transfer only `ca.cert.cer` and the public manifest. An HTTP download is acceptable only when the CA SHA-256 is compared with the host's manifest over a separate trusted channel before installation. Never transfer `server.key.pem` to the controller.
@@ -61,8 +60,9 @@ $ControllerCaFile = ".\test-material\ca.cert.cer"
 $ControllerManifest = Get-Content -LiteralPath ".\test-material\manifest.json" -Raw | ConvertFrom-Json
 if ((Get-FileHash -LiteralPath $ControllerCaFile -Algorithm SHA256).Hash.ToLowerInvariant() -ne $ControllerManifest.caSha256) { throw "LAN CA fingerprint does not match the host's authenticated manifest." }
 $LanCaThumbprint = $ControllerManifest.caThumbprintSha1
-certutil.exe -user -addstore Root $ControllerCaFile
 ```
+
+Open `certmgr.msc` on the controller, select **Trusted Root Certification Authorities → Certificates**, choose **All Tasks → Import**, and select `$ControllerCaFile`.
 
 The temporary CA signing key is discarded. The server leaf certificate advertises an empty, short-lived CRL over the LAN-only download listener because Windows Schannel rejects a test certificate when it cannot check revocation status. Early revocation uses trust-anchor removal. Remove the CA from CurrentUser\Root on each test PC after the run, or immediately if the server key is exposed. Removing the root invalidates every server certificate signed by that CA:
 
@@ -192,3 +192,5 @@ Current acceptance check: `.101` remains healthy and both test listeners remain 
 Current package/service refresh: the earlier foreground service handles expired, so they were replaced by hidden local PowerShell/Python helpers scoped to `.101:8080` and `.101:8090`. Stop them after acceptance by identifying the listener PIDs with `Get-NetTCPConnection -State Listen -LocalPort 8080,8090` and stopping only those test-service processes. Rebuilt package: 3,226,303 bytes, SHA-256 `F7D071B86AD8E36CFB32CC5A37F4AF14D2DB574C0F088F6B3A0E5DB4EE627BA8`, unsigned. A full HTTP download to a temporary file matched the served file's length and SHA-256. The two in-memory accounts were recreated, live code and direct-session API flows passed, and temporary device registrations were revoked. `.100` TCP reachability and a user-launched host client remain unverified.
 
 Live endpoint check on 2026-11-26: separate accounts created and joined a one-time code, a replay was rejected, and host rejection ended the pending session. Two synthetic Windows device records under one account completed direct connect and host acceptance, returning `AUTHORIZED_ACTIVE`; both records were then revoked and confirmed removed. These are HTTP API checks on `.101`, not a two-PC media/input acceptance. The foreground services remain active for the user's manual run and should be closed afterward.
+
+Environment recheck on 2026-11-28: the host Ethernet address is `192.168.0.101/24`, and Windows classifies the network as Public. Only the unrelated loopback development service on `127.0.0.1:8080` is listening; there is no LAN signaling or download listener on ports 8080, 8090, or 8443. TCP probes from the host to `192.168.0.100:8080` and `:8090` timed out. The temporary LAN CA is absent from the current user's trusted roots. No LAN server was started and no firewall or trust-store setting was changed during this recheck. The second PC's client, video, input, and disconnect behavior therefore remain NOT VERIFIED.

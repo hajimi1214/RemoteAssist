@@ -28,8 +28,10 @@ $env:DATABASE_URL="postgres://remoteassist:replace-with-random-postgres-password
 Docker deployment:
 
 ```powershell
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --entrypoint /signaling-migrate signaling
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --no-deps --entrypoint /signaling-migrate signaling
 ```
+
+Deployment database names must not contain `=` or start with `postgres://` or `postgresql://`. libpq treats those values as connection strings during PostgreSQL initialization, so the deployment verifier rejects them.
 
 ## Backup
 
@@ -45,4 +47,4 @@ The script takes the database named by `DATABASE_URL` after validating its Compo
 .\scripts\restore-postgres.ps1 -Input remoteassist-backup.sql
 ```
 
-Stop the signaling service before restoring. The target database must be empty. By default, restore targets the database named by `DATABASE_URL`. Restore uses `ON_ERROR_STOP` and one SQL transaction; a SQL error returns a nonzero result and rolls the transaction back. The script does not drop or recreate a database, so existing tables and rows remain in place if restoration fails. Supply `-DatabaseName` to restore a recovery copy into a separate empty database before switching `DATABASE_URL`.
+Stop the signaling service before restoring. The target database must be empty. By default, restore targets the database named by `DATABASE_URL`; supply `-DatabaseName` for a separate recovery target on the Compose PostgreSQL service. Restore uses `ON_ERROR_STOP` and one SQL transaction; a SQL error returns a nonzero result and rolls the transaction back. The script does not drop or recreate a database, so existing tables and rows remain in place if restoration fails. If signaling will use a separately created recovery database, set both `DATABASE_URL` and `POSTGRES_DB` to that database and run the deployment verifier before recreating signaling. Changing `POSTGRES_DB` on an initialized PostgreSQL volume does not create a database; use `createdb` first.

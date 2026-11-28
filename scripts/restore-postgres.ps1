@@ -1,9 +1,10 @@
 param(
-  [string]$Input = "remoteassist-backup.sql",
+  [Alias("Input")]
+  [string]$InputFile = "remoteassist-backup.sql",
   [string]$DatabaseName = ""
 )
 
-$sharedHelpers = Join-Path $PSScriptRoot "postgres-dump.ps1"
+$sharedHelpers = Join-Path $PSScriptRoot "postgres-maintenance.ps1"
 . $sharedHelpers
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
@@ -17,11 +18,12 @@ if (!$docker) { throw "Docker CLI was not found." }
 
 $databaseTarget = Get-ComposePostgresTarget $envFile
 if ([string]::IsNullOrWhiteSpace($DatabaseName)) { $DatabaseName = $databaseTarget.DatabaseName }
-if ([string]::IsNullOrWhiteSpace($DatabaseName) -or [System.Text.Encoding]::UTF8.GetByteCount($DatabaseName) -gt 63 -or $DatabaseName -match '[^\p{L}\p{Nd}_$]' -or $DatabaseName -match '^\p{Nd}') {
-	throw "DatabaseName must be a nonempty PostgreSQL database identifier of at most 63 UTF-8 bytes."
+if ([string]::IsNullOrWhiteSpace($DatabaseName) -or [System.Text.Encoding]::UTF8.GetByteCount($DatabaseName) -gt 63 -or
+    $DatabaseName -match '[\x00-\x1F\x7F]' -or $DatabaseName.Contains('=') -or $DatabaseName -match '^(postgres|postgresql)://') {
+	throw "DatabaseName must be a PostgreSQL database name, not a libpq connection string, and at most 63 UTF-8 bytes."
 }
 
-$inputPath = (Resolve-Path -LiteralPath $Input -ErrorAction Stop).Path
+$inputPath = (Resolve-Path -LiteralPath $InputFile -ErrorAction Stop).Path
 if (!(Test-Path -LiteralPath $inputPath -PathType Leaf)) { throw "Backup input must be a file: $inputPath" }
 if ((Get-Item -LiteralPath $inputPath).Length -eq 0) { throw "Backup input is empty: $inputPath" }
 if (-not (Test-PlainPostgreSqlDumpHeader $inputPath)) {
@@ -31,7 +33,7 @@ if (-not (Test-PlainPostgreSqlDumpHeader $inputPath)) {
 $arguments = @(
   "compose", "--env-file", $envFile, "-f", $composeFile,
   "exec", "-T", "-e", "RESTORE_DATABASE=$DatabaseName", "-e", "RESTORE_USERNAME=$($databaseTarget.UserName)", "postgres", "sh", "-c",
-  'exec psql --no-psqlrc --single-transaction --set ON_ERROR_STOP=on --username="$RESTORE_USERNAME" "$RESTORE_DATABASE"'
+  'export PGPASSWORD="$POSTGRES_PASSWORD"; export PGDATABASE="$RESTORE_DATABASE"; exec psql --no-psqlrc --single-transaction --set ON_ERROR_STOP=on --username="$RESTORE_USERNAME"'
 )
 
 Get-Content -LiteralPath $inputPath -Encoding UTF8 | & $docker.Source @arguments

@@ -49,21 +49,25 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml down
 
 ## Upgrade
 
-Back up PostgreSQL before upgrading and review new or changed keys in `deploy/.env.example`. The environment file has no automatic schema migration; carry local secrets forward without copying placeholders, and update it deliberately for newly required settings. Signaling migrations are embedded, execute in filename order, and commit together in one PostgreSQL transaction. They have no automatic down-migrations. Apply a forward migration before starting the new signaling image:
+Back up PostgreSQL before upgrading. The dump contains account, device and audit metadata. Store it in an access-restricted encrypted backup location. Review new or changed keys in `deploy/.env.example`; the deployment environment has no key migration, so preserve local secrets and update required settings deliberately. Signaling migrations are embedded, run in sorted filename order and commit together in one PostgreSQL transaction. There are no automatic down-migrations.
 
 ```powershell
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --wait postgres
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml build signaling
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --no-deps --entrypoint /signaling-migrate signaling
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --no-build
+.\scripts\backup-postgres.ps1 -Output .\.local\remoteassist-pre-upgrade.sql
+$previousImageId = docker compose --env-file deploy/.env -f deploy/docker-compose.yml images -q signaling | Select-Object -First 1
+if (!$previousImageId) { throw "No current signaling image was found to retain for rollback." }
+docker tag $previousImageId remoteassist-signaling:previous
+notepad deploy/.env
 ```
 
-Keep a single signaling replica: active sessions are in memory and end when the server restarts. Upgrade both clients when the signaling/input protocol requires it. Before rebuilding a tag that already exists locally, retain it under a rollback tag:
+Set `REMOTEASSIST_VERSION` to the new version in `deploy/.env`, add any required environment keys, then validate the effective configuration. Keep a single signaling replica because active sessions are held in memory. Stopping signaling during an upgrade ends active sessions. Update both clients when the signaling or input protocol changes.
 
 ```powershell
-docker tag remoteassist-signaling:local remoteassist-signaling:previous
-$env:REMOTEASSIST_VERSION="next"
+.\scripts\verify-deploy-config.ps1
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml build signaling
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --wait postgres
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml stop signaling
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --no-deps --entrypoint /signaling-migrate signaling
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --no-build
 ```
 
 A previous image is usable only when its schema and protocol remain compatible with the already-applied migrations.
@@ -72,14 +76,15 @@ A previous image is usable only when its schema and protocol remain compatible w
 
 ## Rollback
 
-The Compose image tag is controlled by `REMOTEASSIST_VERSION`. If the previous image is already present locally and its schema remains compatible, start that tag:
+If the previous image is compatible with the applied database schema, set `REMOTEASSIST_VERSION=previous` in `deploy/.env`, verify the effective config, then recreate only the signaling service:
 
 ```powershell
-$env:REMOTEASSIST_VERSION="previous-tag"
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --no-build signaling
+notepad deploy/.env
+.\scripts\verify-deploy-config.ps1
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --no-build --no-deps signaling
 ```
 
-This changes the signaling image only. It does not reverse database migrations. If the older image cannot use the new schema, restore the pre-upgrade backup into an empty compatible database, point `DATABASE_URL` at it, verify the rendered configuration, and then start the older image. Keep the previous database volume until the rollback is accepted.
+This does not reverse database migrations. If the older image cannot use the new schema, create a separate empty compatible database, restore the pre-upgrade dump there with `-DatabaseName`, then set both `DATABASE_URL` and `POSTGRES_DB` to that existing recovery database. `POSTGRES_DB` on an initialized volume does not create a database. Verify the effective config before recreating the older signaling service. Keep the previous database intact until rollback is accepted.
 
 ## Health Check
 
@@ -105,20 +110,20 @@ The backup script checks that the host, database, user and password in `DATABASE
 
 ## Restore
 
-Stop signaling and restore into an empty target database. The restore script uses `ON_ERROR_STOP` and a single transaction. It does not drop an existing database. Any SQL failure rolls the restore back. For a rollback, create a separate empty database, restore into it with `-DatabaseName`, then change `DATABASE_URL`, verify configuration, and recreate signaling. Keep the previous database available until the recovered service has been accepted.
+Stop signaling and restore into an empty target database. The restore script uses `ON_ERROR_STOP` and a single transaction. It does not drop an existing database. Any SQL failure rolls the restore back. For a rollback, create a separate empty database, restore into it with `-DatabaseName`, then change both `DATABASE_URL` and `POSTGRES_DB`, verify configuration, and recreate signaling. Keep the previous database available until the recovered service has been accepted.
 
 ```powershell
 .\scripts\restore-postgres.ps1 -Input remoteassist-backup.sql
 ```
 
-For an isolated recovery database, create an empty database and provide its name explicitly:
+For an isolated recovery database, stop signaling, create an empty database and provide its name explicitly:
 
 ```powershell
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml exec -T postgres sh -c 'createdb --username="$POSTGRES_USER" remoteassist_restore'
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml exec -T postgres sh -c 'export PGPASSWORD="$POSTGRES_PASSWORD"; exec createdb --no-password --username="$POSTGRES_USER" remoteassist_restore'
 .\scripts\restore-postgres.ps1 -Input remoteassist-backup.sql -DatabaseName remoteassist_restore
 ```
 
-After validating the restored data, update `DATABASE_URL` to point to `remoteassist_restore` and recreate the signaling service. Keep the previous database intact until recovery is accepted.
+After validating the restored data, set both `DATABASE_URL` and `POSTGRES_DB` to `remoteassist_restore`, run `scripts/verify-deploy-config.ps1`, and recreate the signaling service. `POSTGRES_DB` only initializes a new PostgreSQL data volume and changing it does not create this database; the `createdb` command above does that explicitly. Keep the previous database intact until recovery is accepted.
 
 ## P2P and TURN Fallback Verification
 
