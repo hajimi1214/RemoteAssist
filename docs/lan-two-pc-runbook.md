@@ -9,6 +9,8 @@ Use this runbook with two Windows 10/11 PCs on the same trusted private LAN. It 
 
 The local signaling service stores users, devices and sessions in memory. Stopping it ends the test and removes that test data. The LAN debug installer accepts HTTP only for RFC1918 IPv4 addresses and is not a public-deployment client.
 
+LAN mode sends no public STUN service by default. Same-subnet peers gather local ICE candidates. Set `STUN_URLS` only when the LAN test should use a STUN service that you operate or have explicitly selected. TURN remains separately configured and is not needed for same-subnet tests.
+
 ## Record the current LAN addresses
 
 On the Windows PC that will host the test service, run:
@@ -73,10 +75,11 @@ if (Get-ChildItem Cert:\CurrentUser\Root | Where-Object Thumbprint -eq $LanCaThu
 
 The generator gives the certificate directory access only to the current Windows user and SYSTEM, then restricts `server.key.pem` to read access for those identities. Use a disposable certificate with a maximum seven-day lifetime and regenerate it when the LAN IP changes.
 
-Start the foreground service with TLS enabled. The Go server checks that the certificate is currently valid and matches the HTTPS `PUBLIC_BASE_URL` host before listening:
+Start the foreground service with TLS enabled. The Go server checks that the certificate is currently valid and matches the HTTPS `PUBLIC_BASE_URL` host before listening. Leave STUN unset for the same-subnet test. If you operate a STUN service for the test, pass its URI explicitly:
 
 ```powershell
 .\scripts\dev-lan.ps1 -Address $LanHostAddress -Port 8443 -TlsCertFile "$LanCertDir\server.cert.pem" -TlsKeyFile "$LanCertDir\server.key.pem"
+# Optional: -StunUrls "stun:stun.your-lan.example:3478"
 ```
 
 Keep this foreground window open. It uses a fresh in-memory store and binds only to the selected LAN interface. The secure service URL is `https://<host-address>:8443`.
@@ -185,11 +188,13 @@ The test services were subsequently started on `.101`. The in-memory signaling s
 
 Current process check on 2026-11-26: `.101:8080` and `.101:8090` remain listening, local health/download checks return HTTP 200, and the installer length is 3,229,002 bytes. The only other known untracked workspace item is the prior `.playwright-cli/` automation output. The temporary browser/dev server for the `DeviceWorkspace` entry checks has been closed.
 
-Latest signaling check: both accounts can log in and receive the configured public STUN entry, but both device lists are empty. No TURN server is configured. The remote PC has not registered on this restarted memory service yet, so physical device discovery and media connectivity remain NOT VERIFIED.
+Earlier signaling check on 2026-11-26: both accounts could log in and receive the then-configured public STUN entry, but both device lists were empty. No TURN server was configured. The remote PC had not registered on that restarted memory service, so physical device discovery and media connectivity were NOT VERIFIED.
 
-Current acceptance check: `.101` remains healthy and both test listeners remain active. No RemoteAssist desktop window is visible to the current automation runner, `.100` still has not reached either service port, and the account device lists remain empty. The host-side capture smoke reports DXGI `E_ACCESSDENIED`, while the runner's read-only input-desktop probe is also denied. Resume by unlocking and visibly starting the host client, then installing/starting the client on `.100`; do not infer dual-PC media success from the API checks above.
+Acceptance check on 2026-11-26: `.101` was healthy and both test listeners were active. No RemoteAssist desktop window was visible to the automation runner, `.100` had not reached either service port, and the account device lists were empty. The host-side capture smoke reported DXGI `E_ACCESSDENIED`, while the runner's read-only input-desktop probe was also denied. These results required a visibly started host client and a client launched on `.100`; API checks did not establish dual-PC media success.
 
-Current package/service refresh: the earlier foreground service handles expired, so they were replaced by hidden local PowerShell/Python helpers scoped to `.101:8080` and `.101:8090`. Stop them after acceptance by identifying the listener PIDs with `Get-NetTCPConnection -State Listen -LocalPort 8080,8090` and stopping only those test-service processes. Rebuilt package: 3,226,303 bytes, SHA-256 `F7D071B86AD8E36CFB32CC5A37F4AF14D2DB574C0F088F6B3A0E5DB4EE627BA8`, unsigned. A full HTTP download to a temporary file matched the served file's length and SHA-256. The two in-memory accounts were recreated, live code and direct-session API flows passed, and temporary device registrations were revoked. `.100` TCP reachability and a user-launched host client remain unverified.
+Package/service refresh on 2026-11-26: the earlier foreground service handles expired, so they were replaced by hidden local PowerShell/Python helpers scoped to `.101:8080` and `.101:8090`. Rebuilt package: 3,226,303 bytes, SHA-256 `F7D071B86AD8E36CFB32CC5A37F4AF14D2DB574C0F088F6B3A0E5DB4EE627BA8`, unsigned. A full HTTP download matched the served file's length and SHA-256. The two in-memory accounts were recreated, live code and direct-session API flows passed, and temporary device registrations were revoked. `.100` TCP reachability and a user-launched host client remained unverified.
+
+2026-11-28 follow-up: `.100` responds as Windows host `DESKTOP-6JPA9U0` with a distinct MAC address from `.101`; ICMP RTT is 1 ms and SMB is reachable. The `.101` TLS signaling and public-material download services are available on 8443 and 8090. A newly built installer configured for `https://192.168.0.101:8443` was downloaded back and matched SHA-256 `6AB8004C827E2F64DDEB1574D9BA6D8C72465861BC58FEF5A4B8E38C689266DA`. Client reachability from `.100`, account/device registration, video, input and disconnect still require a test run on `.100`.
 
 Live endpoint check on 2026-11-26: separate accounts created and joined a one-time code, a replay was rejected, and host rejection ended the pending session. Two synthetic Windows device records under one account completed direct connect and host acceptance, returning `AUTHORIZED_ACTIVE`; both records were then revoked and confirmed removed. These are HTTP API checks on `.101`, not a two-PC media/input acceptance. The foreground services remain active for the user's manual run and should be closed afterward.
 

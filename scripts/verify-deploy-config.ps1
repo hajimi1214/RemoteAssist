@@ -82,6 +82,15 @@ if ($databaseName.Contains('=') -or $postgresDatabase.Contains('=') -or
 if (!(([string]$values["TURN_URLS"] -split ',' | ForEach-Object { $_.Trim() }) -match '^turn:[A-Za-z0-9.-]+:3478(?:\?transport=udp)?$')) {
   throw "TURN_URLS must advertise a UDP listener at port 3478 (turn:hostname:3478?transport=udp)."
 }
+$stunUrls = @(([string]$values["STUN_URLS"] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }))
+foreach ($stunUrl in $stunUrls) {
+  if ($stunUrl -notmatch '^stuns?:(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(?::[0-9]{1,5})?(?:\?transport=(?:udp|tcp))?$') {
+    throw "STUN_URLS must contain comma-separated stun: or stuns: URLs with a hostname or bracketed IPv6 address."
+  }
+  if ($stunUrl -match ':(\d+)(?:\?transport=(?:udp|tcp))?$' -and ([int]$Matches[1] -lt 1 -or [int]$Matches[1] -gt 65535)) {
+    throw "STUN_URLS port must be between 1 and 65535."
+  }
+}
 if ([string]$values["APP_ORIGINS"] -match '\*') {
   throw "APP_ORIGINS must use exact origins; wildcards are not allowed."
 }
@@ -190,6 +199,7 @@ $expectedSignalingSettings = @{
   "PUBLIC_BASE_URL" = [string]$values["PUBLIC_BASE_URL"]
   "TRUSTED_PROXY_CIDRS" = [string](Get-Setting "TRUSTED_PROXY_CIDRS" "172.16.0.0/12")
   "APP_ORIGINS" = [string](Get-Setting "APP_ORIGINS" "http://tauri.localhost,https://tauri.localhost,tauri://localhost")
+  "STUN_URLS" = [string](Get-Setting "STUN_URLS" "")
   "TURN_URLS" = [string]$values["TURN_URLS"]
   "TURN_SECRET" = [string]$values["TURN_SECRET"]
   "TURN_CREDENTIAL_TTL" = [string](Get-Setting "TURN_CREDENTIAL_TTL" "10m")

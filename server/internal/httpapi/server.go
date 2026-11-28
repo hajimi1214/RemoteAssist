@@ -355,7 +355,8 @@ func (s *Server) iceConfig(w http.ResponseWriter, r *http.Request) {
 		writeIdentityError(w, err)
 		return
 	}
-	iceServers := append([]config.ICEServer(nil), s.cfg.ICEServers...)
+	iceServers := make([]config.ICEServer, len(s.cfg.ICEServers))
+	copy(iceServers, s.cfg.ICEServers)
 	if len(s.cfg.TURNURLs) > 0 {
 		if len(s.cfg.TURNSecret) < 32 {
 			writeError(w, http.StatusServiceUnavailable, "turn_unavailable")

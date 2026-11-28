@@ -3,6 +3,7 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$Address,
   [int]$Port = 8080,
+  [string]$StunUrls = "",
   [string]$TlsCertFile = "",
   [string]$TlsKeyFile = "",
   [switch]$InsecureHttpTest
@@ -32,7 +33,7 @@ foreach ($file in @($TlsCertFile, $TlsKeyFile) | Where-Object { $_ }) {
 $tlsCertPath = if ($TlsCertFile) { (Resolve-Path -LiteralPath $TlsCertFile).Path } else { "" }
 $tlsKeyPath = if ($TlsKeyFile) { (Resolve-Path -LiteralPath $TlsKeyFile).Path } else { "" }
 
-$names = @("SIGNALING_ADDR", "PUBLIC_BASE_URL", "APP_ORIGINS", "DATABASE_URL", "LOCAL_ADMIN_SEED_FILE", "TLS_CERT_FILE", "TLS_KEY_FILE")
+$names = @("SIGNALING_ADDR", "PUBLIC_BASE_URL", "APP_ORIGINS", "STUN_URLS", "DATABASE_URL", "LOCAL_ADMIN_SEED_FILE", "TLS_CERT_FILE", "TLS_KEY_FILE")
 $previous = @{}
 foreach ($name in $names) { $previous[$name] = [Environment]::GetEnvironmentVariable($name, "Process") }
 try {
@@ -40,6 +41,7 @@ try {
   $scheme = if ($InsecureHttpTest) { "http" } else { "https" }
   $env:PUBLIC_BASE_URL = "${scheme}://${Address}:$Port"
   $env:APP_ORIGINS = "http://tauri.localhost,https://tauri.localhost,tauri://localhost"
+  $env:STUN_URLS = $StunUrls.Trim()
   $env:TLS_CERT_FILE = $tlsCertPath
   $env:TLS_KEY_FILE = $tlsKeyPath
   [Environment]::SetEnvironmentVariable("DATABASE_URL", $null, "Process")

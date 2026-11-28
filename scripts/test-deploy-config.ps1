@@ -19,6 +19,7 @@ $fixture = @(
   "LOGIN_FAIL_LIMIT_PER_MINUTE=10",
   "TRUSTED_PROXY_CIDRS=172.16.0.0/12",
   "APP_ORIGINS=http://tauri.localhost,https://tauri.localhost,tauri://localhost",
+  "STUN_URLS=stun:stun.lan-config-test.invalid:3478",
   "LOG_LEVEL=info",
   "POSTGRES_DB=remoteassist",
   "POSTGRES_USER=remoteassist",
@@ -46,6 +47,12 @@ try {
   }
   Write-Host "PASS valid synthetic deployment configuration"
 
+  $emptyStunFixture = @($fixture | Where-Object { $_ -notmatch '^STUN_URLS=' }) + "STUN_URLS="
+  [System.IO.File]::WriteAllLines($envFile, $emptyStunFixture, [System.Text.UTF8Encoding]::new($false))
+  & (Join-Path $PSScriptRoot "verify-deploy-config.ps1") -EnvFile $envFile
+  if ($LASTEXITCODE -ne 0) { throw "An empty optional STUN configuration failed validation." }
+  Write-Host "PASS empty STUN configuration keeps public STUN disabled"
+
   $recoveryFixture = @($fixture | ForEach-Object {
     if ($_ -like "POSTGRES_DB=*") { "POSTGRES_DB=remoteassist_restore" }
     elseif ($_ -like "DATABASE_URL=*") { "DATABASE_URL=postgres://remoteassist:$($postgresPassword.Replace('-', '%2D'))@postgres:5432/remoteassist_restore?sslmode=disable" }
@@ -62,6 +69,7 @@ try {
     @{ Name = "localhost production domain"; Key = "PUBLIC_DOMAIN"; Line = "PUBLIC_DOMAIN=localhost"; Message = "PUBLIC_BASE_URL host must match PUBLIC_DOMAIN" },
     @{ Name = "malformed application origin"; Key = "APP_ORIGINS"; Line = "APP_ORIGINS=https://lan-config-test.invalid/private/path"; Message = "APP_ORIGINS contains a malformed or unsupported application origin" },
     @{ Name = "wildcard application origin"; Key = "APP_ORIGINS"; Line = "APP_ORIGINS=*"; Message = "APP_ORIGINS must use exact origins" },
+    @{ Name = "malformed STUN URL"; Key = "STUN_URLS"; Line = "STUN_URLS=https://stun.example.test"; Message = "STUN_URLS must contain comma-separated stun: or stuns: URLs" },
     @{ Name = "invalid trusted proxy CIDR"; Key = "TRUSTED_PROXY_CIDRS"; Line = "TRUSTED_PROXY_CIDRS=172.16.0.0"; Message = "TRUSTED_PROXY_CIDRS contains an invalid or unrestricted CIDR range" },
     @{ Name = "unrestricted trusted proxy CIDR"; Key = "TRUSTED_PROXY_CIDRS"; Line = "TRUSTED_PROXY_CIDRS=0.0.0.0/0"; Message = "TRUSTED_PROXY_CIDRS contains an invalid or unrestricted CIDR range" },
     @{ Name = "external database host"; Key = "DATABASE_URL"; Line = "DATABASE_URL=postgres://remoteassist:$($postgresPassword.Replace('-', '%2D'))@external-postgres:5432/remoteassist?sslmode=disable"; Message = "DATABASE_URL must target the Compose PostgreSQL service" },

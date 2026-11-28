@@ -209,6 +209,7 @@ func writeTestCertificate(t *testing.T, host string, notBefore, notAfter time.Ti
 }
 
 func TestFromEnvReadsTURNRESTSettings(t *testing.T) {
+	t.Setenv("STUN_URLS", " stun:stun.example.test:3478, stuns:stuns.example.test:5349 ")
 	t.Setenv("TURN_URLS", " turn:turn.example.test:3478?transport=udp, turns:turn.example.test:5349 ")
 	t.Setenv("TURN_SECRET", "rest-shared-secret-long-enough-32")
 	t.Setenv("TURN_CREDENTIAL_TTL", "7m")
@@ -228,8 +229,16 @@ func TestFromEnvReadsTURNRESTSettings(t *testing.T) {
 	if cfg.TURNCredentialTTL != 7*time.Minute {
 		t.Fatalf("TURN credential TTL=%s, want 7m", cfg.TURNCredentialTTL)
 	}
-	if len(cfg.ICEServers) != 1 || len(cfg.ICEServers[0].URLs) != 1 || cfg.ICEServers[0].URLs[0] != "stun:stun.l.google.com:19302" {
-		t.Fatalf("default STUN server missing from config: %#v", cfg.ICEServers)
+	wantSTUNURLs := []string{"stun:stun.example.test:3478", "stuns:stuns.example.test:5349"}
+	if len(cfg.ICEServers) != 1 || !reflect.DeepEqual(cfg.ICEServers[0].URLs, wantSTUNURLs) {
+		t.Fatalf("STUN servers=%#v, want explicit configuration %#v", cfg.ICEServers, wantSTUNURLs)
+	}
+}
+
+func TestFromEnvDoesNotUsePublicSTUNByDefault(t *testing.T) {
+	t.Setenv("STUN_URLS", "")
+	if got := FromEnv().ICEServers; len(got) != 0 {
+		t.Fatalf("default STUN servers=%#v, want none", got)
 	}
 }
 

@@ -41,6 +41,7 @@ services:
       LOGIN_FAIL_LIMIT_PER_MINUTE: "${LOGIN_FAIL_LIMIT_PER_MINUTE:-10}"
       TRUSTED_PROXY_CIDRS: "${TRUSTED_PROXY_CIDRS:-172.16.0.0/12}"
       APP_ORIGINS: "${APP_ORIGINS:-http://tauri.localhost,https://tauri.localhost,tauri://localhost}"
+      STUN_URLS: "${STUN_URLS:-}"
       TURN_URLS: "${TURN_URLS}"
       TURN_SECRET: "${TURN_SECRET}"
       TURN_CREDENTIAL_TTL: "${TURN_CREDENTIAL_TTL:-10m}"

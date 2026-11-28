@@ -22,6 +22,7 @@ ECS 负责登录、设备在线状态和连接协商。游戏继续在被控 Win
 - `PUBLIC_DOMAIN` 是信令域名，`PUBLIC_BASE_URL` 是同一域名的 HTTPS 根地址。数据库密码和三种令牌或中继密钥分别使用独立的随机值。不要复用本地测试账号。Linux 上将 `deploy/.env` 文件权限设为 `0600`。
 - `TURN_EXTERNAL_IP` 填 ECS 公网 IPv4/EIP，不带斜杠或私有地址。Coturn 在独立的 Docker 网段 `TURN_RELAY_SUBNET` 上绑定 `TURN_RELAY_IP`；默认分别为 `172.30.218.0/28` 和 `172.30.218.2`。若与 ECS VPC、VPN 或现有 Docker 网络重叠，同时修改这两项。Compose 以 `EIP/容器地址` 公布映射，EIP 和 Docker 发布的 UDP 中继端口必须保持原端口号。
 - `TURN_URLS` 中填实际域名，例如用实际 TURN 域名替换 `turn:域名:3478?transport=udp` 和 `turn:域名:3478?transport=tcp` 中的「域名」。TCP 是客户端到 TURN 的备用连接，媒体中继端点仍使用 UDP。当前模板支持 `turn:`，WebRTC 媒体仍由 WebRTC 自身加密。短期 TURN 凭据由信令服务发放。
+- `STUN_URLS` 默认为空，不会自动调用公共 STUN 服务。需要 STUN 时，显式填写由你运营或选定的 `stun:` / `stuns:` 地址。STUN 只帮助发现可用网络候选地址，不转发媒体。
 - Coturn 拒绝向常见私有网段、链路本地地址和多播地址转发。公网中继不应能访问 ECS 元数据地址或 VPC 私有服务。设备直接建立的局域网 P2P 不经过 Coturn。
 
 可先用不含生产密钥的配置运行 `pwsh -File scripts/verify-deploy-config.ps1 -EnvFile <路径>`。若 ECS 安装了 PowerShell 7，也可在那里验证正式配置；仅运行第一条 Compose 命令时，只做基本静态检查。

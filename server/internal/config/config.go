@@ -67,7 +67,7 @@ func FromEnv() Config {
 		AccessTokenTTL:     durationEnv("ACCESS_TOKEN_TTL", 15*time.Minute),
 		RefreshTokenTTL:    durationEnv("REFRESH_TOKEN_TTL", 30*24*time.Hour),
 		DeviceOfflineAfter: durationEnv("DEVICE_OFFLINE_AFTER", 2*time.Minute),
-		ICEServers:         []ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}},
+		ICEServers:         stunServersEnv(),
 		TURNURLs:           splitCSV(os.Getenv("TURN_URLS")),
 		TURNSecret:         strings.TrimSpace(os.Getenv("TURN_SECRET")),
 		TURNCredentialTTL:  boundedDurationEnv("TURN_CREDENTIAL_TTL", 10*time.Minute, time.Minute, 24*time.Hour),
@@ -207,6 +207,14 @@ func splitCSV(value string) []string {
 		}
 	}
 	return out
+}
+
+func stunServersEnv() []ICEServer {
+	urls := splitCSV(os.Getenv("STUN_URLS"))
+	if len(urls) == 0 {
+		return nil
+	}
+	return []ICEServer{{URLs: urls}}
 }
 
 func cidrsEnv(key string) []*net.IPNet {

@@ -27,7 +27,7 @@ The synthetic UI sample is not a game or sustained stream test. The ambient run 
 
 ### Outbound STUN UDP smoke — 2026-11-26
 
-Five RFC 5389 Binding Requests to the configured `stun.l.google.com:19302` returned valid transaction-matched responses. Probe RTT samples were 188, 187, 203, 203 and 188 ms (median 188 ms, max 203 ms). This verifies only this machine's direct path to the public STUN endpoint. It is not WebRTC peer RTT, a selected candidate pair, TURN validation or input-to-display latency.
+Before public STUN was removed from the server default, five RFC 5389 Binding Requests to `stun.l.google.com:19302` returned valid transaction-matched responses. Probe RTT samples were 188, 187, 203, 203 and 188 ms (median 188 ms, max 203 ms). This verifies only this machine's direct path to that public STUN endpoint. It is not WebRTC peer RTT, a selected candidate pair, TURN validation or input-to-display latency. The current server sends STUN URLs only when `STUN_URLS` is explicitly configured.
 
 An earlier smoke implementation logged DXGI format details for each smoke frame. Console redraws contaminated that run, producing a full-frame-only sample; it is excluded from the table. Format logging is now separately gated by `REMOTEASSIST_CAPTURE_FORMAT_DEBUG=1` and emits only when the source format changes. The normal smoke flag no longer enables format logging.
 

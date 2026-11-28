@@ -85,6 +85,7 @@ func TestApproveRequiresHostToken(t *testing.T) {
 
 func TestICEConfigRequiresAuthAndReturnsEphemeralTURNCredentials(t *testing.T) {
 	cfg := testConfig()
+	cfg.ICEServers = []config.ICEServer{{URLs: []string{"stun:stun.example.test:3478"}}}
 	cfg.TURNURLs = []string{"turn:turn.example.test:3478?transport=udp", "turns:turn.example.test:5349"}
 	cfg.TURNSecret = "turn-rest-shared-secret-long-enough-32"
 	cfg.TURNCredentialTTL = 5 * time.Minute
@@ -113,8 +114,8 @@ func TestICEConfigRequiresAuthAndReturnsEphemeralTURNCredentials(t *testing.T) {
 	if len(body.ICEServers) != 2 {
 		t.Fatalf("ICE server count=%d, want STUN plus TURN", len(body.ICEServers))
 	}
-	if len(body.ICEServers[0].URLs) != 1 || body.ICEServers[0].URLs[0] != "stun:stun.l.google.com:19302" {
-		t.Fatalf("default STUN server missing: %#v", body.ICEServers[0])
+	if len(body.ICEServers[0].URLs) != 1 || body.ICEServers[0].URLs[0] != "stun:stun.example.test:3478" {
+		t.Fatalf("configured STUN server missing: %#v", body.ICEServers[0])
 	}
 	turn := body.ICEServers[1]
 	if len(turn.URLs) != 2 || turn.URLs[0] != cfg.TURNURLs[0] || turn.URLs[1] != cfg.TURNURLs[1] {
@@ -136,6 +137,28 @@ func TestICEConfigRequiresAuthAndReturnsEphemeralTURNCredentials(t *testing.T) {
 	wantCredential := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 	if turn.Credential != wantCredential {
 		t.Fatalf("TURN credential does not match REST HMAC for username")
+	}
+}
+
+func TestICEConfigReturnsEmptyArrayWhenNoServersAreConfigured(t *testing.T) {
+	cfg := testConfig()
+	app := NewServer(cfg, session.NewStore(session.StoreConfig{CodeTTL: cfg.CodeTTL}), slog.Default()).Routes()
+	auth := registerTestUser(t, app)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/ice-config", nil)
+	request.Header.Set("Authorization", "Bearer "+auth.AccessToken)
+	resp := httptest.NewRecorder()
+	app.ServeHTTP(resp, request)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("ice config status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	var body struct {
+		ICEServers []config.ICEServer `json:"iceServers"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.ICEServers == nil || len(body.ICEServers) != 0 {
+		t.Fatalf("iceServers=%#v, want an empty array", body.ICEServers)
 	}
 }
 
@@ -172,7 +195,6 @@ func testConfig() config.Config {
 		AccessTokenTTL:     15 * time.Minute,
 		RefreshTokenTTL:    24 * time.Hour,
 		DeviceOfflineAfter: 2 * time.Minute,
-		ICEServers:         []config.ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}},
 	}
 }
 
