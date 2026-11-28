@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 # Preserve a native tool's actual exit code even when the caller enabled PowerShell 7 native errors.
 $PSNativeCommandUseErrorActionPreference = $false
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$environmentNames = @("VITE_SIGNALING_URL", "SIGNALING_ADDR", "PUBLIC_BASE_URL", "DATABASE_URL", "LOCAL_ADMIN_SEED_FILE")
+$environmentNames = @("VITE_SIGNALING_URL", "SIGNALING_ADDR", "PUBLIC_BASE_URL", "DATABASE_URL", "LOCAL_ADMIN_SEED_FILE", "TLS_CERT_FILE", "TLS_KEY_FILE", "APP_ORIGINS")
 $previousEnvironment = @{}
 foreach ($name in $environmentNames) {
   $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
@@ -29,7 +29,10 @@ try {
     # This mode is always a local, memory-backed preview, independent of deployment environment values.
     $env:SIGNALING_ADDR = "127.0.0.1:8080"
     $env:PUBLIC_BASE_URL = "http://localhost:8080"
+    $env:APP_ORIGINS = "http://tauri.localhost,https://tauri.localhost,tauri://localhost"
     [Environment]::SetEnvironmentVariable("DATABASE_URL", $null, "Process")
+    [Environment]::SetEnvironmentVariable("TLS_CERT_FILE", $null, "Process")
+    [Environment]::SetEnvironmentVariable("TLS_KEY_FILE", $null, "Process")
     $seedPath = Join-Path $projectRoot ".local\admin-seed.json"
     if (Test-Path -LiteralPath $seedPath -PathType Leaf) {
       $env:LOCAL_ADMIN_SEED_FILE = $seedPath

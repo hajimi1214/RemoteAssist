@@ -1,7 +1,20 @@
 package config
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"io"
+	"math/big"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -25,6 +38,174 @@ func TestFromEnvDefaultsActiveSessionToWorkday(t *testing.T) {
 	if got := FromEnv().ActiveSessionTTL; got != 8*time.Hour {
 		t.Fatalf("default active session TTL=%s, want 8h", got)
 	}
+}
+
+func TestServerTLSConfigRequiresCertificateAndKeyTogether(t *testing.T) {
+	cfg := Config{PublicBaseURL: "https://192.168.1.10:8443", TLSCertFile: "server.crt"}
+	if _, err := cfg.ServerTLSConfig(); err == nil {
+		t.Fatal("expected an incomplete TLS certificate pair to fail")
+	}
+}
+
+func TestServerTLSConfigRequiresHTTPSRoot(t *testing.T) {
+	now := time.Now()
+	certFile, keyFile := writeTestServerCertificate(t, "192.168.1.10", now.Add(-time.Hour), now.Add(time.Hour))
+	cfg := Config{PublicBaseURL: "http://192.168.1.10:8443", TLSCertFile: certFile, TLSKeyFile: keyFile}
+	if _, err := cfg.ServerTLSConfig(); err == nil {
+		t.Fatal("expected TLS to require an HTTPS public service URL")
+	}
+	cfg.PublicBaseURL = "https://192.168.1.10:8443/api"
+	if _, err := cfg.ServerTLSConfig(); err == nil {
+		t.Fatal("expected TLS to reject a non-root public service URL")
+	}
+}
+
+func TestServerTLSConfigChecksCertificateNameAndValidity(t *testing.T) {
+	t.Run("hostname mismatch", func(t *testing.T) {
+		now := time.Now()
+		certFile, keyFile := writeTestServerCertificate(t, "192.168.1.11", now.Add(-time.Hour), now.Add(time.Hour))
+		cfg := Config{PublicBaseURL: "https://192.168.1.10:8443", TLSCertFile: certFile, TLSKeyFile: keyFile}
+		if _, err := cfg.ServerTLSConfig(); err == nil {
+			t.Fatal("expected a certificate for another IP to fail")
+		}
+	})
+
+	t.Run("expired certificate", func(t *testing.T) {
+		now := time.Now()
+		certFile, keyFile := writeTestServerCertificate(t, "192.168.1.10", now.Add(-2*time.Hour), now.Add(-time.Hour))
+		cfg := Config{PublicBaseURL: "https://192.168.1.10:8443", TLSCertFile: certFile, TLSKeyFile: keyFile}
+		if _, err := cfg.ServerTLSConfig(); err == nil {
+			t.Fatal("expected an expired certificate to fail")
+		}
+	})
+}
+
+func TestServerTLSConfigRejectsCAAndClientOnlyCertificates(t *testing.T) {
+	t.Run("CA certificate", func(t *testing.T) {
+		certFile, keyFile := writeTestCertificate(t, "192.168.1.10", time.Now().Add(-time.Hour), time.Now().Add(time.Hour), true, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		cfg := Config{PublicBaseURL: "https://192.168.1.10:8443", TLSCertFile: certFile, TLSKeyFile: keyFile}
+		if _, err := cfg.ServerTLSConfig(); err == nil {
+			t.Fatal("expected a CA certificate to be rejected as the TLS serving certificate")
+		}
+	})
+
+	t.Run("client-only certificate", func(t *testing.T) {
+		certFile, keyFile := writeTestCertificate(t, "192.168.1.10", time.Now().Add(-time.Hour), time.Now().Add(time.Hour), false, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth})
+		cfg := Config{PublicBaseURL: "https://192.168.1.10:8443", TLSCertFile: certFile, TLSKeyFile: keyFile}
+		if _, err := cfg.ServerTLSConfig(); err == nil {
+			t.Fatal("expected a client-only certificate to be rejected")
+		}
+	})
+}
+
+func TestServerTLSConfigAcceptsMatchingPrivateIPCertificate(t *testing.T) {
+	now := time.Now()
+	certFile, keyFile := writeTestServerCertificate(t, "192.168.1.10", now.Add(-time.Hour), now.Add(time.Hour))
+	cfg := Config{PublicBaseURL: "https://192.168.1.10:8443", TLSCertFile: certFile, TLSKeyFile: keyFile}
+	got, err := cfg.ServerTLSConfig()
+	if err != nil {
+		t.Fatalf("TLS configuration rejected matching certificate: %v", err)
+	}
+	if got.MinVersion != tls.VersionTLS12 || len(got.Certificates) != 1 {
+		t.Fatalf("TLS config=%#v, want TLS 1.2 minimum and one server certificate", got)
+	}
+	if err := got.Certificates[0].Leaf.VerifyHostname("192.168.1.10"); err != nil {
+		t.Fatalf("configured certificate does not match LAN IP: %v", err)
+	}
+}
+
+func TestConfiguredTLSServerCompletesVerifiedHTTPSRequest(t *testing.T) {
+	certFile, keyFile := writeTestServerCertificate(t, "192.168.1.10", time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	serverConfig, err := (Config{
+		PublicBaseURL: "https://192.168.1.10:8443",
+		TLSCertFile:   certFile,
+		TLSKeyFile:    keyFile,
+	}).ServerTLSConfig()
+	if err != nil {
+		t.Fatalf("configure test TLS server: %v", err)
+	}
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "tls-ok")
+	}))
+	server.TLS = serverConfig
+	server.StartTLS()
+	t.Cleanup(server.Close)
+
+	trustedRoots := x509.NewCertPool()
+	trustedRoots.AddCert(serverConfig.Certificates[0].Leaf)
+	transport := &http.Transport{TLSClientConfig: &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    trustedRoots,
+		ServerName: "192.168.1.10",
+	}}
+	client := &http.Client{Transport: transport}
+	t.Cleanup(transport.CloseIdleConnections)
+	response, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("perform certificate-verified HTTPS request: %v", err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("read HTTPS response: %v", err)
+	}
+	if response.StatusCode != http.StatusOK || string(body) != "tls-ok" {
+		t.Fatalf("HTTPS response status=%d body=%q", response.StatusCode, body)
+	}
+}
+
+func TestServerTLSConfigDisabledWithoutCertificateFiles(t *testing.T) {
+	got, err := (Config{PublicBaseURL: "https://assist.example.test"}).ServerTLSConfig()
+	if err != nil || got != nil {
+		t.Fatalf("TLS config=%#v, error=%v, want disabled without explicit certificate files", got, err)
+	}
+}
+
+func writeTestServerCertificate(t *testing.T, host string, notBefore, notAfter time.Time) (string, string) {
+	t.Helper()
+	return writeTestCertificate(t, host, notBefore, notAfter, false, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+}
+
+func writeTestCertificate(t *testing.T, host string, notBefore, notAfter time.Time, isCA bool, usages []x509.ExtKeyUsage) (string, string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: host},
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		BasicConstraintsValid: true,
+		IsCA:                  isCA,
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           usages,
+		IPAddresses:           []net.IP{net.ParseIP(host)},
+	}
+	if isCA {
+		template.KeyUsage |= x509.KeyUsageCertSign
+	}
+	certificate, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKey, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	certFile := filepath.Join(directory, "server.crt")
+	keyFile := filepath.Join(directory, "server.key")
+	if err := os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateKey}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return certFile, keyFile
 }
 
 func TestFromEnvReadsTURNRESTSettings(t *testing.T) {

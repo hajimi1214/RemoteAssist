@@ -21,6 +21,11 @@ import (
 func main() {
 	cfg := config.FromEnv()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
+	tlsConfig, err := cfg.ServerTLSConfig()
+	if err != nil {
+		logger.Error("TLS configuration is invalid", "error", err)
+		os.Exit(1)
+	}
 	store := session.NewStore(session.StoreConfig{
 		CodeTTL:         cfg.CodeTTL,
 		ActiveTTL:       cfg.ActiveSessionTTL,
@@ -56,6 +61,7 @@ func main() {
 	srv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           app.Routes(),
+		TLSConfig:         tlsConfig,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -66,8 +72,12 @@ func main() {
 	defer stop()
 
 	go func() {
-		logger.Info("signaling server started", "addr", cfg.Addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		logger.Info("signaling server started", "addr", cfg.Addr, "tls", tlsConfig != nil)
+		serve := srv.ListenAndServe
+		if tlsConfig != nil {
+			serve = func() error { return srv.ListenAndServeTLS("", "") }
+		}
+		if err := serve(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("signaling server failed", "error", err)
 			os.Exit(1)
 		}

@@ -12,9 +12,11 @@ The [`Cargo target/license scope`](docs/cargo-target-license-scope.csv) crosswal
 
 Regenerate it with `npm run licenses:generate` after changing dependencies or build components. Run `npm run licenses:check` to verify it matches the current manifests and lockfiles. CI runs the drift check.
 
-The inventory is generated from `package-lock.json`, `cargo metadata --locked`, and `go list -m all`. SPDX license expressions come from package metadata or the upstream module license. `MIXED` container-image entries identify images whose operating-system and application packages have separate licenses. Generate an image SBOM for each release before publishing binaries or redistributable images.
+The inventory is generated from `package-lock.json`, `cargo metadata --locked`, `go list -m all`, the pinned LAN certificate helper requirements, and the container image references. SPDX license expressions come from package metadata or the upstream module license. `MIXED` container-image entries identify images whose operating-system and application packages have separate licenses. Generate an image SBOM for each release before publishing binaries or redistributable images.
 
 The npm lockfile currently resolves 88 packages, Cargo resolves 446 third-party crates, and the Go module graph resolves 7 third-party modules. Re-run the inventory after dependency or build-image changes. Review new, missing, changed, or dual-licensed entries before distribution.
+
+The optional LAN certificate helper uses the pinned Python packages in [`scripts/requirements-lan-cert.txt`](scripts/requirements-lan-cert.txt). Python is a local tool for LAN test certificate generation and is not bundled with the Windows client or signaling service.
 
 ## License observations
 

@@ -42,7 +42,7 @@ npm run build
 .\scripts\dev.ps1
 ```
 
-本地 `Server` 模式只监听 `127.0.0.1:8080`，账号和设备使用内存存储。两个 Windows 客户端的局域网验收步骤见[双机测试手册](docs/lan-two-pc-runbook.md)。
+本地 `Server` 模式只监听 `127.0.0.1:8080`，账号和设备使用内存存储。局域网 HTTPS 信令服务的 IP 证书、信任安装及撤销步骤见[双机测试手册](docs/lan-two-pc-runbook.md)。单独的 `lan-test` HTTP 调试包和 `-InsecureHttpTest` 服务会明文传输测试账号凭据，只适用于隔离的一次性测试。
 
 服务器端和原生客户端的完整回归可以运行：
 

@@ -36,6 +36,8 @@ Install the frontend dependencies once with `npm ci`. Run the local service and 
 
 `Server` binds only to `127.0.0.1:8080` and uses in-memory accounts and devices. `Desktop` runs Tauri, which starts its own Vite frontend; it connects to the existing signaling service at `http://localhost:8080`. It does not launch another service. Stop a mode with Ctrl+C in its terminal. Commands run in the foreground and return their exit status; the script restores its environment changes and the caller's working directory on exit. The script also works from another directory when invoked by its absolute path.
 
+For a LAN service, use the certificate-validated HTTPS setup in the [two-PC LAN runbook](docs/lan-two-pc-runbook.md). The separate `lan-test` debug installer and `-InsecureHttpTest` server mode send test credentials and tokens without transport encryption and are only for disposable, isolated tests.
+
 For a browser-only UI preview, use `Browser` **instead of** `Desktop` in terminal 2, then open `http://127.0.0.1:1420`:
 
 ```powershell

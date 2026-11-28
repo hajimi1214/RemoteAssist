@@ -2,7 +2,11 @@ package config
 
 import (
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/url"
@@ -15,6 +19,8 @@ import (
 type Config struct {
 	Addr               string
 	PublicBaseURL      string
+	TLSCertFile        string
+	TLSKeyFile         string
 	CodeTTL            time.Duration
 	ActiveSessionTTL   time.Duration
 	MaxMessageBytes    int64
@@ -47,6 +53,8 @@ func FromEnv() Config {
 	return Config{
 		Addr:               env("SIGNALING_ADDR", ":8080"),
 		PublicBaseURL:      env("PUBLIC_BASE_URL", "http://localhost:8080"),
+		TLSCertFile:        strings.TrimSpace(os.Getenv("TLS_CERT_FILE")),
+		TLSKeyFile:         strings.TrimSpace(os.Getenv("TLS_KEY_FILE")),
 		CodeTTL:            durationEnv("SESSION_CODE_TTL", 5*time.Minute),
 		ActiveSessionTTL:   boundedDurationEnv("SESSION_ACTIVE_TTL", 8*time.Hour, time.Minute, 8*time.Hour),
 		MaxMessageBytes:    int64(boundedIntEnv("WS_MAX_MESSAGE_BYTES", 65536, 1024, 262144)),
@@ -66,6 +74,67 @@ func FromEnv() Config {
 		TrustedProxyCIDRs:  cidrsEnv("TRUSTED_PROXY_CIDRS"),
 		AppOrigins:         appOriginsEnv(),
 	}
+}
+
+func (c Config) ServerTLSConfig() (*tls.Config, error) {
+	certFile := strings.TrimSpace(c.TLSCertFile)
+	keyFile := strings.TrimSpace(c.TLSKeyFile)
+	if certFile == "" && keyFile == "" {
+		return nil, nil
+	}
+	if certFile == "" || keyFile == "" {
+		return nil, errors.New("TLS_CERT_FILE and TLS_KEY_FILE must be configured together")
+	}
+
+	publicURL, err := url.Parse(strings.TrimSpace(c.PublicBaseURL))
+	if err != nil || publicURL.Scheme != "https" || publicURL.Hostname() == "" || publicURL.User != nil || publicURL.Opaque != "" || (publicURL.Path != "" && publicURL.Path != "/") || publicURL.RawQuery != "" || publicURL.Fragment != "" {
+		return nil, errors.New("PUBLIC_BASE_URL must be an HTTPS service root when TLS is enabled")
+	}
+
+	certificate, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load TLS certificate and key: %w", err)
+	}
+	leaf, err := x509.ParseCertificate(certificate.Certificate[0])
+	if err != nil {
+		return nil, fmt.Errorf("parse TLS leaf certificate: %w", err)
+	}
+	hasBasicConstraints := false
+	for _, extension := range leaf.Extensions {
+		if extension.Id.Equal([]int{2, 5, 29, 19}) {
+			hasBasicConstraints = true
+			break
+		}
+	}
+	if !hasBasicConstraints || leaf.IsCA {
+		return nil, errors.New("TLS server certificate must not be a certificate authority")
+	}
+	serverAuthentication := false
+	for _, usage := range leaf.ExtKeyUsage {
+		if usage == x509.ExtKeyUsageServerAuth || usage == x509.ExtKeyUsageAny {
+			serverAuthentication = true
+			break
+		}
+	}
+	if !serverAuthentication {
+		return nil, errors.New("TLS leaf certificate must allow server authentication")
+	}
+	if leaf.KeyUsage&x509.KeyUsageDigitalSignature == 0 {
+		return nil, errors.New("TLS leaf certificate must allow digital signatures")
+	}
+	now := time.Now()
+	if now.Before(leaf.NotBefore) || !now.Before(leaf.NotAfter) {
+		return nil, errors.New("TLS leaf certificate is not currently valid")
+	}
+	if err := leaf.VerifyHostname(publicURL.Hostname()); err != nil {
+		return nil, fmt.Errorf("TLS leaf certificate does not match PUBLIC_BASE_URL: %w", err)
+	}
+	certificate.Leaf = leaf
+
+	return &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{certificate},
+	}, nil
 }
 
 func env(key, fallback string) string {

@@ -5,6 +5,7 @@
 - Installing the NSIS package on another Windows 10/11 PC is NOT VERIFIED.
 - The 0.9 tablet LAN test displayed the Windows desktop but reported touch/quality issues. The 0.12 UI and media paths have synthetic browser coverage; physical 0.12 tablet revalidation is pending.
 - Public server deployment, DNS, TLS issuance, firewall rules, and TURN relay behavior are NOT VERIFIED without real infrastructure.
+- The standalone Go signaling service now has optional TLS certificate loading with HTTPS-root, leaf validity, SAN, CA/basic-constraints and server-auth EKU checks. Certificate generation includes a private-IP SAN, short validity, Windows key-file ACLs, and root-store removal instructions. Python generation and Go TLS handshake/configuration tests pass. Windows CurrentUser root-store behavior in the packaged Tauri/WebView2 client and an actual two-PC LAN HTTPS/WebRTC session are still NOT VERIFIED.
 - Go migration runner applied and reran migrations 001–003 against a temporary PostgreSQL 18.2 Windows server bound to loopback. Duplicate preflight and rollback were tested. Production and Compose database instances remain UNVERIFIED.
 - Bounded Unicode text and common navigation keys are supported; vendor mobile IME and scan-code-specific shortcuts still require real-device validation.
 - Multi-monitor absolute coordinate mapping is normalized to the primary desktop coordinate range and needs manual DPI validation.

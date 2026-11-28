@@ -10,7 +10,7 @@ Use the bundled Python runtime, which already includes `cryptography`:
 & "C:\Users\30317\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" .\scripts\new-lan-test-cert.py 192.168.0.100
 ```
 
-The command creates `.local/lan-test/` with `ca.cert.pem`, `server.cert.pem`, `server.key.pem` and a public certificate manifest. The default validity is two days, capped at seven. The server certificate contains only the chosen IP SAN. The ephemeral CA signing key is not persisted. The command refuses to overwrite an existing directory because replacing the CA would invalidate a previously built test APK.
+The command creates `.local/lan-test/` with PEM and DER copies of the temporary CA, an IP-SAN `server.cert.pem`, a host-only `server.key.pem`, and a public certificate manifest. Validity defaults to two days and can be extended to at most seven days. The ephemeral CA signing key is not persisted and no CRL is generated. Revoke test trust by removing this CA from every test user's trust store. The command refuses to overwrite an existing directory because replacing the CA would invalidate a previously built test APK.
 
 The private key is local test data. `.local/` is ignored by Git; copy only the CA certificate into a deliberately isolated Android test build. Nothing installs a root certificate into Windows or Android. No global trust store, firewall rule or operating-system policy is changed.
 

@@ -29,46 +29,106 @@ $LanHostAddress = "10.250.218.84"
 
 ## Start an isolated local signaling service
 
-From the repository on the host PC:
+Install Python 3 and prepare the certificate helper's isolated dependency environment:
 
 ```powershell
-.\scripts\dev-lan.ps1 -Address $LanHostAddress -Port 8080
+python -m venv .local\lan-cert-venv
+& .\.local\lan-cert-venv\Scripts\python.exe -m pip install -r .\scripts\requirements-lan-cert.txt
 ```
 
-Keep this foreground window open. It uses a fresh in-memory store and binds only to the selected LAN interface. The service URL is `http://<host-address>:8080`.
-
-In a second terminal on the host PC, build the Windows LAN test installer and copy it into the ignored download directory:
+Generate a short-lived certificate for the actual LAN address. The helper creates a new directory under `.local`, binds the server certificate to the selected IP address, and does not keep the CA signing key:
 
 ```powershell
-.\scripts\package-windows-lan.ps1 -Address $LanHostAddress -Port 8080
+$LanCertDir = ".\.local\lan-certs\$LanHostAddress"
+& .\.local\lan-cert-venv\Scripts\python.exe .\scripts\new-lan-test-cert.py $LanHostAddress --out $LanCertDir --days 2
 ```
 
-Then serve only that download directory:
+Install only the generated public CA certificate in each test user's CurrentUser trusted roots. Verify the DER certificate's SHA-256 against the manifest and note the Windows thumbprint:
 
 ```powershell
-python -m http.server 8090 --bind $LanHostAddress --directory .\.local\lan-test-download
+$LanCertificate = Get-Content -LiteralPath "$LanCertDir\manifest.json" -Raw | ConvertFrom-Json
+$LanCaThumbprint = $LanCertificate.caThumbprintSha1
+if ((Get-FileHash -LiteralPath "$LanCertDir\ca.cert.cer" -Algorithm SHA256).Hash.ToLowerInvariant() -ne $LanCertificate.caSha256) { throw "LAN CA fingerprint does not match the manifest." }
+certutil.exe -user -addstore Root "$LanCertDir\ca.cert.cer"
 ```
 
-The download URL is:
+For the controller, transfer only `ca.cert.cer` and the public manifest. An HTTP download is acceptable only when the CA SHA-256 is compared with the host's manifest over a separate trusted channel before installation. Never transfer `server.key.pem` to the controller.
+
+On the controller, use the local copied paths and independently verify the fingerprint before importing the CA:
+
+```powershell
+$ControllerCaFile = ".\test-material\ca.cert.cer"
+$ControllerManifest = Get-Content -LiteralPath ".\test-material\manifest.json" -Raw | ConvertFrom-Json
+if ((Get-FileHash -LiteralPath $ControllerCaFile -Algorithm SHA256).Hash.ToLowerInvariant() -ne $ControllerManifest.caSha256) { throw "LAN CA fingerprint does not match the host's authenticated manifest." }
+$LanCaThumbprint = $ControllerManifest.caThumbprintSha1
+certutil.exe -user -addstore Root $ControllerCaFile
+```
+
+The temporary CA signing key is discarded. The server leaf certificate advertises an empty, short-lived CRL over the LAN-only download listener because Windows Schannel rejects a test certificate when it cannot check revocation status. Early revocation uses trust-anchor removal. Remove the CA from CurrentUser\Root on each test PC after the run, or immediately if the server key is exposed. Removing the root invalidates every server certificate signed by that CA:
+
+```powershell
+certutil.exe -user -delstore Root $LanCaThumbprint
+if (Get-ChildItem Cert:\CurrentUser\Root | Where-Object Thumbprint -eq $LanCaThumbprint) { throw "Temporary LAN CA is still trusted in this user store." }
+```
+
+The generator gives the certificate directory access only to the current Windows user and SYSTEM, then restricts `server.key.pem` to read access for those identities. Use a disposable certificate with a maximum seven-day lifetime and regenerate it when the LAN IP changes.
+
+Start the foreground service with TLS enabled. The Go server checks that the certificate is currently valid and matches the HTTPS `PUBLIC_BASE_URL` host before listening:
+
+```powershell
+.\scripts\dev-lan.ps1 -Address $LanHostAddress -Port 8443 -TlsCertFile "$LanCertDir\server.cert.pem" -TlsKeyFile "$LanCertDir\server.key.pem"
+```
+
+Keep this foreground window open. It uses a fresh in-memory store and binds only to the selected LAN interface. The secure service URL is `https://<host-address>:8443`.
+
+Build a normal Windows client with the secure service URL. It retains certificate validation and WSS signaling:
+
+```powershell
+.\scripts\package-windows.ps1 -SignalingUrl "https://${LanHostAddress}:8443"
+```
+
+Publish only public test material and the client installer. Do not copy `server.key.pem` into this directory:
+
+```powershell
+New-Item -ItemType Directory -Force "$LanCertDir\public" | Out-Null
+Copy-Item .\.local\lan-certs\$LanHostAddress\ca.cert.cer "$LanCertDir\public\ca.cert.cer"
+Copy-Item .\.local\lan-certs\$LanHostAddress\manifest.json "$LanCertDir\public\manifest.json"
+Copy-Item .\.local\lan-certs\$LanHostAddress\lan-ca.crl "$LanCertDir\public\lan-ca.crl"
+Copy-Item .\src-tauri\target\release\bundle\nsis\RemoteAssist_0.15.1-alpha_x64-setup.exe "$LanCertDir\public\RemoteAssist_0.15.1-alpha_x64-setup.exe"
+python -m http.server 8090 --bind $LanHostAddress --directory "$LanCertDir\public"
+```
+
+The optional HTTP server exposes only the public CA certificate, manifest, empty CRL, and interactive Windows installer. It does not carry account credentials, tokens, screen data, or signaling traffic. Verify the CA fingerprint and installer SHA-256 hash over a trusted channel before using them. The signaling endpoint remains HTTPS/WSS.
+
+The temporary installer download URL is:
 
 ```text
 http://<host-address>:8090/RemoteAssist_0.15.1-alpha_x64-setup.exe
 ```
 
-If Windows Firewall asks, allow the foreground Go signaling process and Python download server on the trusted **Private** network only. Do not disable the firewall or create a router port-forward.
+If Windows Firewall asks, allow the foreground Go signaling process and optional Python download server on the trusted **Private** network only. Do not disable the firewall or create a router port-forward.
 
 ## Install and confirm service reachability
 
-On both PCs, download the installer from the host and install it interactively. The LAN package embeds the selected host service URL. If a different saved service URL is present, use Settings → Connection service to set `http://<host-address>:8080`.
+On both PCs, install the normal Windows client interactively. It embeds the selected HTTPS service URL. The app uses the Windows certificate store to validate the generated LAN certificate. If a different saved service URL is present, open Settings → Connection service and set `https://<host-address>:8443`.
 
 On the second PC:
 
 ```powershell
-Test-NetConnection <host-address> -Port 8080
+Test-NetConnection <host-address> -Port 8443
 Test-NetConnection <host-address> -Port 8090
 ```
 
-On the host, verify `http://127.0.0.1:8080/healthz` returns status `ok`. A working `/healthz` or TCP port does not establish WebRTC media connectivity.
+On the host, verify `https://<host-address>:8443/healthz` returns status `ok` in a browser running as the user who trusted the CA. A working `/healthz` or TCP port does not establish WebRTC media connectivity.
+
+An isolated HTTP debug route remains available only for disposable accounts and a separate `lan-test` build:
+
+```powershell
+.\scripts\dev-lan.ps1 -Address $LanHostAddress -Port 8080 -InsecureHttpTest
+.\scripts\package-windows-lan.ps1 -Address $LanHostAddress -Port 8080
+```
+
+That path transmits credentials and tokens without transport encryption. Do not reuse personal passwords, deploy it to the public internet, or describe it as secure LAN operation.
 
 ## Flow A — same-account devices
 

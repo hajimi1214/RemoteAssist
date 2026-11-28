@@ -16,6 +16,8 @@ The signaling container runs as an unprivileged user with a read-only root files
 
 The Compose services and signaling Dockerfile base images are pinned to multi-platform OCI index digests. This makes a deployment reproducible across tag movement while selecting the matching platform manifest. To upgrade an upstream image, deliberately change both its reviewed tag and digest, refresh the component inventory, and regenerate/review its SBOM before deployment. Verify the resulting Compose configuration before applying it.
 
+The production Compose topology terminates public HTTPS at Caddy. Go signaling listens on port 8080 inside the Compose network and is not published directly. Do not mount a development LAN certificate into the public deployment by setting `TLS_CERT_FILE` or `TLS_KEY_FILE` unless you also redesign and review the Caddy-to-signaling transport. For a standalone trusted-LAN test only, `scripts/dev-lan.ps1` can start the Go listener with an IP-SAN certificate and matching `PUBLIC_BASE_URL`; follow the certificate creation, per-user trust, key protection, fingerprint verification and trust-removal steps in the [LAN two-PC runbook](lan-two-pc-runbook.md). This direct LAN mode is separate from the production Caddy deployment.
+
 Point the domain A/AAAA record to the server. Caddy listens on TCP `80` and `443` and obtains TLS certificates automatically.
 
 ## Ports

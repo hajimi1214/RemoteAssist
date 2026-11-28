@@ -63,9 +63,11 @@ export interface DirectPending {id:string;hostToken:string;expiresAt:string;cont
 export interface CodeHostSession {id:string;code:string;hostToken:string;expiresAt:string}
 export interface CodeControlSession {id:string;controllerToken:string;expiresAt:string}
 
-type ClientBuildEnv = { DEV?: boolean; PROD?: boolean; VITE_SIGNALING_URL?: string };
+type ClientBuildEnv = { VITE_SIGNALING_URL?: string };
 const clientBuildEnv = (import.meta as ImportMeta & { env?: ClientBuildEnv }).env ?? {};
-const defaultBaseURL = configuredServer() || clientBuildEnv.VITE_SIGNALING_URL || (clientBuildEnv.DEV && !androidClient ? "http://localhost:8080" : "");
+const developmentBuild = import.meta.env?.DEV === true;
+const productionBuild = import.meta.env?.PROD === true;
+const defaultBaseURL = configuredServer() || clientBuildEnv.VITE_SIGNALING_URL || (developmentBuild && !androidClient ? "http://localhost:8080" : "");
 
 export class SignalingClient {
   private refreshFlight?: { token: string; result: Promise<AuthResult> };
@@ -176,7 +178,7 @@ export class SignalingClient {
     const url = new URL(this.getBaseURL());
     const lanHttp = allowsLanHttp(url);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    if (clientBuildEnv.PROD && url.protocol !== "wss:" && !lanHttp) {
+    if (productionBuild && url.protocol !== "wss:" && !lanHttp) {
       throw new Error("production_signaling_requires_tls");
     }
     url.pathname = "/api/v1/ws";
@@ -212,7 +214,7 @@ export class SignalingClient {
     } catch {
       throw new Error("invalid_signaling_service_url");
     }
-    if (!(url.protocol === "https:" || (clientBuildEnv.DEV && url.protocol === "http:") || allowsLanHttp(url))) {
+    if (!(url.protocol === "https:" || (developmentBuild && url.protocol === "http:") || allowsLanHttp(url))) {
       throw new Error("signaling_service_requires_tls");
     }
     if (url.username || url.password || url.pathname !== "/" || url.search || url.hash) {

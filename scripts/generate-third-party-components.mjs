@@ -183,13 +183,48 @@ if (unreferencedContainerImages.length > 0) {
   throw new Error(`Container image inventory entries have no Dockerfile/Compose reference: ${unreferencedContainerImages.join(", ")}`);
 }
 
+const pythonRequirements = new Map();
+for (const line of readFileSync(resolve(repositoryRoot, "scripts/requirements-lan-cert.txt"), "utf8").split(/\r?\n/)) {
+  const trimmed = line.trim();
+  if (!trimmed) continue;
+  const match = /^(?<name>[a-zA-Z0-9_-]+)==(?<version>[^\s;]+)$/.exec(trimmed);
+  if (!match || pythonRequirements.has(match.groups.name)) {
+    throw new Error(`Invalid or duplicated pinned Python package requirement: ${trimmed}`);
+  }
+  pythonRequirements.set(match.groups.name, match.groups.version);
+}
+
+const pythonPackageMetadata = new Map([
+  ["cffi", { license: "MIT-0", scope: "transitive", use: "optional LAN certificate helper dependency" }],
+  ["cryptography", { license: "Apache-2.0 OR BSD-3-Clause", scope: "direct", use: "optional LAN certificate and CRL generation helper" }],
+  ["pycparser", { license: "BSD-3-Clause", scope: "transitive", use: "optional LAN certificate helper dependency" }]
+]);
+if (pythonRequirements.size !== pythonPackageMetadata.size) {
+  throw new Error("Pinned LAN certificate Python requirements do not match the reviewed package inventory.");
+}
+for (const [component, metadata] of pythonPackageMetadata) {
+  const version = pythonRequirements.get(component);
+  if (!version) throw new Error(`Pinned Python requirement is missing from inventory metadata: ${component}`);
+  addRow(
+    rows,
+    "Python package",
+    component,
+    version,
+    metadata.scope,
+    metadata.license,
+    `${metadata.use}, pinned in scripts/requirements-lan-cert.txt`,
+    "PyPI metadata"
+  );
+}
+
 const additionalComponents = [
-  ["GitHub Action", "actions/checkout", "v7.0.1 @ 3d3c42e5aac5ba805825da76410c181273ba90b1", "MIT", "CI source checkout (Node 24 runtime)", ".github/workflows/ci.yml"],
-  ["GitHub Action", "actions/setup-node", "v7.1.0 @ 949feb2413d6458794dcd2491c4babbbce0c15c1", "MIT", "CI Node.js setup (Node 24 runtime)", ".github/workflows/ci.yml"],
-  ["GitHub Action", "actions/setup-go", "v6.2.0 @ 7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5", "MIT", "CI Go setup (Node 24 runtime)", ".github/workflows/ci.yml"],
-  ["GitHub Action", "dtolnay/rust-toolchain", "stable @ 39008827e6b4319a349e9a42dfc90579dd25f1ca", "MIT", "CI Rust toolchain setup", ".github/workflows/ci.yml"],
-  ["build distribution", "Gradle Wrapper", "9.6.1-bin", "Apache-2.0", "Android build distribution, checksum pinned in wrapper properties", "src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties"],
-  ["runtime platform", "Microsoft WebView2 Evergreen Runtime", "user/system installed", "Microsoft proprietary terms", "Windows Tauri webview runtime, not redistributed by this repository", "Tauri 2 Windows runtime dependency"]
+  ["GitHub Action", "actions/checkout", "v7.0.1 @ 3d3c42e5aac5ba805825da76410c181273ba90b1", "direct", "MIT", "CI source checkout (Node 24 runtime)", ".github/workflows/ci.yml"],
+  ["GitHub Action", "actions/setup-node", "v7.1.0 @ 949feb2413d6458794dcd2491c4babbbce0c15c1", "direct", "MIT", "CI Node.js setup (Node 24 runtime)", ".github/workflows/ci.yml"],
+  ["GitHub Action", "actions/setup-go", "v6.2.0 @ 7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5", "direct", "MIT", "CI Go setup (Node 24 runtime)", ".github/workflows/ci.yml"],
+  ["GitHub Action", "dtolnay/rust-toolchain", "stable @ 39008827e6b4319a349e9a42dfc90579dd25f1ca", "direct", "MIT", "CI Rust toolchain setup", ".github/workflows/ci.yml"],
+  ["build distribution", "Gradle Wrapper", "9.6.1-bin", "direct", "Apache-2.0", "Android build distribution, checksum pinned in wrapper properties", "src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties"],
+  ["Python development runtime", "CPython", "3.12.x", "optional local LAN certificate helper; not bundled by RemoteAssist", "PSF-2.0", "Python runtime for LAN certificate generation", "https://docs.python.org/3/license.html"],
+  ["runtime platform", "Microsoft WebView2 Evergreen Runtime", "user/system installed", "runtime platform", "Microsoft proprietary terms", "Windows Tauri webview runtime, not redistributed by this repository", "Tauri 2 Windows runtime dependency"]
 ];
 
 rows.push(...containerImageRows);
