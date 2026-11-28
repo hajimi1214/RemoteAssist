@@ -35,6 +35,7 @@ jobs:
           cache: true
       - run: go test -race ./...
       - run: go vet ./...
+      - run: go mod verify
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
 
   component-inventory:
@@ -71,6 +72,9 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: rustup update stable --no-self-update
+      - run: rustup component add rustfmt --toolchain stable
+      - run: cargo +stable fmt --all -- --check
+        working-directory: src-tauri
       - run: cargo +stable check --locked
         working-directory: src-tauri
       - run: cargo +stable test --locked

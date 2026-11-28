@@ -4,6 +4,10 @@ RemoteAssist does not provide or require an author-operated public signaling or 
 
 Read the [Chinese project overview](README.zh-CN.md), [contribution guide](CONTRIBUTING.md), [support notes](SUPPORT.md), or [security policy](SECURITY.md).
 
+## Project status
+
+The current development version is `0.15.1-alpha`. The project-level license has not been selected yet. Source code and binaries are not covered by a project license grant, and third-party dependency licenses and notices do not license RemoteAssist itself. Check the [open-source audit](docs/g0-open-source-audit.md) and [third-party notices](LICENSES.md) before redistribution. Windows packages are currently unsigned.
+
 Version 0.15.1 adds a five-section settings center with search, precise mouse sensitivity input, confirmed preference reset and visible save outcomes. Local storage failures retain usable in-memory preferences for the current run. See the [settings UX design and validation notes](docs/settings-ux-0.15.md).
 
 Version 0.15 adds opt-in relative mouse capture for game camera control, a bounded coalescing path that preserves accumulated mouse deltas, a game-oriented encoder target, and fixed the draw-before-requestFrame ordering for partial desktop updates. Aliyun ECS/Coturn setup and test guidance and the game-streaming references are included. See [game-streaming research and acceptance notes](docs/game-streaming-research.md) and [Aliyun deployment](docs/aliyun-game-deployment.md). The game-profile Sharp ceiling now targets up to 1440p60 / 18 Mbps, with the bitrate cap scaled to the source pixel count and congestion-based downgrade still enabled. These are limits, not verified output. Physical game and real ECS/WAN behavior remain unverified. This version is video-only and the Windows SendInput mouse path is not physical HID/Raw Input, so it is not yet a complete game-streaming replacement.
