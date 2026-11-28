@@ -1,10 +1,10 @@
 # Status
 
-## G0 accepted; G1 preparation
+## G0 accepted; G1 in progress
 
 - G0 accepted by the owner on 2026-11-28. The owner confirmed the bundled application icons were self-generated.
 - The project license remains unselected and private vulnerability reporting is not configured. Both remain pre-public-redistribution gates.
-- G1 has not started. A separate G1 branch and baseline plan will be prepared after the G0 acceptance commit.
+- G1 work is on the separate branch `codex/g1-lan-self-hosting`. Initial scope is a documented, certificate-validated HTTPS signaling endpoint for trusted LAN tests, then self-host configuration/operations validation. Real two-Windows media/input, public HTTPS, and TURN acceptance remain pending.
 
 - Dependency advisory refresh on 2026-11-28: npm audit found 0/88 vulnerable packages; govulncheck v1.10.0 on Go 1.26.11 found no reachable Go vulnerabilities; cargo-audit 0.23.0 found 0 vulnerabilities among 447 locked crates against RustSec database commit `c5279d0b0c9e8b70df666eb6d1edbabcfd1176bd`. Three unmaintained/unsound informational findings remain. `glib` and GTK are absent from the Windows/MSVC target dependency graph. Details are recorded in [`security review`](docs/security-review-latest.md).
 - Current-source Windows x64 Release package: PASS from application source revision `e0416dc`. Portable EXE SHA-256 `730E9321F814740BF46C937A48BAC6BB7BE76839B1BB3BF027C9171F6A5CA368` at 10,602,496 bytes. NSIS installer SHA-256 `4A4075B647F393AC60558B2872D7D9A1817624DEF5BDD84C4AC5DCF320E7C5A9` at 2,434,732 bytes. Authenticode status is `NotSigned`. The Release binary and extracted NSIS executable contain no localhost HTTP/WS backend addresses. The embedded application executable matches all standalone PE sections except Tauri's expected `UNK` to `NSS` three-byte bundle marker. The NSIS archive contains no LICENSE/NOTICE/COPYING file. Build passed; independent installation and launch remain unverified.
