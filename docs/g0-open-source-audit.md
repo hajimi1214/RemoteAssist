@@ -4,7 +4,7 @@ Audit date: 2026-11-28
 
 ## Scope and source revision
 
-The source review uses the published audit branch at `8d80618c70f4f8c02cec34a1687ecf7557aef54e`, which matches `origin/codex/g0-open-source-audit`. A fresh fetch on 2026-11-28 confirmed GitHub `main` remains at `2e4806f57ecef4bc295a6cdda2e9639a930443a8`; that commit is an ancestor of the audit branch and `main` is unchanged.
+The application source review and Windows release-artifact audit use source commit `e0416dced3e04a8e7451095d2279c29697dd0789`. The G0 review branch is published as `origin/codex/g0-open-source-audit` and contains subsequent audit and deployment-input follow-ups. A fresh fetch on 2026-11-28 confirmed GitHub `main` remains at `2e4806f57ecef4bc295a6cdda2e9639a930443a8`; it is an ancestor of the review branch and was not modified.
 
 The source review covered React/TypeScript, Tauri configuration and capabilities, Rust capture and input, Go HTTP/WebSocket/session/authentication/database code, PostgreSQL migrations, Docker Compose, deployment scripts, Windows and Android packaging, and GitHub Actions. This is a repository review with automated checks. It is not a penetration test, legal opinion, full accessibility audit, or review of every generated installer and container package.
 
@@ -135,7 +135,7 @@ The repository now has English and Chinese project homepages, `CONTRIBUTING.md`,
 | GitHub Actions workflow lint | PASS, actionlint 1.7.7 |
 | Container image OCI index digests | PASS, all 5 Dockerfile/Compose pins match Docker Hub registry metadata queried on 2026-11-28 |
 | Docker Compose after digest pinning | PASS, `docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config --quiet` |
-| Rendered Compose image list | PASS, all four upstream services retain their digest-qualified image references; signaling remains the locally built project image |
+| Rendered Compose image list | PASS, all three upstream services retain their digest-qualified image references; signaling remains the locally built project image |
 | Container image inventory drift detection | PASS, the inventory is derived from Dockerfile `FROM` and Compose `image:` references and rejects unpinned/unknown images |
 | Markdown links in new project/participation docs | PASS, local targets resolve |
 | GitHub Issue forms | PASS, both YAML files parsed with temporary PyYAML 6.0.3 under `.local/`, and required fields/privacy statements checked. No Python project dependency was added |
