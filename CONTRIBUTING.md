@@ -6,7 +6,7 @@ Thank you for considering a contribution. RemoteAssist is a visible, user-author
 
 The project is currently `0.15.1-alpha`. The copyright holder has not yet selected a project-level license. Until that decision is made, do not add a license grant, CLA, copyright notice, third-party asset, or copied implementation on behalf of the project. Proposed contributions may be reviewed, but merging and redistribution must follow the repository owner's licensing decision.
 
-The staged roadmap and acceptance boundaries are in [`PLANS.md`](PLANS.md). G0 is awaiting owner review. Do not treat local builds as evidence of public-network or independent two-PC acceptance.
+The staged roadmap and acceptance boundaries are in [`PLANS.md`](PLANS.md). G0 was accepted on 2026-11-28 and G1 is in progress. Do not treat local builds as evidence of public-network or independent two-PC acceptance.
 
 ## Before opening an issue or pull request
 

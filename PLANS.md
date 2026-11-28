@@ -15,8 +15,8 @@ Complete and review each stage before starting the next one. Each stage needs a 
 
 | Stage | Scope | Current status | Gate |
 |---|---|---|---|
-| G0 | Source/security review, dependency and license inventory, feature-status matrix, technical debt, open-source release risks | READY FOR OWNER REVIEW. See [`G0 audit`](docs/g0-open-source-audit.md) | Owner confirms project copyright authority, license direction, and icon provenance; configure private vulnerability reporting before a public release |
-| G1 | Trusted LAN use, safe self-hosted signaling/database/TURN deployment, server configuration and recovery, two-Windows LAN acceptance | NOT STARTED | Real two-PC LAN media/input and self-host configuration acceptance |
+| G0 | Source/security review, dependency and license inventory, feature-status matrix, technical debt, open-source release risks | ACCEPTED 2026-11-28. See [`G0 audit`](docs/g0-open-source-audit.md) | Before public release, select and apply the project license and configure private vulnerability reporting |
+| G1 | Trusted LAN use, safe self-hosted signaling/database/TURN deployment, server configuration and recovery, two-Windows LAN acceptance | IN PROGRESS on `codex/g1-lan-self-hosting` | Real two-PC LAN media/input and self-host configuration acceptance |
 | G2 | End-to-end capture, encode, network, decode, presentation and input latency measurement and optimization | NOT STARTED | Repeatable measured performance on documented physical endpoints and network conditions |
 | G3 | Additional remote-desktop capabilities such as multi-display, audio, clipboard and file transfer | NOT STARTED | Design and acceptance for each feature, with authorization/privacy controls |
 | G4 | Security, long-duration stability, recovery, platform capability matrices and maintenance | NOT STARTED | Security/stability evidence for each supported platform |
