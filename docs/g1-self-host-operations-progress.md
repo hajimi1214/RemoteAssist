@@ -10,8 +10,9 @@ The standalone LAN certificate flow from [G1.1](g1-lan-https-progress.md) uses a
 
 ## Changes
 
-- `backup-postgres.ps1` now validates its deployment inputs, writes `pg_dump` output to a same-directory temporary file, checks process status, nonempty content and the plain-SQL dump header, then replaces the destination only after validation succeeds.
-- `restore-postgres.ps1` checks the deployment env file and input dump, then invokes `psql` with `ON_ERROR_STOP` and `--single-transaction`. The operator must stop signaling and restore into an empty database. The script does not drop or recreate a database.
+- The shared PostgreSQL maintenance helper parses `DATABASE_URL`, requires its database, role and password to match `POSTGRES_DB`, `POSTGRES_USER` and `POSTGRES_PASSWORD`, and requires the internal `postgres` service host. Restore database identifiers are UTF-8-length and character-set checked before being passed to the PostgreSQL container shell.
+- `backup-postgres.ps1` writes `pg_dump` output to a same-directory temporary file, checks process status, nonempty content and the plain-SQL dump header, then atomically replaces the destination only after validation succeeds. Failure leaves the previous backup untouched.
+- `restore-postgres.ps1` checks the deployment env file and input dump, then invokes `psql` with `ON_ERROR_STOP` and `--single-transaction`. It defaults to the database named by `DATABASE_URL`; `-DatabaseName` supports restoring into a separate empty recovery database. The operator must stop signaling before cutover. The script does not drop or recreate a database.
 - The database and deployment guides explain backup file protection and restore transaction behavior.
 
 ## Verification
@@ -19,10 +20,13 @@ The standalone LAN certificate flow from [G1.1](g1-lan-https-progress.md) uses a
 | Check | Result |
 |---|---|
 | Docker Compose configuration | PASS, rendered configuration accepts `deploy/.env.example` |
-| Deployment verifier on the tracked template | PASS, refuses template values before applying the configuration |
-| PowerShell parser | PASS for backup, restore, deployment verification and database migration scripts |
+| Deployment verifier | PASS for a synthetic test-only configuration. It rejects `deploy/.env.example` placeholders and renders Compose without exposing secrets |
+| PowerShell parser | PASS for backup, restore, maintenance helper, deployment verifier and both test fixtures |
+| PostgreSQL maintenance fixture | PASS for `DATABASE_URL` host/database/role/password matching, rejecting external or mismatched targets, validating UTF-8/BOM dump headers, rejecting a late header, same-directory replacement semantics and preserving an existing backup when preflight fails |
+| Deployment verifier test fixture | PASS for a valid synthetic Compose configuration, template rejection and invalid database host/name/role/password cases |
+| Docker Compose environment override check | PASS. A process-level `DATABASE_URL` override is detected after Compose renders its effective environment |
 | Docker Engine | NOT VERIFIED. The Docker CLI is installed but its Linux engine endpoint is unavailable |
-| Positive verifier against a local deployment env | NOT VERIFIED. No `deploy/.env` is present |
+| Current operator `deploy/.env` | NOT VERIFIED. No local deployment env is present |
 | Compose PostgreSQL health, live migrations, backup and restore | NOT VERIFIED without Docker Engine |
 | Local PostgreSQL runtime | Previous G0 evidence covers migrations on PostgreSQL 18.2. It does not establish the current Compose database or backup/restore workflow |
 

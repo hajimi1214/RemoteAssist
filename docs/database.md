@@ -1,6 +1,8 @@
 # Database
 
-The canonical PostgreSQL migrations live in `server/internal/database/migrations` and are embedded by the Go migration command. Matching SQL files are mirrored in `server/migrations` for deployment inspection. Migration tests verify the mirrored copies stay identical.
+The canonical PostgreSQL migrations live in `server/internal/database/migrations` and are embedded by the Go migration command. Matching SQL files are mirrored in `server/migrations` for deployment inspection. Migration tests verify the mirrored copies stay identical. Migrations execute in sorted filename order in one PostgreSQL transaction under an advisory lock. The runner records applied versions and provides no automatic down-migration.
+
+Run `scripts/test-postgres-maintenance.ps1` to exercise local dump-header and Compose database-target validation without connecting to PostgreSQL.
 
 Migration 003 adds case-insensitive unique indexes for usernames and email addresses after the existing migration 002 adds user roles. It checks for case-folded duplicates before creating the indexes and fails with an actionable error without renaming or deleting accounts if conflicts exist. Normalize or resolve any such legacy accounts before retrying deployment.
 
@@ -35,7 +37,7 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --en
 .\scripts\backup-postgres.ps1 -Output remoteassist-backup.sql
 ```
 
-The script writes a plain-SQL dump to a temporary file and replaces the requested output only after `pg_dump` exits successfully and the dump header is verified. The backup contains account and device records and audit metadata. Store it in an access-restricted, encrypted backup location and keep it out of Git.
+The script takes the database named by `DATABASE_URL` after validating its Compose host, database, user and password against the PostgreSQL service settings. It writes a plain-SQL dump to a temporary file and replaces the requested output only after `pg_dump` exits successfully and the dump header is verified. The backup contains account and device records and audit metadata. Store it in an access-restricted, encrypted backup location and keep it out of Git.
 
 ## Restore
 
@@ -43,4 +45,4 @@ The script writes a plain-SQL dump to a temporary file and replaces the requeste
 .\scripts\restore-postgres.ps1 -Input remoteassist-backup.sql
 ```
 
-Stop the signaling service before restoring. The target database must be empty. Restore uses `ON_ERROR_STOP` and one SQL transaction; a SQL error returns a nonzero result and rolls the transaction back. The script does not drop or recreate a database, so existing tables and rows remain in place if restoration fails.
+Stop the signaling service before restoring. The target database must be empty. By default, restore targets the database named by `DATABASE_URL`. Restore uses `ON_ERROR_STOP` and one SQL transaction; a SQL error returns a nonzero result and rolls the transaction back. The script does not drop or recreate a database, so existing tables and rows remain in place if restoration fails. Supply `-DatabaseName` to restore a recovery copy into a separate empty database before switching `DATABASE_URL`.

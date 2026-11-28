@@ -2,6 +2,8 @@ param(
   [string]$Output = "remoteassist-backup.sql"
 )
 
+$sharedHelpers = Join-Path $PSScriptRoot "postgres-dump.ps1"
+. $sharedHelpers
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
 $root = Split-Path -Parent $PSScriptRoot
@@ -11,6 +13,8 @@ $docker = Get-Command docker.exe -CommandType Application -ErrorAction SilentlyC
 
 if (!(Test-Path -LiteralPath $envFile -PathType Leaf)) { throw "Deployment env file not found: $envFile" }
 if (!$docker) { throw "Docker CLI was not found." }
+
+$databaseTarget = Get-ComposePostgresTarget $envFile
 
 $outputPath = [System.IO.Path]::GetFullPath($Output)
 $outputDirectory = Split-Path -Parent $outputPath
@@ -23,8 +27,8 @@ if (Test-Path -LiteralPath $temporaryPath) { throw "Temporary backup path alread
 
 $arguments = @(
   "compose", "--env-file", $envFile, "-f", $composeFile,
-  "exec", "-T", "postgres", "sh", "-c",
-  'exec pg_dump --no-password --username="$POSTGRES_USER" "$POSTGRES_DB"'
+  "exec", "-T", "-e", "BACKUP_DATABASE=$($databaseTarget.DatabaseName)", "-e", "BACKUP_USERNAME=$($databaseTarget.UserName)", "postgres", "sh", "-c",
+  'exec pg_dump --no-password --username="$BACKUP_USERNAME" "$BACKUP_DATABASE"'
 )
 
 try {
@@ -34,15 +38,11 @@ try {
   if (!(Test-Path -LiteralPath $temporaryPath -PathType Leaf) -or (Get-Item -LiteralPath $temporaryPath).Length -eq 0) {
     throw "PostgreSQL backup produced an empty output file."
   }
-  if ((Get-Content -LiteralPath $temporaryPath -Encoding UTF8 -TotalCount 5) -notcontains "-- PostgreSQL database dump") {
+  if (-not (Test-PlainPostgreSqlDumpHeader $temporaryPath)) {
     throw "PostgreSQL backup output did not contain the expected plain-SQL dump header."
   }
 
-  if (Test-Path -LiteralPath $outputPath -PathType Leaf) {
-    [System.IO.File]::Replace($temporaryPath, $outputPath, $null)
-  } else {
-    [System.IO.File]::Move($temporaryPath, $outputPath)
-  }
+  [System.IO.File]::Move($temporaryPath, $outputPath, $true)
   Write-Host "PostgreSQL backup written to $outputPath"
 } finally {
   Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue

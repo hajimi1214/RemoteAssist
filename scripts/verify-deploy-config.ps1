@@ -45,6 +45,21 @@ if ($values["JWT_SECRET"] -eq $values["REFRESH_TOKEN_SECRET"] -or
 if ([string]$values["PUBLIC_BASE_URL"] -notmatch '^https://') {
   throw "PUBLIC_BASE_URL must use https://"
 }
+$databaseUri = $null
+if (![Uri]::TryCreate([string]$values["DATABASE_URL"], [UriKind]::Absolute, [ref]$databaseUri) -or $databaseUri.Scheme -notin @("postgres", "postgresql")) {
+  throw "DATABASE_URL must be an absolute PostgreSQL connection URL."
+}
+if ($databaseUri.Host -cne "postgres" -or ($databaseUri.Port -ne -1 -and $databaseUri.Port -ne 5432)) {
+  throw "DATABASE_URL must target the Compose PostgreSQL service."
+}
+$databaseName = [Uri]::UnescapeDataString($databaseUri.AbsolutePath.TrimStart('/'))
+$databaseCredentials = $databaseUri.UserInfo.Split(':', 2)
+if ($databaseCredentials.Count -ne 2 -or [Uri]::UnescapeDataString($databaseCredentials[1]) -cne [string]$values["POSTGRES_PASSWORD"]) {
+  throw "DATABASE_URL credentials must match POSTGRES_USER and POSTGRES_PASSWORD."
+}
+$databaseUser = [Uri]::UnescapeDataString($databaseCredentials[0])
+if ($databaseName -cne [string]$values["POSTGRES_DB"]) { throw "DATABASE_URL database must match POSTGRES_DB." }
+if ($databaseUser -cne [string]$values["POSTGRES_USER"]) { throw "DATABASE_URL user must match POSTGRES_USER." }
 if (!(([string]$values["TURN_URLS"] -split ',' | ForEach-Object { $_.Trim() }) -match '^turn:[A-Za-z0-9.-]+:3478(?:\?transport=udp)?$')) {
   throw "TURN_URLS must advertise a UDP listener at port 3478 (turn:hostname:3478?transport=udp)."
 }
@@ -119,6 +134,9 @@ $expectedArgs = @(
 )
 foreach ($arg in $expectedArgs) {
   if ($arg -cnotin $turn.command) { throw "Coturn arguments do not match the verified deployment settings. Check Compose overrides." }
+}
+if ($compose.services.signaling.environment.DATABASE_URL -cne $values["DATABASE_URL"]) {
+  throw "Effective DATABASE_URL differs from the deployment env file. Check Compose overrides."
 }
 if ($turn.networks.turn.ipv4_address -ne $relay -or $compose.networks.turn.ipam.config[0].subnet -ne $subnet -or
     $compose.services.signaling.environment.TURN_URLS -cne $values["TURN_URLS"] -or
