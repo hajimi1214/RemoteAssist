@@ -35,8 +35,12 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm --en
 .\scripts\backup-postgres.ps1 -Output remoteassist-backup.sql
 ```
 
+The script writes a plain-SQL dump to a temporary file and replaces the requested output only after `pg_dump` exits successfully and the dump header is verified. The backup contains account and device records and audit metadata. Store it in an access-restricted, encrypted backup location and keep it out of Git.
+
 ## Restore
 
 ```powershell
 .\scripts\restore-postgres.ps1 -Input remoteassist-backup.sql
 ```
+
+Stop the signaling service before restoring. The target database must be empty. Restore uses `ON_ERROR_STOP` and one SQL transaction; a SQL error returns a nonzero result and rolls the transaction back. The script does not drop or recreate a database, so existing tables and rows remain in place if restoration fails.

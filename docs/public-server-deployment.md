@@ -84,7 +84,11 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs -f caddy
 .\scripts\backup-postgres.ps1 -Output remoteassist-backup.sql
 ```
 
+The backup script verifies a successful plain-SQL dump and commits the output file only after validation. Restrict access to the file and store it encrypted. It contains account, device, token-hash and audit metadata.
+
 ## Restore
+
+Stop signaling and restore into an empty target database. The restore script uses `ON_ERROR_STOP` and a single transaction. It does not drop an existing database. Any SQL failure rolls the restore back.
 
 ```powershell
 .\scripts\restore-postgres.ps1 -Input remoteassist-backup.sql

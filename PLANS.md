@@ -16,7 +16,7 @@ Complete and review each stage before starting the next one. Each stage needs a 
 | Stage | Scope | Current status | Gate |
 |---|---|---|---|
 | G0 | Source/security review, dependency and license inventory, feature-status matrix, technical debt, open-source release risks | PASS — owner accepted 2026-11-28. See [`G0 audit`](docs/g0-open-source-audit.md) | Before public redistribution, select and apply a project license and configure private vulnerability reporting |
-| G1 | Trusted LAN use, safe self-hosted signaling/database/TURN deployment, server configuration and recovery, two-Windows LAN acceptance | IN PROGRESS on `codex/g1-lan-self-hosting`. G1.1 adds and locally validates LAN HTTPS signaling | Real two-PC LAN media/input and self-host configuration acceptance |
+| G1 | Trusted LAN use, safe self-hosted signaling/database/TURN deployment, server configuration and recovery, two-Windows LAN acceptance | IN PROGRESS on `codex/g1-lan-self-hosting`. G1.1 locally validates HTTPS signaling; G1.2 documents and hardens backup/restore operations | Real two-PC LAN media/input, live Compose database recovery, and self-host server acceptance |
 | G2 | End-to-end capture, encode, network, decode, presentation and input latency measurement and optimization | NOT STARTED | Repeatable measured performance on documented physical endpoints and network conditions |
 | G3 | Additional remote-desktop capabilities such as multi-display, audio, clipboard and file transfer | NOT STARTED | Design and acceptance for each feature, with authorization/privacy controls |
 | G4 | Security, long-duration stability, recovery, platform capability matrices and maintenance | NOT STARTED | Security/stability evidence for each supported platform |

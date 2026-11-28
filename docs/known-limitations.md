@@ -7,6 +7,7 @@
 - Public server deployment, DNS, TLS issuance, firewall rules, and TURN relay behavior are NOT VERIFIED without real infrastructure.
 - The standalone Go signaling service now has optional TLS certificate loading with HTTPS-root, leaf validity, SAN, CA/basic-constraints and server-auth EKU checks. Certificate generation includes a private-IP SAN, short validity, Windows key-file ACLs, and root-store removal instructions. Python generation and Go TLS handshake/configuration tests pass. Windows CurrentUser root-store behavior in the packaged Tauri/WebView2 client and an actual two-PC LAN HTTPS/WebRTC session are still NOT VERIFIED.
 - Go migration runner applied and reran migrations 001–003 against a temporary PostgreSQL 18.2 Windows server bound to loopback. Duplicate preflight and rollback were tested. Production and Compose database instances remain UNVERIFIED.
+- PostgreSQL backup/restore scripts validate local files and restore in one transaction. Runtime backup and restore against a Compose PostgreSQL service remain NOT VERIFIED on this host because Docker Engine is unavailable.
 - Bounded Unicode text and common navigation keys are supported; vendor mobile IME and scan-code-specific shortcuts still require real-device validation.
 - Multi-monitor absolute coordinate mapping is normalized to the primary desktop coordinate range and needs manual DPI validation.
 - Active sessions remain in memory; use one signaling replica. Restart ends active sessions.

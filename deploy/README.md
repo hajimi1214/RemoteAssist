@@ -31,14 +31,16 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs -f caddy
 ## Backup
 
 ```powershell
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml exec -T postgres pg_dump -U remoteassist remoteassist > remoteassist-backup.sql
+.\scripts\backup-postgres.ps1 -Output remoteassist-backup.sql
 ```
 
 ## Restore
 
 ```powershell
-Get-Content remoteassist-backup.sql | docker compose --env-file deploy/.env -f deploy/docker-compose.yml exec -T postgres psql -U remoteassist remoteassist
+.\scripts\restore-postgres.ps1 -Input remoteassist-backup.sql
 ```
+
+Restore into an empty database after stopping the signaling service. See the [database operations guide](../docs/database.md) for the transaction and backup-file handling behavior.
 
 ## Health
 
