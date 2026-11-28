@@ -124,12 +124,66 @@ for (const line of goModules.trim().split(/\r?\n/)) {
   );
 }
 
+const containerImageMetadata = new Map([
+  ["golang:1.26.11-alpine", { scope: "build stage", use: "Go build toolchain and Alpine userland" }],
+  ["alpine:3.22", { scope: "runtime stage", use: "Minimal runtime plus ca-certificates and wget packages" }],
+  ["postgres:16-alpine", { scope: "runtime service", use: "PostgreSQL database and Alpine packages" }],
+  ["coturn/coturn:4.6.3", { scope: "runtime service", use: "TURN relay daemon and its image packages" }],
+  ["caddy:2.8-alpine", { scope: "runtime service", use: "TLS reverse proxy and Alpine packages" }]
+]);
+
+const containerImageRows = [];
+const discoveredContainerImages = new Set();
+const imageReferences = [
+  {
+    path: resolve(repositoryRoot, "server/Dockerfile"),
+    evidence: "server/Dockerfile",
+    expression: /^\s*FROM\s+([^\s#]+)/gim
+  },
+  {
+    path: resolve(repositoryRoot, "deploy/docker-compose.yml"),
+    evidence: "deploy/docker-compose.yml",
+    expression: /^\s*image:\s*([^\s#]+)/gim
+  }
+];
+
+for (const source of imageReferences) {
+  const contents = readFileSync(source.path, "utf8");
+  for (const match of contents.matchAll(source.expression)) {
+    const reference = match[1];
+    if (reference.startsWith("remoteassist-signaling:")) continue;
+    const separator = reference.lastIndexOf("@sha256:");
+    if (separator < 1) {
+      throw new Error(`Container image must be pinned by digest: ${reference} in ${source.evidence}`);
+    }
+    const tag = reference.slice(0, separator);
+    const digest = reference.slice(separator + 1);
+    if (!/^sha256:[0-9a-f]{64}$/.test(digest)) {
+      throw new Error(`Invalid container image digest for ${reference} in ${source.evidence}`);
+    }
+    const metadata = containerImageMetadata.get(tag);
+    if (!metadata) throw new Error(`Container image is missing inventory metadata: ${tag}`);
+    discoveredContainerImages.add(tag);
+    addRow(
+      containerImageRows,
+      "container image",
+      tag,
+      `${digest} (multi-platform OCI index; linux/amd64 SBOM child manifest is in docs/container-image-sbom/summary.csv)`,
+      metadata.scope,
+      "MIXED",
+      metadata.use,
+      source.evidence
+    );
+  }
+}
+
+const unreferencedContainerImages = [...containerImageMetadata.keys()]
+  .filter(image => !discoveredContainerImages.has(image));
+if (unreferencedContainerImages.length > 0) {
+  throw new Error(`Container image inventory entries have no Dockerfile/Compose reference: ${unreferencedContainerImages.join(", ")}`);
+}
+
 const additionalComponents = [
-  ["container image", "golang:1.26.11-alpine", "build stage", "MIXED", "Go build toolchain and Alpine userland", "server/Dockerfile"],
-  ["container image", "alpine:3.22", "runtime stage", "MIXED", "Minimal runtime plus ca-certificates and wget packages", "server/Dockerfile"],
-  ["container image", "postgres:16-alpine", "runtime service", "MIXED", "PostgreSQL database and Alpine packages", "deploy/docker-compose.yml"],
-  ["container image", "coturn/coturn:4.6.3", "runtime service", "MIXED", "TURN relay daemon and its image packages", "deploy/docker-compose.yml"],
-  ["container image", "caddy:2.8-alpine", "runtime service", "MIXED", "TLS reverse proxy and Alpine packages", "deploy/docker-compose.yml"],
   ["GitHub Action", "actions/checkout", "v7.0.1 @ 3d3c42e5aac5ba805825da76410c181273ba90b1", "MIT", "CI source checkout (Node 24 runtime)", ".github/workflows/ci.yml"],
   ["GitHub Action", "actions/setup-node", "v7.1.0 @ 949feb2413d6458794dcd2491c4babbbce0c15c1", "MIT", "CI Node.js setup (Node 24 runtime)", ".github/workflows/ci.yml"],
   ["GitHub Action", "actions/setup-go", "v6.2.0 @ 7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5", "MIT", "CI Go setup (Node 24 runtime)", ".github/workflows/ci.yml"],
@@ -137,6 +191,8 @@ const additionalComponents = [
   ["build distribution", "Gradle Wrapper", "9.6.1-bin", "Apache-2.0", "Android build distribution, checksum pinned in wrapper properties", "src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties"],
   ["runtime platform", "Microsoft WebView2 Evergreen Runtime", "user/system installed", "Microsoft proprietary terms", "Windows Tauri webview runtime, not redistributed by this repository", "Tauri 2 Windows runtime dependency"]
 ];
+
+rows.push(...containerImageRows);
 
 for (const [ecosystem, component, version, scope, license, use, evidence] of additionalComponents) {
   addRow(rows, ecosystem, component, version, scope, license, use, evidence);

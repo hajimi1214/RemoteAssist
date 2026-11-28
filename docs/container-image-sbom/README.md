@@ -2,7 +2,7 @@
 
 This directory records SPDX 2.3 JSON software bills of materials for the five Linux/amd64 image references used in `deploy/docker-compose.yml` and `server/Dockerfile`. The snapshot was scanned on 2026-11-27 with Syft 1.57.2 against the platform-specific manifest digests in [`summary.csv`](summary.csv). The official Windows amd64 Syft archive checksum was verified as `0a10e03ffd124c304fd7e7491262dba2e5f68eb12378b106d7525146675b2e3a`.
 
-The SPDX files are tied to the exact platform manifest digests in the summary. Compose and Dockerfile references still use mutable tags, so a later tag pull may produce different contents.
+The SPDX files are tied to the exact linux/amd64 platform manifest digests in the summary. `server/Dockerfile` and `deploy/docker-compose.yml` pin their upstream images by the corresponding multi-platform OCI index digest. The amd64 SBOM digest differs from the pinned index digest because it identifies one platform child manifest. All five Docker Hub index digests were queried again on 2026-11-28 and matched the pinned values.
 
 ## Scope and limitations
 
@@ -19,4 +19,4 @@ The SPDX files are tied to the exact platform manifest digests in the summary. C
 - The scan covers `linux/amd64`. Other architectures were not scanned.
 - Package-level SBOM generation is inventory evidence. It does not replace review of license terms, required notices, source-availability obligations, or distribution conditions.
 
-For updated tags, repeat the registry scan, capture the new platform manifest digest, inspect every `NOASSERTION` entry, and regenerate the inventory before release.
+For an image update, deliberately select a new tag and index digest, repeat the registry scan for each supported platform, inspect every `NOASSERTION` entry, and regenerate the inventory before release.

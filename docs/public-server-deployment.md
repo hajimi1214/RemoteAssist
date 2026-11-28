@@ -14,6 +14,8 @@ The deployment checker reads `deploy/.env`, refuses template values, and runs Co
 
 The signaling container runs as an unprivileged user with a read-only root filesystem, no Linux capabilities, and no privilege escalation. Its temporary directory is an in-memory 64 MiB mount; it has a 512 MiB memory limit and a 128-process limit. These are single-instance starting limits. Monitor resource use during concurrent sign-ins and sessions before raising concurrency or changing the limits.
 
+The Compose services and signaling Dockerfile base images are pinned to multi-platform OCI index digests. This makes a deployment reproducible across tag movement while selecting the matching platform manifest. To upgrade an upstream image, deliberately change both its reviewed tag and digest, refresh the component inventory, and regenerate/review its SBOM before deployment. Verify the resulting Compose configuration before applying it.
+
 Point the domain A/AAAA record to the server. Caddy listens on TCP `80` and `443` and obtains TLS certificates automatically.
 
 ## Ports
